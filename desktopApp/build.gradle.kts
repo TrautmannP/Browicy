@@ -10,6 +10,10 @@ dependencies {
     implementation(projects.shared)
 
     implementation(compose.desktop.currentOs)
+    implementation(compose.material3) {
+        exclude("org.jetbrains.compose.material", "material-icons-core")
+    }
+    implementation(compose.materialIconsExtended)
     implementation(libs.kotlinx.coroutinesSwing)
 
     implementation(libs.compose.uiToolingPreview)
