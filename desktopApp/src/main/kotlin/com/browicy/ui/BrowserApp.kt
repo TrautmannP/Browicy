@@ -6,13 +6,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.WindowScope
 import com.browicy.model.BrowserState
 
 @Composable
 fun rememberBrowserState(): BrowserState = remember { BrowserState() }
 
 @Composable
-fun BrowserApp(
+fun WindowScope.BrowserApp(
     state: BrowserState = rememberBrowserState(),
     onMinimize: () -> Unit = {},
     onMaximizeToggle: () -> Unit = {},
@@ -22,8 +23,6 @@ fun BrowserApp(
     MaterialTheme {
         Column(modifier = Modifier.fillMaxSize()) {
             BrowserTitleBar(
-                tab = state.selectedTab,
-                onUrlChange = { state.updateUrl(state.selectedTab.id, it) },
                 onMinimize = onMinimize,
                 onMaximizeToggle = onMaximizeToggle,
                 onClose = onClose,
@@ -35,6 +34,10 @@ fun BrowserApp(
                 onSelect = state::selectTab,
                 onClose = state::removeTab,
                 onAdd = state::addTab,
+            )
+            BrowserToolbar(
+                tab = state.selectedTab,
+                onUrlChange = { state.updateUrl(state.selectedTab.id, it) },
             )
             BrowserContent(tab = state.selectedTab)
         }
