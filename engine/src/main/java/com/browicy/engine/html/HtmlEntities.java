@@ -9,13 +9,46 @@ import java.util.Map;
  */
 final class HtmlEntities {
 
-    private static final Map<String, String> NAMED = Map.of(
-            "amp", "&",
-            "lt", "<",
-            "gt", ">",
-            "quot", "\"",
-            "apos", "'",
-            "nbsp", " "
+    private static final Map<String, String> NAMED = Map.ofEntries(
+            Map.entry("amp", "&"),
+            Map.entry("lt", "<"),
+            Map.entry("gt", ">"),
+            Map.entry("quot", "\""),
+            Map.entry("apos", "'"),
+            Map.entry("ndash", "–"),
+            Map.entry("mdash", "—"),
+            Map.entry("hellip", "…"),
+            Map.entry("lsquo", "‘"),
+            Map.entry("rsquo", "’"),
+            Map.entry("ldquo", "“"),
+            Map.entry("rdquo", "”"),
+            Map.entry("larr", "←"),
+            Map.entry("uarr", "↑"),
+            Map.entry("rarr", "→"),
+            Map.entry("darr", "↓"),
+            Map.entry("copy", "©"),
+            Map.entry("reg", "®"),
+            Map.entry("trade", "™"),
+            Map.entry("sect", "§"),
+            Map.entry("para", "¶"),
+            Map.entry("middot", "·"),
+            Map.entry("bull", "•"),
+            Map.entry("deg", "°"),
+            Map.entry("plusmn", "±"),
+            Map.entry("times", "×"),
+            Map.entry("divide", "÷"),
+            Map.entry("euro", "€"),
+            Map.entry("pound", "£"),
+            Map.entry("yen", "¥"),
+            Map.entry("cent", "¢"),
+            Map.entry("szlig", "ß"),
+            Map.entry("auml", "ä"),
+            Map.entry("ouml", "ö"),
+            Map.entry("uuml", "ü"),
+            Map.entry("Auml", "Ä"),
+            Map.entry("Ouml", "Ö"),
+            Map.entry("Uuml", "Ü"),
+            Map.entry("nbsp", " ")
     );
 
     private HtmlEntities() {

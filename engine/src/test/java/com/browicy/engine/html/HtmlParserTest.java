@@ -73,6 +73,14 @@ public class HtmlParserTest {
     }
 
     @Test
+    public void decodesTypographicEntities() {
+        Document document = parser.parse(
+                "<body><p>Hallo &ndash; Welt &rarr; sch&ouml;n &amp; gr&uuml;n</p></body>");
+
+        assertEquals("Hallo – Welt → schön & grün", document.getBody().getTextContent());
+    }
+
+    @Test
     public void ignoresCommentsAndUnmatchedEndTags() {
         Document document = parser.parse("<body><!-- Kommentar --><p>Text</p></span></body>");
 
