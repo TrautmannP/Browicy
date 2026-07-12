@@ -33,4 +33,5 @@ plugins {
 }
 
 include(":desktopApp")
+include(":engine")
 include(":shared")

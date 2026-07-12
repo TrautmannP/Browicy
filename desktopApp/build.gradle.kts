@@ -8,6 +8,7 @@ plugins {
 
 dependencies {
     implementation(projects.shared)
+    implementation(projects.engine)
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material3) {

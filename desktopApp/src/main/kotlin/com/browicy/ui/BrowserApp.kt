@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.WindowScope
+import com.browicy.engine.BrowicyEngine
 import com.browicy.model.BrowserState
 
 @Composable
@@ -20,6 +21,7 @@ fun WindowScope.BrowserApp(
     onClose: () -> Unit = {},
     isMaximized: Boolean = false,
 ) {
+    val engine = remember { BrowicyEngine() }
     MaterialTheme {
         Column(modifier = Modifier.fillMaxSize()) {
             BrowserTitleBar(
@@ -37,9 +39,18 @@ fun WindowScope.BrowserApp(
             )
             BrowserToolbar(
                 tab = state.selectedTab,
-                onUrlChange = { state.updateUrl(state.selectedTab.id, it) },
+                onNavigate = { url ->
+                    val target = url.trim()
+                    if (target.isNotEmpty()) {
+                        state.updateUrl(state.selectedTab.id, target)
+                    }
+                },
             )
-            BrowserContent(tab = state.selectedTab)
+            BrowserContent(
+                tab = state.selectedTab,
+                engine = engine,
+                onTitleChange = { title -> state.updateTitle(state.selectedTab.id, title) },
+            )
         }
     }
 }

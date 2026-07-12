@@ -17,6 +17,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,8 +31,12 @@ import com.browicy.model.BrowserTab
 @Composable
 fun BrowserToolbar(
     tab: BrowserTab,
-    onUrlChange: (String) -> Unit,
+    onNavigate: (String) -> Unit,
 ) {
+    // Eingabe wird lokal gehalten und erst mit Enter/Go als Navigation committet
+    var input by remember(tab.id, tab.url) {
+        mutableStateOf(if (tab.url == "about:blank") "" else tab.url)
+    }
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -47,7 +55,7 @@ fun BrowserToolbar(
                 tint = MaterialTheme.colorScheme.onSurface,
             )
         }
-        IconButton(onClick = { /* TODO: Neuladen */ }, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = { onNavigate(input) }, modifier = Modifier.size(36.dp)) {
             Icon(
                 Icons.Filled.Refresh,
                 contentDescription = "Neuladen",
@@ -55,12 +63,12 @@ fun BrowserToolbar(
             )
         }
         OutlinedTextField(
-            value = tab.url,
-            onValueChange = onUrlChange,
+            value = input,
+            onValueChange = { input = it },
             singleLine = true,
             placeholder = { Text("URL eingeben") },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { /* TODO: Navigation auslösen */ }),
+            keyboardActions = KeyboardActions(onGo = { onNavigate(input) }),
             modifier = Modifier.weight(1f).padding(start = 4.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedBorderColor = Color.Transparent,
