@@ -14,6 +14,7 @@
 
     <modules>
         <module>engine</module>
+        <module>devtools</module>
         <module>desktop</module>
     </modules>
 
@@ -46,6 +47,11 @@
             <dependency>
                 <groupId>com.browicy</groupId>
                 <artifactId>browicy-engine</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.browicy</groupId>
+                <artifactId>browicy-devtools</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

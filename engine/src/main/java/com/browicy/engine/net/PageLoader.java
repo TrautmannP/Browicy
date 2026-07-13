@@ -4,45 +4,38 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Lädt eine Seite über den {@link HttpClient}: normalisiert die eingegebene
- * URL, folgt Weiterleitungen (z.&nbsp;B. {@code http://google.com} →
- * {@code http://www.google.com/}) und dekodiert den Rumpf mit dem passenden
- * Zeichensatz zu HTML-Quelltext.
- *
- * <p>Neben dem synchronen {@link #load(String)} startet
- * {@link #loadAsync(String)} den Vorgang nebenläufig und liefert einen
- * beobacht- und abbrechbaren {@link PageLoad}. Mehrere Ladevorgänge laufen
- * parallel; standardmäßig auf virtuellen Threads.</p>
- */
 public final class PageLoader implements AutoCloseable {
 
-    /** Ergebnis eines Seitenladevorgangs: finale URL nach Redirects, Status und HTML. */
     public record Page(URI uri, int statusCode, String html) {
     }
 
     private static final int MAX_REDIRECTS = 10;
 
-    /** URLs mit Schema beginnen mit z.B. "http:"; alles andere bekommt "http://" vorangestellt. */
     private static final Pattern HAS_SCHEME = Pattern.compile("^[A-Za-z][A-Za-z0-9+.\\-]*:");
 
-    /** Zeichensatz-Angabe im Dokument selbst: {@code <meta charset=...>} oder http-equiv-Variante. */
     private static final Pattern META_CHARSET = Pattern.compile(
             "<meta[^>]+charset\\s*=\\s*[\"']?([A-Za-z0-9_\\-.:]+)", Pattern.CASE_INSENSITIVE);
 
-    /** Nur der Anfang des Dokuments wird nach einer meta-charset-Angabe durchsucht. */
     private static final int CHARSET_SNIFF_BYTES = 2048;
+
+    private static final System.Logger LOGGER = System.getLogger(PageLoader.class.getName());
 
     private final HttpClient client;
     private final ExecutorService executor;
+    private final List<PageLoadObserver> observers = new CopyOnWriteArrayList<>();
+    private final AtomicLong nextLoadId = new AtomicLong(1);
 
     public PageLoader() {
         this(new HttpClient());
@@ -52,18 +45,11 @@ public final class PageLoader implements AutoCloseable {
         this(client, Executors.newVirtualThreadPerTaskExecutor());
     }
 
-    /** Für Tests oder eigene Thread-Verwaltung: Ladevorgänge laufen auf dem übergebenen Executor. */
     public PageLoader(HttpClient client, ExecutorService executor) {
         this.client = client;
         this.executor = executor;
     }
 
-    /**
-     * Ergänzt fehlende Schemata ({@code google.com} → {@code http://google.com})
-     * und parst die Eingabe zu einer URI.
-     *
-     * @throws IllegalArgumentException bei leerer oder syntaktisch ungültiger Eingabe
-     */
     public static URI normalize(String input) {
         String trimmed = input == null ? "" : input.strip();
         if (trimmed.isEmpty()) {
@@ -75,35 +61,48 @@ public final class PageLoader implements AutoCloseable {
         return URI.create(trimmed);
     }
 
-    /** Lädt die Seite hinter der URL und folgt dabei bis zu {@value #MAX_REDIRECTS} Weiterleitungen. */
     public Page load(String url) throws IOException {
-        return load(url, () -> false);
+        try {
+            return loadAsync(url).await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Laden unterbrochen: " + url, e);
+        }
     }
 
-    /**
-     * Startet den Ladevorgang nebenläufig und kehrt sofort zurück. Zustand,
-     * Ergebnis und Abbruch laufen über den zurückgegebenen {@link PageLoad}.
-     */
     public PageLoad loadAsync(String url) {
-        PageLoad load = new PageLoad(url);
-        executor.execute(() -> {
-            try {
-                load.completeLoaded(load(url, load::isCancelled));
-            } catch (CancellationException alreadyCancelled) {
-                // Zustand wurde bereits durch cancel() gesetzt
-            } catch (Exception e) {
-                load.completeFailed(e);
-            }
-        });
+        long loadId = nextLoadId.getAndIncrement();
+        PageLoad load = new PageLoad(loadId, url);
+        // Als erster Listener registriert: Beobachter erfahren den Endzustand
+        // genau einmal, auch wenn cancel() mit dem Abschluss konkurriert.
+        load.onDone(this::emitTerminalEvent);
+        emit(new PageLoadEvent.Started(loadId, Instant.now(), url));
+        try {
+            executor.execute(() -> {
+                try {
+                    load.completeLoaded(load(loadId, url, load::isCancelled));
+                } catch (CancellationException alreadyCancelled) {
+                    // Zustand wurde bereits durch cancel() gesetzt
+                } catch (Exception e) {
+                    load.completeFailed(e);
+                }
+            });
+        } catch (RuntimeException rejected) {
+            // z.B. Executor bereits geschlossen — der Vorgang darf nicht in LOADING hängen
+            load.completeFailed(rejected);
+        }
         return load;
     }
 
-    /**
-     * Wie {@link #load(String)}, prüft aber vor jedem Request die
-     * Abbruchbedingung — ein laufender Einzelrequest wird also erst an der
-     * nächsten Weiterleitungsgrenze abgebrochen.
-     */
-    private Page load(String url, BooleanSupplier cancelled) throws IOException {
+    public void addObserver(PageLoadObserver observer) {
+        observers.add(observer);
+    }
+
+    public void removeObserver(PageLoadObserver observer) {
+        observers.remove(observer);
+    }
+
+    private Page load(long loadId, String url, BooleanSupplier cancelled) throws IOException {
         URI uri = normalize(url);
         for (int redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
             if (cancelled.getAsBoolean()) {
@@ -112,7 +111,10 @@ public final class PageLoader implements AutoCloseable {
             HttpResponse response = client.get(uri);
             String location = response.location();
             if (response.isRedirect() && location != null) {
-                uri = uri.resolve(location.strip());
+                URI target = uri.resolve(location.strip());
+                emit(new PageLoadEvent.Redirected(loadId, Instant.now(), uri, target,
+                        response.statusCode()));
+                uri = target;
                 continue;
             }
             return new Page(uri, response.statusCode(), decodeHtml(response));
@@ -120,7 +122,29 @@ public final class PageLoader implements AutoCloseable {
         throw new IOException("Zu viele Weiterleitungen (mehr als " + MAX_REDIRECTS + "): " + url);
     }
 
-    /** Nimmt keine neuen Ladevorgänge mehr an und wartet auf laufende. */
+    private void emitTerminalEvent(PageLoad load) {
+        Instant now = Instant.now();
+        switch (load.state()) {
+            case LOADED -> emit(new PageLoadEvent.Loaded(load.id(), now, load.page().orElseThrow()));
+            case FAILED -> emit(new PageLoadEvent.Failed(load.id(), now, load.url(),
+                    load.failure().orElseThrow()));
+            case CANCELLED -> emit(new PageLoadEvent.Cancelled(load.id(), now, load.url()));
+            case LOADING -> throw new IllegalStateException(
+                    "onDone-Listener wurde außerhalb eines Endzustands aufgerufen");
+        }
+    }
+
+    private void emit(PageLoadEvent event) {
+        for (PageLoadObserver observer : observers) {
+            try {
+                observer.onEvent(event);
+            } catch (RuntimeException e) {
+                LOGGER.log(System.Logger.Level.WARNING,
+                        "Beobachter eines Ladevorgangs warf eine Exception", e);
+            }
+        }
+    }
+
     @Override
     public void close() {
         executor.close();

@@ -4,21 +4,11 @@ import com.browicy.engine.dom.Document;
 import com.browicy.engine.html.HtmlParser;
 import com.browicy.engine.js.JavaScriptEngine;
 import com.browicy.engine.js.JsExecutionResult;
+import com.browicy.engine.net.PageLoadObserver;
 import com.browicy.engine.net.PageLoader;
 
 import java.net.URI;
 
-/**
- * Fassade der Browicy-Browser-Engine. Die UI (der Browser) spricht
- * ausschließlich mit dieser Klasse und erhält fertige DOM-Dokumente.
- *
- * <p>Aktueller Stand: Netzwerk-Laden über einen eigenen HTTP/1.1-Client
- * ({@code com.browicy.engine.net}), HTML-Parsing zu einem DOM-Baum und
- * Ausführung von Inline-JavaScript über GraalJS
- * ({@code com.browicy.engine.js}). CSS und Layout folgen in späteren
- * Ausbaustufen. Fehler beim Laden führen nicht zu Exceptions, sondern zu
- * einer gerenderten Fehlerseite — die UI erhält immer ein Dokument.</p>
- */
 public final class BrowicyEngine {
 
     private static final String HELLO_WORLD_HTML = """
@@ -43,16 +33,18 @@ public final class BrowicyEngine {
         this(new PageLoader());
     }
 
-    /** Für Tests: Engine mit eigenem {@link PageLoader} (z.B. gegen einen lokalen Server). */
     public BrowicyEngine(PageLoader pageLoader) {
         this.pageLoader = pageLoader;
     }
 
-    /**
-     * Lädt die Seite hinter der angegebenen URL über das Netzwerk und liefert
-     * das geparste Dokument. Nicht-HTTP-URLs (z.B. {@code about:}-Seiten)
-     * liefern die eingebaute Hallo-Welt-Seite, Ladefehler eine Fehlerseite.
-     */
+    public void addNetworkObserver(PageLoadObserver observer) {
+        pageLoader.addObserver(observer);
+    }
+
+    public void removeNetworkObserver(PageLoadObserver observer) {
+        pageLoader.removeObserver(observer);
+    }
+
     public Document loadPage(String url) {
         URI uri;
         try {
@@ -67,7 +59,6 @@ public final class BrowicyEngine {
         try {
             PageLoader.Page page = pageLoader.load(url);
             Document document = parser.parse(page.html(), page.uri().toString());
-            // Skriptfehler sind wie im Browser nicht fatal — Seite bleibt anzeigbar
             jsEngine.runScripts(document);
             return document;
         } catch (Exception e) {
@@ -76,18 +67,10 @@ public final class BrowicyEngine {
         }
     }
 
-    /**
-     * Parst den übergebenen HTML-Quelltext direkt zu einem Dokument.
-     * Skripte werden hierbei nicht ausgeführt (siehe {@link #executeScripts}).
-     */
     public Document parseHtml(String html, String url) {
         return parser.parse(html, url);
     }
 
-    /**
-     * Führt alle Inline-Skripte des Dokuments aus und liefert Konsolen-
-     * ausgaben und Fehler (z.B. für eine spätere Entwickler-Konsole).
-     */
     public JsExecutionResult executeScripts(Document document) {
         return jsEngine.runScripts(document);
     }
