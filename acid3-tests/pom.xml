@@ -17,18 +17,7 @@
     <dependencies>
         <dependency>
             <groupId>com.browicy</groupId>
-            <artifactId>browicy-engine-dom</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.browicy</groupId>
-            <artifactId>browicy-engine-html</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.browicy</groupId>
-            <artifactId>browicy-engine-js</artifactId>
-            <scope>test</scope>
+            <artifactId>browicy-engine</artifactId>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
@@ -38,14 +27,62 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/test/resources</directory>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>--enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow</argLine>
+                    <testFailureIgnore>${maven.test.failure.ignore}</testFailureIgnore>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>compatibility-report</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skipTests>true</skipTests>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>generate-compatibility-report</id>
+                                <phase>verify</phase>
+                                <goals><goal>java</goal></goals>
+                                <configuration>
+                                    <skip>false</skip>
+                                    <mainClass>com.browicy.compat.CompatibilityReportRunner</mainClass>
+                                    <systemProperties>
+                                        <systemProperty>
+                                            <key>browicy.report.directory</key>
+                                            <value>${browicy.report.directory}</value>
+                                        </systemProperty>
+                                        <systemProperty>
+                                            <key>browicy.css3test.url</key>
+                                            <value>${browicy.css3test.url}</value>
+                                        </systemProperty>
+                                    </systemProperties>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

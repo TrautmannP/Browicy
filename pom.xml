@@ -34,6 +34,12 @@
                 <module>acid3-tests</module>
             </modules>
         </profile>
+        <profile>
+            <id>compatibility-report</id>
+            <modules>
+                <module>acid3-tests</module>
+            </modules>
+        </profile>
     </profiles>
 
     <properties>
@@ -50,6 +56,9 @@
              bereits vor dem Skip-Check validiert. -->
         <exec.skip>true</exec.skip>
         <exec.mainClass>com.browicy.Main</exec.mainClass>
+        <maven.test.failure.ignore>false</maven.test.failure.ignore>
+        <browicy.css3test.url>https://css3test.com/?filter=css2007</browicy.css3test.url>
+        <browicy.report.directory>${maven.multiModuleProjectDirectory}/target/compatibility-reports</browicy.report.directory>
     </properties>
 
     <dependencies>

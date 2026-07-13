@@ -19,3 +19,17 @@ Revision und Lizenzhinweise stehen unter `src/test/resources/acid3/UPSTREAM.md`.
 Der Harness ersetzt zur Laufzeit ausschliesslich die drei `postMessage`-Meldungen
 des Acid3-Runners durch maschinenlesbare `console.log`-Ausgaben. Die Tests selbst
 werden nicht veraendert.
+
+## Kombinierter Fortschrittsreport
+
+Das Profil `compatibility-report` nutzt denselben Acid3-Harness, wartet jedoch auf alle
+asynchron ausgefuehrten Untertests und kombiniert das Ergebnis mit CSS3Test:
+
+```bat
+mvn-graal.cmd -Pcompatibility-report -pl acid3-tests -am verify
+```
+
+Die Dateien `target/compatibility-reports/latest.html` und `latest.json` enthalten fuer
+jeden CSS3Test- und Acid3-Untertest Status, Gruppe, Feature und Fehlermeldung. Erwartete
+Conformance-Fehler werden gesammelt und brechen diesen Report-Lauf nicht ab. Das separate
+Profil `acid3` bleibt absichtlich strikt und kann weiterhin als Quality Gate dienen.

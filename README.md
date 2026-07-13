@@ -127,3 +127,28 @@ mvn-graal.cmd -Pacid3 -pl acid3-tests -am test
 
 Details on the JUnit mapping and the embedded original test page are in
 [`acid3-tests/README.md`](./acid3-tests/README.md).
+
+## Compatibility report
+
+The opt-in Maven profile runs the live CSS3Test CSS-2007 filter and the embedded Acid3
+harness, then writes detailed pass/fail results as JSON and HTML:
+
+```bat
+compatibility-report.cmd
+
+# Equivalent Maven invocation
+mvn-graal.cmd -Pcompatibility-report -pl acid3-tests -am verify
+```
+
+Reports are written to `target\compatibility-reports\`. `latest.html` and `latest.json`
+always point to the newest run; timestamped copies make individual executions comparable.
+Expected conformance failures do not fail this reporting build. The stricter
+`-Pacid3 ... test` command continues to expose every failing Acid3 subtest as a JUnit failure.
+
+CI can override the live target or output directory, for example:
+
+```bat
+mvn-graal.cmd -Pcompatibility-report -pl acid3-tests -am verify ^
+  -Dbrowicy.css3test.url=https://css3test.com/?filter=css2007 ^
+  -Dbrowicy.report.directory=artifacts\compatibility
+```

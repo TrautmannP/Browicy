@@ -33,3 +33,10 @@ not as a permanent expected value.
 JavaScript errors include source URL, line, and column. This is usually the most direct next
 work item. Capability tests must stay conservative: `CSS.supports` reports only syntax/value
 pairs that the engine actually accepts, so the external score cannot claim unimplemented CSS.
+
+## Combined CSS3Test and Acid3 report
+
+Run `compatibility-report.cmd` to execute both compatibility suites during a Maven `verify`
+lifecycle. The generated `target/compatibility-reports/latest.html` is intended for humans;
+`latest.json` contains the same per-test pass/fail data for agents and CI. Timestamped copies
+are generated alongside them for trend tracking.
