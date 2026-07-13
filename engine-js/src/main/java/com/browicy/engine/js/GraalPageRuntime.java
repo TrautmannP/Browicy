@@ -59,6 +59,7 @@ final class GraalPageRuntime implements PageRuntime {
 
     private volatile Context context;
     private JsDocument jsDocument;
+    private JsMutationObserverRegistry mutationObservers;
     private JsConsole console;
     private final List<String> errors = new ArrayList<>();
     private volatile boolean contextUsable = true;
@@ -66,6 +67,7 @@ final class GraalPageRuntime implements PageRuntime {
     private boolean inlineLoadHandlerInstalled;
     private boolean globalLoadHandlerFired;
     private Value windowLoadInvoker;
+    private Value mutationObserverDeliveryInvoker;
     private int startedFetchRequests;
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer) {
@@ -238,8 +240,17 @@ final class GraalPageRuntime implements PageRuntime {
         });
         context.eval("js", JavaScriptEngine.BROWSER_BOOTSTRAP);
         windowLoadInvoker = context.eval("js", "(callback, event) => callback.call(window, event)");
+        mutationObserverDeliveryInvoker = bindings.getMember("__browicyDeliverMutationObserver");
         jsDocument.setDomOperationWrapper(context.eval("js", JavaScriptEngine.DOM_OPERATION_WRAPPER));
         jsDocument.setEventListenerInvoker(context.eval("js", JavaScriptEngine.EVENT_LISTENER_INVOKER));
+        mutationObservers = new JsMutationObserverRegistry(
+                document, jsDocument, this::scheduleMutationObserverDelivery);
+        bindings.putMember("__browicyMutationObserve",
+                (ProxyExecutable) mutationObservers::observe);
+        bindings.putMember("__browicyMutationDisconnect",
+                (ProxyExecutable) mutationObservers::disconnect);
+        bindings.putMember("__browicyMutationTakeRecords",
+                (ProxyExecutable) mutationObservers::takeRecords);
         bindings.putMember("setTimeout", (ProxyExecutable) args -> registerTimer(args, false));
         bindings.putMember("clearTimeout", (ProxyExecutable) args -> { clearTimer(args); return null; });
         bindings.putMember("setInterval", (ProxyExecutable) args -> registerTimer(args, true));
@@ -393,6 +404,16 @@ final class GraalPageRuntime implements PageRuntime {
                 microtask.fail(failure);
             }
         }
+    }
+
+    private void scheduleMutationObserverDelivery(long observerId) {
+        enqueueMicrotask(new PageTask.Callback(() -> {
+            List<Object> records = mutationObservers.drain(observerId);
+            if (!records.isEmpty()) {
+                executeCallback(mutationObserverDeliveryInvoker,
+                        new Object[]{observerId, ProxyArray.fromList(records)});
+            }
+        }));
     }
 
     private Object process(PageTask task) {
@@ -643,6 +664,9 @@ final class GraalPageRuntime implements PageRuntime {
         timers.clear();
         if (jsDocument != null) {
             jsDocument.clearEventListeners();
+        }
+        if (mutationObservers != null) {
+            mutationObservers.close();
         }
         if (context != null) {
             try {

@@ -140,6 +140,82 @@ public final class JavaScriptEngine {
             UIEvent.CAPTURING_PHASE = Event.CAPTURING_PHASE;
             UIEvent.AT_TARGET = Event.AT_TARGET;
             UIEvent.BUBBLING_PHASE = Event.BUBBLING_PHASE;
+            const __browicyMutationObservers = new Map();
+            const __browicyMutationObserverState = new WeakMap();
+            let __browicyNextMutationObserverId = 0;
+            const __browicyMutationObserverData = observer => {
+              const state = __browicyMutationObserverState.get(observer);
+              if (state == null) throw new TypeError('Illegal invocation');
+              return state;
+            };
+            const __browicyMutationRecords = records => Array.from(records, record => Object.freeze({
+              type: String(record.type),
+              target: record.target,
+              addedNodes: Object.freeze(Array.from(record.addedNodes)),
+              removedNodes: Object.freeze(Array.from(record.removedNodes)),
+              previousSibling: record.previousSibling,
+              nextSibling: record.nextSibling,
+              attributeName: record.attributeName,
+              attributeNamespace: record.attributeNamespace,
+              oldValue: record.oldValue
+            }));
+            globalThis.MutationObserver = class MutationObserver {
+              constructor(callback) {
+                if (typeof callback !== 'function') {
+                  throw new TypeError("MutationObserver: callback must be a function");
+                }
+                const id = ++__browicyNextMutationObserverId;
+                __browicyMutationObserverState.set(this, { id: id, callback: callback });
+                __browicyMutationObservers.set(id, this);
+              }
+              observe(target, options) {
+                const state = __browicyMutationObserverData(this);
+                if (!(target instanceof Node)) {
+                  throw new TypeError("MutationObserver.observe: target must be a Node");
+                }
+                if (options == null || typeof options !== 'object') {
+                  throw new TypeError("MutationObserver.observe: options must be an object");
+                }
+                const childList = Boolean(options.childList);
+                const attributesSpecified = options.attributes !== undefined;
+                const attributeOldValue = Boolean(options.attributeOldValue);
+                const attributeFilterSpecified = options.attributeFilter !== undefined;
+                const attributeFilter = attributeFilterSpecified
+                    ? Array.from(options.attributeFilter, value => String(value)) : [];
+                const attributes = attributesSpecified ? Boolean(options.attributes)
+                    : attributeOldValue || attributeFilterSpecified;
+                const characterDataSpecified = options.characterData !== undefined;
+                const characterDataOldValue = Boolean(options.characterDataOldValue);
+                const characterData = characterDataSpecified ? Boolean(options.characterData)
+                    : characterDataOldValue;
+                const subtree = Boolean(options.subtree);
+                if (!childList && !attributes && !characterData) {
+                  throw new TypeError("MutationObserver.observe: no mutation type selected");
+                }
+                if (!attributes && (attributeOldValue || attributeFilterSpecified)) {
+                  throw new TypeError("MutationObserver.observe: attributes is false");
+                }
+                if (!characterData && characterDataOldValue) {
+                  throw new TypeError("MutationObserver.observe: characterData is false");
+                }
+                __browicyMutationObserve(state.id, target, childList, attributes,
+                    characterData, subtree, attributeOldValue, characterDataOldValue,
+                    attributeFilter);
+              }
+              disconnect() {
+                __browicyMutationDisconnect(__browicyMutationObserverData(this).id);
+              }
+              takeRecords() {
+                return __browicyMutationRecords(
+                    __browicyMutationTakeRecords(__browicyMutationObserverData(this).id));
+              }
+            };
+            globalThis.__browicyDeliverMutationObserver = (id, records) => {
+              const observer = __browicyMutationObservers.get(Number(id));
+              if (observer == null || records.length === 0) return;
+              __browicyMutationObserverData(observer).callback.call(
+                  observer, __browicyMutationRecords(records), observer);
+            };
             """;
 
     static final String FETCH_BOOTSTRAP = """

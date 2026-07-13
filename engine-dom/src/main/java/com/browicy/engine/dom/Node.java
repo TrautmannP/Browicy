@@ -214,7 +214,10 @@ public abstract class Node implements EventTarget {
         if (updateRanges) {
             Range.nodeInserted(this, index, 1);
         }
-        notifyMutation(new DomMutation.ChildListChanged(this, List.of(child), List.of()));
+        Node previousSibling = index > 0 ? children.get(index - 1) : null;
+        Node nextSibling = index + 1 < children.size() ? children.get(index + 1) : null;
+        notifyMutation(new DomMutation.ChildListChanged(
+                this, List.of(child), List.of(), previousSibling, nextSibling));
     }
 
     public void removeChild(Node child) {
@@ -222,10 +225,13 @@ public abstract class Node implements EventTarget {
         if (index < 0) {
             throw DomException.notFound("Node ist kein Kind dieses Knotens");
         }
+        Node previousSibling = index > 0 ? children.get(index - 1) : null;
+        Node nextSibling = index + 1 < children.size() ? children.get(index + 1) : null;
         Range.nodeRemoved(this, index, child);
         children.remove(index);
         child.parent = null;
-        notifyMutation(new DomMutation.ChildListChanged(this, List.of(), List.of(child)));
+        notifyMutation(new DomMutation.ChildListChanged(
+                this, List.of(), List.of(child), previousSibling, nextSibling));
     }
 
     public void replaceChild(Node replacement, Node oldChild) {

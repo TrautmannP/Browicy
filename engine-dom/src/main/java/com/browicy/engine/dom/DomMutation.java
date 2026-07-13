@@ -3,20 +3,19 @@ package com.browicy.engine.dom;
 import java.util.List;
 import java.util.Objects;
 
-/**
- * Internal, document-scoped description of a completed DOM mutation.
- *
- * <p>The records intentionally contain immutable snapshots so listeners may batch them without
- * observing later changes to the participating nodes.</p>
- */
 public sealed interface DomMutation
         permits DomMutation.ChildListChanged, DomMutation.AttributeChanged,
                 DomMutation.CharacterDataChanged {
 
     Node target();
 
-    record ChildListChanged(Node target, List<Node> addedNodes, List<Node> removedNodes)
+    record ChildListChanged(Node target, List<Node> addedNodes, List<Node> removedNodes,
+                            Node previousSibling, Node nextSibling)
             implements DomMutation {
+        public ChildListChanged(Node target, List<Node> addedNodes, List<Node> removedNodes) {
+            this(target, addedNodes, removedNodes, null, null);
+        }
+
         public ChildListChanged {
             Objects.requireNonNull(target, "target");
             addedNodes = List.copyOf(addedNodes);

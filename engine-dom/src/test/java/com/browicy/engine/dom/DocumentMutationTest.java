@@ -17,6 +17,8 @@ public class DocumentMutationTest {
         Element body = document.getBody();
         TextNode text = document.createTextNode("vorher");
         body.appendChild(text);
+        Element trailing = document.createElement("em");
+        body.appendChild(trailing);
         List<DomMutation> mutations = new ArrayList<>();
         document.addMutationListener(mutations::add);
 
@@ -24,7 +26,7 @@ public class DocumentMutationTest {
         body.setAttribute("class", "open");
         text.setData("nachher");
         Element child = document.createElement("span");
-        body.appendChild(child);
+        body.insertBefore(child, trailing);
         body.removeChild(child);
 
         assertEquals(4, mutations.size());
@@ -45,11 +47,15 @@ public class DocumentMutationTest {
                 (DomMutation.ChildListChanged) mutations.get(2);
         assertEquals(List.of(child), added.addedNodes());
         assertTrue(added.removedNodes().isEmpty());
+        assertSame(text, added.previousSibling());
+        assertSame(trailing, added.nextSibling());
 
         DomMutation.ChildListChanged removed =
                 (DomMutation.ChildListChanged) mutations.get(3);
         assertTrue(removed.addedNodes().isEmpty());
         assertEquals(List.of(child), removed.removedNodes());
+        assertSame(text, removed.previousSibling());
+        assertSame(trailing, removed.nextSibling());
     }
 
     @Test
