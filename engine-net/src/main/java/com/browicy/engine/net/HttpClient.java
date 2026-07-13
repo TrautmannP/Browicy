@@ -15,17 +15,6 @@ import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
-/**
- * Minimaler, selbst implementierter HTTP/1.1-Client auf Socket-Basis
- * (kein {@link java.net.http.HttpClient}) — der Netzwerk-Unterbau der
- * Browicy-Engine.
- *
- * <p>Unterstützt: GET über http und https (mit Hostname-Verifikation),
- * {@code Content-Length}- und {@code chunked}-Rümpfe, gzip-Kompression
- * sowie Lesen bis zum Verbindungsende. Jede Anfrage nutzt eine eigene
- * Verbindung ({@code Connection: close}); Keep-Alive und Caching folgen
- * in späteren Ausbaustufen.</p>
- */
 public final class HttpClient {
 
     private static final String USER_AGENT = "Browicy/0.1";
@@ -35,8 +24,11 @@ public final class HttpClient {
     private static final int MAX_LINE_LENGTH = 16 * 1024;
     private static final int MAX_BODY_BYTES = 32 * 1024 * 1024;
 
-    /** Führt einen GET-Request aus und liest die Antwort vollständig ein. */
     public HttpResponse get(URI url) throws IOException {
+        return get(url, "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
+    }
+
+    public HttpResponse get(URI url, String accept) throws IOException {
         String scheme = url.getScheme() == null ? "" : url.getScheme().toLowerCase();
         if (!scheme.equals("http") && !scheme.equals("https")) {
             throw new IOException("Nicht unterstütztes URL-Schema: " + url);
@@ -52,7 +44,7 @@ public final class HttpClient {
         try (Socket socket = openSocket(host, port, secure)) {
             socket.setSoTimeout(READ_TIMEOUT_MS);
             OutputStream out = socket.getOutputStream();
-            out.write(buildRequest(url, host, port, defaultPort).getBytes(StandardCharsets.ISO_8859_1));
+            out.write(buildRequest(url, host, port, defaultPort, accept).getBytes(StandardCharsets.ISO_8859_1));
             out.flush();
             return readResponse(new BufferedInputStream(socket.getInputStream()));
         }
@@ -78,17 +70,26 @@ public final class HttpClient {
         }
     }
 
-    private static String buildRequest(URI url, String host, int port, int defaultPort) {
+    private static String buildRequest(URI url, String host, int port, int defaultPort, String accept) {
         String path = url.getRawPath() == null || url.getRawPath().isEmpty() ? "/" : url.getRawPath();
         String target = url.getRawQuery() == null ? path : path + "?" + url.getRawQuery();
         String hostHeader = port == defaultPort ? host : host + ":" + port;
         return "GET " + target + " HTTP/1.1\r\n"
                 + "Host: " + hostHeader + "\r\n"
                 + "User-Agent: " + USER_AGENT + "\r\n"
-                + "Accept: text/html,application/xhtml+xml;q=0.9,*/*;q=0.8\r\n"
+                + "Accept: " + sanitizeHeaderValue(accept) + "\r\n"
                 + "Accept-Encoding: gzip\r\n"
                 + "Connection: close\r\n"
                 + "\r\n";
+    }
+
+
+    private static String sanitizeHeaderValue(String value) {
+        String normalized = value == null || value.isBlank() ? "*/*" : value.strip();
+        if (normalized.indexOf('\r') >= 0 || normalized.indexOf('\n') >= 0) {
+            throw new IllegalArgumentException("Ungültiger HTTP-Headerwert");
+        }
+        return normalized;
     }
 
     private static HttpResponse readResponse(InputStream in) throws IOException {
@@ -124,7 +125,7 @@ public final class HttpClient {
             }
             int colon = line.indexOf(':');
             if (colon <= 0) {
-                continue; // fehlerhafte Header-Zeile überspringen
+                continue;
             }
             headers.add(line.substring(0, colon), line.substring(colon + 1));
         }
@@ -171,10 +172,8 @@ public final class HttpClient {
                 throw new IOException("Ungültige Chunk-Größe: " + sizeLine);
             }
             if (size == 0) {
-                // Trailer-Header bis zur Leerzeile überlesen
                 String line;
                 while ((line = readLine(in)) != null && !line.isEmpty()) {
-                    // ignorieren
                 }
                 return body.toByteArray();
             }
@@ -182,7 +181,7 @@ public final class HttpClient {
                 throw new IOException("Antwort zu groß (chunked)");
             }
             body.write(readFully(in, size));
-            readLine(in); // CRLF nach den Chunk-Daten
+            readLine(in);
         }
     }
 
@@ -220,10 +219,6 @@ public final class HttpClient {
         return body.toByteArray();
     }
 
-    /**
-     * Liest eine mit CRLF (oder LF) abgeschlossene Zeile als ISO-8859-1.
-     * Liefert {@code null}, wenn der Stream vor dem ersten Byte endet.
-     */
     private static String readLine(InputStream in) throws IOException {
         ByteArrayOutputStream line = new ByteArrayOutputStream();
         int b = in.read();

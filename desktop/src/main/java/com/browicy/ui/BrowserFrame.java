@@ -42,7 +42,7 @@ public final class BrowserFrame extends JFrame {
         setLocationRelativeTo(null);
         setMaximizedBounds(GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds());
 
-        engine.addNetworkObserver(networkLog);
+        engine.addRequestObserver(networkLog);
         content = new ContentPanel(state, engine);
         devTools = new DevToolsPanel(networkLog, this::hideDevTools);
 
@@ -121,5 +121,11 @@ public final class BrowserFrame extends JFrame {
             setMaximizedBounds(bounds);
             setExtendedState(Frame.MAXIMIZED_BOTH);
         }
+    }
+
+    @Override
+    public void dispose() {
+        engine.close();
+        super.dispose();
     }
 }

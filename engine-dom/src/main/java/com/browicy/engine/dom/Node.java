@@ -155,7 +155,7 @@ public abstract class Node implements EventTarget {
             case CommentNode comment -> new CommentNode(comment.getData());
             case DocumentFragment ignored -> new DocumentFragment();
             case DocumentType type -> new DocumentType(type.getName(), type.getPublicId(), type.getSystemId());
-            case Document document -> new Document(document.getUrl());
+            case Document document -> document.copyShallow();
             default -> throw new IllegalStateException("Unbekannter Knotentyp: " + getClass());
         };
         clone.setOwnerDocument(this instanceof Document ? null : ownerDocument);

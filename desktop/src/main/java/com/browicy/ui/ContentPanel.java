@@ -1,6 +1,8 @@
 package com.browicy.ui;
 
 import com.browicy.engine.BrowicyEngine;
+import com.browicy.engine.PageSession;
+import com.browicy.engine.PageUpdate;
 import com.browicy.engine.dom.Document;
 import com.browicy.model.BrowserState;
 import com.browicy.model.BrowserTab;
@@ -12,20 +14,18 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 
-/**
- * Inhaltsbereich des aktiven Tabs: leerer-Tab-Hinweis für {@code about:blank},
- * sonst die über die Engine geladene und gerenderte Seite. Das Laden läuft
- * abseits des Event-Dispatch-Threads, damit die Oberfläche während
- * Netzwerkzugriffen bedienbar bleibt.
- */
 public final class ContentPanel extends JPanel {
 
     private final BrowserState state;
     private final BrowicyEngine engine;
     private String renderedTabId;
     private String renderedUrl;
+    private PageSession activeSession;
+    private Document shownDocument;
+    private DomViewPanel domViewPanel;
 
     public ContentPanel(BrowserState state, BrowicyEngine engine) {
         super(new BorderLayout());
@@ -35,14 +35,16 @@ public final class ContentPanel extends JPanel {
         refresh();
     }
 
-    /** Baut den Inhalt neu auf, wenn sich Tab oder URL geändert haben. */
     public void refresh() {
         BrowserTab tab = state.getSelectedTab();
         if (tab.getId().equals(renderedTabId) && tab.getUrl().equals(renderedUrl)) {
             return;
         }
+        cancelActiveSession();
         renderedTabId = tab.getId();
         renderedUrl = tab.getUrl();
+        shownDocument = null;
+        domViewPanel = null;
 
         removeAll();
         if (tab.isBlank()) {
@@ -58,33 +60,49 @@ public final class ContentPanel extends JPanel {
 
         String tabId = tab.getId();
         String url = tab.getUrl();
-        new SwingWorker<Document, Void>() {
+        new SwingWorker<PageSession, Void>() {
             @Override
-            protected Document doInBackground() {
-                return engine.loadPage(url);
+            protected PageSession doInBackground() {
+                return engine.loadPageSession(url, update -> SwingUtilities.invokeLater(
+                        () -> applyPageUpdate(tabId, url, update)));
             }
 
             @Override
             protected void done() {
-                // Nur anzeigen, wenn der Tab inzwischen nicht weiternavigiert wurde
+                PageSession session;
+                try {
+                    session = get();
+                } catch (Exception e) {
+                    Document document = engine.parseHtml(
+                            "<body><h1>Seite konnte nicht geladen werden</h1></body>", url);
+                    session = PageSession.completed(document);
+                }
                 if (!tabId.equals(renderedTabId) || !url.equals(renderedUrl)) {
+                    session.cancel();
                     return;
                 }
-                Document document;
-                try {
-                    document = get();
-                } catch (Exception e) {
-                    document = engine.parseHtml(
-                            "<body><h1>Seite konnte nicht geladen werden</h1></body>", url);
-                }
-                showDocument(tabId, document);
+                activeSession = session;
+                showDocument(tabId, session.document());
             }
         }.execute();
     }
 
+    private void applyPageUpdate(String tabId, String url, PageUpdate update) {
+        if (!tabId.equals(renderedTabId) || !url.equals(renderedUrl)
+                || shownDocument != update.document() || domViewPanel == null) {
+            return;
+        }
+        if (update instanceof PageUpdate.StylesChanged) {
+            domViewPanel.refreshFromDocument();
+        }
+    }
+
     private void showDocument(String tabId, Document document) {
+        shownDocument = document;
+        domViewPanel = new DomViewPanel(document);
+
         removeAll();
-        JScrollPane scrollPane = new JScrollPane(new DomViewPanel(document));
+        JScrollPane scrollPane = new JScrollPane(domViewPanel);
         scrollPane.setBorder(null);
         scrollPane.getVerticalScrollBar().setUnitIncrement(24);
         add(scrollPane, BorderLayout.CENTER);
@@ -93,8 +111,14 @@ public final class ContentPanel extends JPanel {
 
         String title = document.getTitle();
         if (!title.isBlank()) {
-            // Nach dem Aufbau melden; löst über den Listener refresh() der Tab-Leiste aus.
             state.updateTitle(tabId, title);
+        }
+    }
+
+    private void cancelActiveSession() {
+        if (activeSession != null) {
+            activeSession.cancel();
+            activeSession = null;
         }
     }
 

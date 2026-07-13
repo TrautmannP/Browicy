@@ -7,8 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** Eine geparste CSS-Regel mit Selektor, Deklarationen und Quellreihenfolge. */
-public record CssRule(Selector selector, Map<String, String> declarations, int sourceOrder) {
+public record CssRule(Selector selector, Map<String, String> declarations, long sourceOrder) {
 
     public CssRule {
         Objects.requireNonNull(selector, "selector");

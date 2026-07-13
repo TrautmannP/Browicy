@@ -1,23 +1,49 @@
 package com.browicy.engine.dom;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
-@Getter
-@RequiredArgsConstructor
 public final class Document extends Node implements ParentNode {
 
     private static final String XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace";
     private static final String XMLNS_NAMESPACE = "http://www.w3.org/2000/xmlns/";
     private static final String XML_NAME = "[A-Za-z_][A-Za-z0-9._-]*";
+    private static final URI FALLBACK_URI = URI.create("about:blank");
 
     private final String url;
+    private final URI documentUri;
+    private URI baseUri;
+
+    public Document(String url) {
+        this.url = url == null || url.isBlank() ? FALLBACK_URI.toString() : url;
+        this.documentUri = parseAbsoluteUri(this.url);
+        this.baseUri = documentUri;
+    }
+
+    public String getUrl() {
+        return url;
+    }
+
+    public URI getDocumentUri() {
+        return documentUri;
+    }
+
+    public URI getBaseUri() {
+        return baseUri;
+    }
 
     @Override public short getNodeType() { return DOCUMENT_NODE; }
     @Override public String getNodeName() { return "#document"; }
+
+    public void setBaseUri(URI baseUri) {
+        Objects.requireNonNull(baseUri, "baseUri");
+        if (!baseUri.isAbsolute()) {
+            throw new IllegalArgumentException("Die Basis-URI muss absolut sein: " + baseUri);
+        }
+        this.baseUri = baseUri;
+    }
 
     public Element createElement(String name) {
         if (name == null || !name.matches(XML_NAME)) {
@@ -141,6 +167,12 @@ public final class Document extends Node implements ParentNode {
         return null;
     }
 
+    Document copyShallow() {
+        Document copy = new Document(url);
+        copy.setBaseUri(baseUri);
+        return copy;
+    }
+
     static void validateQualifiedName(String namespaceUri, String qualifiedName) {
         if (qualifiedName == null || qualifiedName.isEmpty()) {
             throw DomException.invalidCharacter("Der qualifizierte Name darf nicht leer sein");
@@ -168,6 +200,15 @@ public final class Document extends Node implements ParentNode {
         boolean xmlnsName = "xmlns".equals(qualifiedName) || "xmlns".equals(prefix);
         if (xmlnsName != XMLNS_NAMESPACE.equals(namespace)) {
             throw DomException.namespace("xmlns-Name und Namespace stimmen nicht überein");
+        }
+    }
+
+    private static URI parseAbsoluteUri(String value) {
+        try {
+            URI uri = URI.create(value);
+            return uri.isAbsolute() ? uri : FALLBACK_URI;
+        } catch (IllegalArgumentException invalidUri) {
+            return FALLBACK_URI;
         }
     }
 

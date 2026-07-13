@@ -1,23 +1,24 @@
 package com.browicy.devtools.ui;
 
 import com.browicy.devtools.network.NetworkRequestEntry;
+import com.browicy.engine.net.NetworkResourceType;
 import com.browicy.engine.net.PageLoad;
-
 import java.util.List;
 import javax.swing.table.AbstractTableModel;
 
 final class NetworkTableModel extends AbstractTableModel {
 
     static final int COLUMN_ID = 0;
-    static final int COLUMN_URL = 1;
-    static final int COLUMN_STATE = 2;
-    static final int COLUMN_STATUS = 3;
-    static final int COLUMN_REDIRECTS = 4;
-    static final int COLUMN_SIZE = 5;
-    static final int COLUMN_DURATION = 6;
+    static final int COLUMN_TYPE = 1;
+    static final int COLUMN_URL = 2;
+    static final int COLUMN_STATE = 3;
+    static final int COLUMN_STATUS = 4;
+    static final int COLUMN_REDIRECTS = 5;
+    static final int COLUMN_SIZE = 6;
+    static final int COLUMN_DURATION = 7;
 
     private static final String[] COLUMNS =
-            {"Nr.", "URL", "Zustand", "Status", "Weiterleitungen", "Größe (Zeichen)", "Dauer"};
+            {"Nr.", "Typ", "URL", "Zustand", "Status", "Weiterleitungen", "Größe (Bytes)", "Dauer"};
     private static final String NOT_AVAILABLE = "—";
 
     private List<NetworkRequestEntry> entries = List.of();
@@ -51,6 +52,7 @@ final class NetworkTableModel extends AbstractTableModel {
         NetworkRequestEntry entry = entries.get(row);
         return switch (column) {
             case COLUMN_ID -> String.valueOf(entry.loadId());
+            case COLUMN_TYPE -> typeLabel(entry.resourceType());
             case COLUMN_URL -> entry.displayUrl();
             case COLUMN_STATE -> stateLabel(entry.state());
             case COLUMN_STATUS -> entry.statusCode() == null
@@ -58,7 +60,7 @@ final class NetworkTableModel extends AbstractTableModel {
                     : String.valueOf(entry.statusCode());
             case COLUMN_REDIRECTS -> String.valueOf(entry.redirectCount());
             case COLUMN_SIZE -> entry.state() == PageLoad.State.LOADED
-                    ? String.format("%,d", entry.htmlLength())
+                    ? String.format("%,d", entry.sizeBytes())
                     : NOT_AVAILABLE;
             case COLUMN_DURATION -> entry.duration()
                     .map(duration -> duration.toMillis() + " ms")
@@ -73,6 +75,14 @@ final class NetworkTableModel extends AbstractTableModel {
             case LOADED -> "Geladen";
             case FAILED -> "Fehlgeschlagen";
             case CANCELLED -> "Abgebrochen";
+        };
+    }
+
+    static String typeLabel(NetworkResourceType type) {
+        return switch (type) {
+            case DOCUMENT -> "Dokument";
+            case STYLESHEET -> "CSS";
+            case SCRIPT -> "JavaScript";
         };
     }
 }

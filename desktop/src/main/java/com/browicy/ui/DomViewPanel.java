@@ -27,31 +27,26 @@ import javax.swing.BorderFactory;
 import javax.swing.JPanel;
 import javax.swing.Scrollable;
 
-/**
- * Paints a precomputed render tree on one Swing component.
- *
- * <p>DOM traversal and style resolution happen once in {@link RenderTreeBuilder}.
- * Width-dependent box and inline layout is isolated in {@link RenderLayoutEngine};
- * the Swing paint loop only executes the resulting paint fragments.</p>
- */
 public final class DomViewPanel extends JPanel implements Scrollable {
 
     private static final int CONTENT_PADDING = 16;
     private static final int DEFAULT_LAYOUT_WIDTH = 800;
     private static final int SCROLL_UNIT = 24;
 
-    private final RenderTree renderTree;
+    private final Document document;
+    private RenderTree renderTree;
     private final RenderLayoutEngine layoutEngine = new RenderLayoutEngine();
     private LayoutResult layoutResult;
     private int layoutWidth = -1;
 
     public DomViewPanel(Document document) {
+        this.document = document;
         setLayout(null);
         setOpaque(true);
         setBackground(UiTheme.BACKGROUND);
         setBorder(BorderFactory.createEmptyBorder(
                 CONTENT_PADDING, CONTENT_PADDING, CONTENT_PADDING, CONTENT_PADDING));
-        renderTree = new RenderTreeBuilder().build(document);
+        rebuildRenderTree();
 
         addComponentListener(new ComponentAdapter() {
             @Override
@@ -63,6 +58,17 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                 }
             }
         });
+    }
+
+    public void refreshFromDocument() {
+        rebuildRenderTree();
+        revalidate();
+        repaint();
+    }
+
+    private void rebuildRenderTree() {
+        renderTree = new RenderTreeBuilder().build(document);
+        invalidateReflow();
     }
 
     @Override

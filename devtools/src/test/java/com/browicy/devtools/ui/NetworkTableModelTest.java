@@ -1,6 +1,7 @@
 package com.browicy.devtools.ui;
 
 import com.browicy.devtools.network.NetworkRequestEntry;
+import com.browicy.engine.net.NetworkResourceType;
 import com.browicy.engine.net.PageLoad;
 import org.junit.Test;
 
@@ -22,6 +23,7 @@ public class NetworkTableModelTest {
 
         assertEquals(1, model.getRowCount());
         assertEquals("1", model.getValueAt(0, NetworkTableModel.COLUMN_ID));
+        assertEquals("Dokument", model.getValueAt(0, NetworkTableModel.COLUMN_TYPE));
         assertEquals("http://beispiel.de", model.getValueAt(0, NetworkTableModel.COLUMN_URL));
         assertEquals("Lädt …", model.getValueAt(0, NetworkTableModel.COLUMN_STATE));
         assertEquals("—", model.getValueAt(0, NetworkTableModel.COLUMN_STATUS));
@@ -65,4 +67,11 @@ public class NetworkTableModelTest {
         assertEquals("Fehlgeschlagen", NetworkTableModel.stateLabel(PageLoad.State.FAILED));
         assertEquals("Abgebrochen", NetworkTableModel.stateLabel(PageLoad.State.CANCELLED));
     }
+    @Test
+    public void labelsResourceTypes() {
+        assertEquals("Dokument", NetworkTableModel.typeLabel(NetworkResourceType.DOCUMENT));
+        assertEquals("CSS", NetworkTableModel.typeLabel(NetworkResourceType.STYLESHEET));
+        assertEquals("JavaScript", NetworkTableModel.typeLabel(NetworkResourceType.SCRIPT));
+    }
+
 }

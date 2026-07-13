@@ -3,8 +3,7 @@ package com.browicy.engine.css;
 import com.browicy.engine.selectors.Specificity;
 import java.util.Objects;
 
-/** Vergleichsgewicht einer Deklaration innerhalb der unterstützten CSS-Kaskade. */
-public record CascadePriority(boolean inlineStyle, Specificity specificity, int sourceOrder)
+public record CascadePriority(boolean inlineStyle, Specificity specificity, long sourceOrder)
         implements Comparable<CascadePriority> {
 
     public CascadePriority {
@@ -21,6 +20,6 @@ public record CascadePriority(boolean inlineStyle, Specificity specificity, int 
         if (comparison != 0) {
             return comparison;
         }
-        return Integer.compare(sourceOrder, other.sourceOrder);
+        return Long.compare(sourceOrder, other.sourceOrder);
     }
 }

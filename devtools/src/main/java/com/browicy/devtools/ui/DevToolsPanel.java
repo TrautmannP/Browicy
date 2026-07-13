@@ -109,7 +109,8 @@ public final class DevToolsPanel extends JPanel {
 
         TableColumnModel columns = table.getColumnModel();
         columns.getColumn(NetworkTableModel.COLUMN_ID).setMaxWidth(50);
-        columns.getColumn(NetworkTableModel.COLUMN_URL).setPreferredWidth(400);
+        columns.getColumn(NetworkTableModel.COLUMN_TYPE).setPreferredWidth(90);
+        columns.getColumn(NetworkTableModel.COLUMN_URL).setPreferredWidth(360);
         columns.getColumn(NetworkTableModel.COLUMN_STATE).setPreferredWidth(110);
         columns.getColumn(NetworkTableModel.COLUMN_STATE).setCellRenderer(stateRenderer(table));
         columns.getColumn(NetworkTableModel.COLUMN_STATUS).setPreferredWidth(60);

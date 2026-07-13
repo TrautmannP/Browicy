@@ -1,14 +1,16 @@
 package com.browicy.devtools.network;
 
+import com.browicy.engine.net.NetworkRequestEvent;
+import com.browicy.engine.net.NetworkRequestObserver;
+import com.browicy.engine.net.NetworkResourceType;
 import com.browicy.engine.net.PageLoadEvent;
 import com.browicy.engine.net.PageLoadObserver;
-
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.UnaryOperator;
 
-public final class NetworkLog implements PageLoadObserver {
+public final class NetworkLog implements NetworkRequestObserver, PageLoadObserver {
 
     private static final int DEFAULT_MAX_ENTRIES = 500;
 
@@ -29,19 +31,43 @@ public final class NetworkLog implements PageLoadObserver {
     }
 
     @Override
+    public void onEvent(NetworkRequestEvent event) {
+        synchronized (lock) {
+            switch (event) {
+                case NetworkRequestEvent.Started started -> {
+                    entries.put(started.requestId(), NetworkRequestEntry.started(
+                            started.requestId(), started.resourceType(), started.url(), started.at()));
+                    evictOldest();
+                }
+                case NetworkRequestEvent.Redirected redirected ->
+                        update(redirected.requestId(), NetworkRequestEntry::redirected);
+                case NetworkRequestEvent.Loaded loaded -> update(loaded.requestId(), entry ->
+                        entry.loaded(loaded.finalUri(), loaded.statusCode(),
+                                loaded.sizeBytes(), loaded.at()));
+                case NetworkRequestEvent.Failed failed -> update(failed.requestId(), entry ->
+                        entry.failed(messageOf(failed.cause()), failed.at()));
+                case NetworkRequestEvent.Cancelled cancelled ->
+                        update(cancelled.requestId(), entry -> entry.cancelled(cancelled.at()));
+            }
+        }
+        fireChanged();
+    }
+
+    @Override
     public void onEvent(PageLoadEvent event) {
         synchronized (lock) {
             switch (event) {
                 case PageLoadEvent.Started started -> {
-                    entries.put(started.loadId(),
-                            NetworkRequestEntry.started(started.loadId(), started.url(), started.at()));
+                    entries.put(started.loadId(), NetworkRequestEntry.started(
+                            started.loadId(), NetworkResourceType.DOCUMENT,
+                            started.url(), started.at()));
                     evictOldest();
                 }
                 case PageLoadEvent.Redirected redirected ->
                         update(redirected.loadId(), NetworkRequestEntry::redirected);
                 case PageLoadEvent.Loaded loaded -> update(loaded.loadId(), entry ->
                         entry.loaded(loaded.page().uri(), loaded.page().statusCode(),
-                                loaded.page().html().length(), loaded.at()));
+                                loaded.page().sizeBytes(), loaded.at()));
                 case PageLoadEvent.Failed failed -> update(failed.loadId(), entry ->
                         entry.failed(messageOf(failed.cause()), failed.at()));
                 case PageLoadEvent.Cancelled cancelled ->

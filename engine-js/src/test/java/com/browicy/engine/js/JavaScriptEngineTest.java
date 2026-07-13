@@ -4,6 +4,7 @@ import com.browicy.engine.dom.Document;
 import com.browicy.engine.html.HtmlParser;
 import org.junit.Test;
 
+import java.util.Iterator;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
@@ -19,8 +20,6 @@ public class JavaScriptEngineTest {
     private Document parse(String html) {
         return parser.parse(html, "about:test");
     }
-
-    // --- DOM-Zugriff -----------------------------------------------------
 
     @Test
     public void scriptModifiesTextContentOfElement() {
@@ -234,8 +233,6 @@ public class JavaScriptEngineTest {
         assertEquals(List.of("log: SyntaxError 12"), result.consoleMessages());
     }
 
-    // --- Skript-Semantik --------------------------------------------------
-
     @Test
     public void multipleScriptsShareGlobalState() {
         Document document = parse("""
@@ -447,8 +444,6 @@ public class JavaScriptEngineTest {
         assertEquals(List.of("log: MAIN,A,C", "log: A MAIN"), result.consoleMessages());
     }
 
-    // --- DOM Range und Node-Vergleiche -----------------------------------
-
     @Test
     public void rangesExtractInsertAndTrackLiveMutationsFromJavaScript() {
         Document document = parse("""
@@ -584,8 +579,6 @@ public class JavaScriptEngineTest {
                 "log: NamespaceError 14"), result.consoleMessages());
     }
 
-    // --- DOM Events -------------------------------------------------------
-
     @Test
     public void uiEventsDispatchOnElementsAndTextNodesAndCanBeRemoved() {
         Document document = parse("""
@@ -686,8 +679,6 @@ public class JavaScriptEngineTest {
                 result.consoleMessages());
     }
 
-    // --- Sandbox ----------------------------------------------------------
-
     @Test
     public void sandboxBlocksAccessToJavaClasses() {
         Document document = parse("""
@@ -697,7 +688,6 @@ public class JavaScriptEngineTest {
 
         JsExecutionResult result = engine.runScripts(document);
 
-        // Wichtig: Der Zugriff schlägt fehl, statt Host-Code auszuführen
         assertTrue(result.hasErrors());
     }
 
@@ -713,4 +703,59 @@ public class JavaScriptEngineTest {
 
         assertTrue(result.hasErrors());
     }
+
+    @Test
+    public void preparedExternalAndInlineSourcesShareGlobalContext() {
+        Document document = parse("""
+                <html><body><p id="message">vorher</p></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document, List.of(
+                new JavaScriptSource("globalThis.shared = 'extern';", null,
+                        "https://example.test/app.js"),
+                new JavaScriptSource("document.getElementById('message').textContent = shared + '-inline';",
+                        null, "inline.js")));
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals("extern-inline", document.getElementById("message").getTextContent());
+    }
+
+    @Test
+    public void lazyScriptSequenceExecutesBeforeRequestingNextSource() {
+        Document document = parse("""
+                <html><body><p id="message">before</p></body></html>
+                """);
+        List<JavaScriptSource> sources = List.of(
+                new JavaScriptSource(
+                        "document.getElementById('message').textContent = 'first';",
+                        null, "first.js"),
+                new JavaScriptSource(
+                        "document.getElementById('message').textContent += '-second';",
+                        null, "second.js"));
+        Iterable<JavaScriptSource> lazySources = () -> new Iterator<>() {
+            private final Iterator<JavaScriptSource> delegate = sources.iterator();
+            private int requested;
+
+            @Override
+            public boolean hasNext() {
+                return delegate.hasNext();
+            }
+
+            @Override
+            public JavaScriptSource next() {
+                if (requested++ == 1) {
+                    assertEquals("first",
+                            document.getElementById("message").getTextContent());
+                }
+                return delegate.next();
+            }
+        };
+
+        JsExecutionResult result = engine.runScriptSequence(document, lazySources);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals("first-second",
+                document.getElementById("message").getTextContent());
+    }
+
 }

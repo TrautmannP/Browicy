@@ -11,12 +11,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Lokaler HTTP-Server für Tests des Netzwerkstacks. Läuft auf einem
- * zufälligen freien Port, damit Tests deterministisch und ohne
- * Internetverbindung funktionieren. Handler laufen auf eigenen Threads,
- * damit auch parallele und absichtlich blockierende Requests möglich sind.
- */
 public final class LocalTestServer implements AutoCloseable {
 
     private final HttpServer server;
@@ -28,15 +22,17 @@ public final class LocalTestServer implements AutoCloseable {
         server.start();
     }
 
-    /** Registriert einen Handler für den angegebenen Pfad. */
     public void on(String path, HttpHandler handler) {
         server.createContext(path, handler);
     }
 
-    /** Registriert eine statische HTML-Seite (UTF-8) unter dem Pfad. */
     public void serveHtml(String path, String html) {
-        on(path, exchange -> respond(exchange, 200, "text/html; charset=utf-8",
-                html.getBytes(StandardCharsets.UTF_8)));
+        serveText(path, "text/html; charset=utf-8", html);
+    }
+
+    public void serveText(String path, String contentType, String content) {
+        on(path, exchange -> respond(exchange, 200, contentType,
+                content.getBytes(StandardCharsets.UTF_8)));
     }
 
     public String url(String path) {
@@ -47,7 +43,6 @@ public final class LocalTestServer implements AutoCloseable {
         return server.getAddress().getPort();
     }
 
-    /** Beantwortet den Request mit Status, Content-Type und Rumpf. */
     public static void respond(HttpExchange exchange, int status, String contentType, byte[] body)
             throws IOException {
         if (contentType != null) {

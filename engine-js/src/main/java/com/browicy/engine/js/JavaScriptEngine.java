@@ -19,6 +19,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Objects;
 
 @RequiredArgsConstructor
 public final class JavaScriptEngine {
@@ -111,14 +112,14 @@ public final class JavaScriptEngine {
     }
 
     public JsExecutionResult runScripts(Document document) {
-        List<Script> scripts = new ArrayList<>();
+        List<JavaScriptSource> scripts = new ArrayList<>();
         for (Element script : document.getElementsByTagName("script")) {
             if (script.hasAttribute("src")) {
                 continue;
             }
             String code = script.getTextContent();
             if (!code.isBlank()) {
-                scripts.add(new Script(code, script));
+                scripts.add(new JavaScriptSource(code, script, "inline-script-" + (scripts.size() + 1) + ".js"));
             }
         }
         Element body = document.getBody();
@@ -131,11 +132,29 @@ public final class JavaScriptEngine {
         return execute(document, scripts);
     }
 
-    public JsExecutionResult execute(Document document, String script) {
-        return execute(document, List.of(new Script(script, null)));
+    public JsExecutionResult runScripts(Document document, List<JavaScriptSource> scripts) {
+        Element body = document.getBody();
+        boolean hasInlineLoadHandler = body != null
+                && body.hasAttribute("onload")
+                && !body.getAttribute("onload").isBlank();
+        if (scripts.isEmpty() && !hasInlineLoadHandler) {
+            return JsExecutionResult.EMPTY;
+        }
+        return execute(document, List.copyOf(scripts));
     }
 
-    private JsExecutionResult execute(Document document, List<Script> scripts) {
+    public JsExecutionResult runScriptSequence(
+            Document document, Iterable<JavaScriptSource> scripts) {
+        Objects.requireNonNull(document, "document");
+        Objects.requireNonNull(scripts, "scripts");
+        return execute(document, scripts);
+    }
+
+    public JsExecutionResult execute(Document document, String script) {
+        return execute(document, List.of(new JavaScriptSource(script, null, "script.js")));
+    }
+
+    private JsExecutionResult execute(Document document, Iterable<JavaScriptSource> scripts) {
         JsConsole console = new JsConsole();
         List<String> errors = new ArrayList<>();
         try (Context context = newSandboxedContext()) {
@@ -169,12 +188,10 @@ public final class JavaScriptEngine {
                 });
 
                 boolean contextUsable = true;
-                int index = 0;
-                for (Script script : scripts) {
-                    index++;
+                for (JavaScriptSource script : scripts) {
                     try {
                         jsDocument.setCurrentScript(script.element());
-                        context.eval(Source.newBuilder("js", script.code(), "inline-script-" + index + ".js")
+                        context.eval(Source.newBuilder("js", script.code(), script.sourceName())
                                 .buildLiteral());
                     } catch (PolyglotException exception) {
                         errors.add(message(exception));
@@ -246,8 +263,6 @@ public final class JavaScriptEngine {
         return exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
     }
 
-    private record Script(String code, Element element) {
-    }
 
     private Context newSandboxedContext() {
         return Context.newBuilder("js")

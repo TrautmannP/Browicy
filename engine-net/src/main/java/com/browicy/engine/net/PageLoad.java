@@ -1,10 +1,5 @@
 package com.browicy.engine.net;
 
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import lombok.experimental.Accessors;
-
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
@@ -12,7 +7,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
 
-@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 public final class PageLoad {
 
     private static final System.Logger LOGGER = System.getLogger(PageLoad.class.getName());
@@ -24,20 +18,31 @@ public final class PageLoad {
         CANCELLED
     }
 
-    @Getter
-    @Accessors(fluent = true)
     private final long id;
-    @Getter
-    @Accessors(fluent = true)
     private final String url;
     private final CountDownLatch done = new CountDownLatch(1);
     private final List<Consumer<PageLoad>> listeners = new CopyOnWriteArrayList<>();
 
-    @Getter
-    @Accessors(fluent = true)
     private volatile State state = State.LOADING;
     private volatile PageLoader.Page page;
     private volatile Exception failure;
+
+    PageLoad(long id, String url) {
+        this.id = id;
+        this.url = url;
+    }
+
+    public long id() {
+        return id;
+    }
+
+    public String url() {
+        return url;
+    }
+
+    public State state() {
+        return state;
+    }
 
     public boolean isDone() {
         return state != State.LOADING;
@@ -71,12 +76,10 @@ public final class PageLoad {
 
     public PageLoader.Page await() throws java.io.IOException, InterruptedException {
         done.await();
-        switch (state) {
-            case LOADED:
-                return page;
-            case CANCELLED:
-                throw new CancellationException("Ladevorgang abgebrochen: " + url);
-            case FAILED:
+        return switch (state) {
+            case LOADED -> page;
+            case CANCELLED -> throw new CancellationException("Ladevorgang abgebrochen: " + url);
+            case FAILED -> {
                 if (failure instanceof java.io.IOException io) {
                     throw io;
                 }
@@ -84,9 +87,9 @@ public final class PageLoad {
                     throw runtime;
                 }
                 throw new java.io.IOException(failure);
-            default:
-                throw new IllegalStateException("Unerwarteter Zustand: " + state);
-        }
+            }
+            default -> throw new IllegalStateException("Unerwarteter Zustand: " + state);
+        };
     }
 
     void completeLoaded(PageLoader.Page result) {

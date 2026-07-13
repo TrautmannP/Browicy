@@ -5,37 +5,27 @@ import com.browicy.engine.dom.DomSelectorAdapter;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Node;
 import com.browicy.engine.selectors.Specificity;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Liest interne style-Elemente aus dem head und weist passende Regeln zu. */
 public final class StyleApplicator {
 
     public void apply(Document document) {
-        Element root = document.getDocumentElement();
-        Element head = root == null ? null
-                : "head".equals(root.getTagName()) ? root : root.findFirst("head");
-        CssParser parser = new CssParser();
-        List<CssRule> rules = new ArrayList<>();
-        if (head != null && "style".equals(head.getTagName())) {
-            appendRules(rules, parser, head.getTextContent());
+        StyleSheetRegistry registry = new StyleSheetRegistry();
+        int sourceOrder = 0;
+        for (Element style : document.getElementsByTagName("style")) {
+            registry.register(sourceOrder++, style.getTextContent());
         }
-        if (head != null) {
-            for (Element style : head.getElementsByTagName("style")) {
-                appendRules(rules, parser, style.getTextContent());
-            }
-        }
-        applyToNode(document, rules, parser);
+        apply(document, registry);
     }
 
-    private static void appendRules(List<CssRule> rules, CssParser parser, String css) {
-        int nextSourceOrder = rules.stream()
-                .mapToInt(CssRule::sourceOrder)
-                .max()
-                .orElse(-1) + 1;
-        rules.addAll(parser.parse(css, nextSourceOrder));
+    public void apply(Document document, StyleSheetRegistry registry) {
+        applyRules(document, registry.rules());
+    }
+
+    public void applyRules(Document document, List<CssRule> rules) {
+        applyToNode(document, List.copyOf(rules), new CssParser());
     }
 
     private static void applyToNode(Node node, List<CssRule> rules, CssParser parser) {
@@ -49,7 +39,7 @@ public final class StyleApplicator {
                 }
             }
             addCandidates(winners, parser.parseDeclarations(element.getAttribute("style")),
-                    new CascadePriority(true, Specificity.ZERO, rules.size()));
+                    new CascadePriority(true, Specificity.ZERO, Long.MAX_VALUE));
             winners.forEach((property, candidate) ->
                     element.setComputedStyle(property, candidate.value()));
         }

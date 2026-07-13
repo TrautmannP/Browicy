@@ -1,5 +1,6 @@
 package com.browicy.ui;
 
+import com.browicy.engine.css.StyleApplicator;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.html.HtmlParser;
 import com.browicy.engine.render.CssColor;
@@ -299,6 +300,32 @@ public class DomViewPanelTest {
 
         assertTrue("Die berechnete Schriftgröße muss in die Reflow-Höhe eingehen",
                 large.getPreferredSize().height > small.getPreferredSize().height);
+    }
+
+    @Test
+    public void refreshFromDocumentRebuildsRenderTreeAfterStyleChanges() {
+        Document document = parse("""
+                <body><p id="message" style="color: red">Text</p></body>
+                """);
+        DomViewPanel panel = new DomViewPanel(document);
+        panel.setSize(300, 1);
+        TextFragment before = panel.layoutForTesting(300).fragments().stream()
+                .filter(TextFragment.class::isInstance)
+                .map(TextFragment.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(CssColor.parse("red"), before.color());
+
+        document.getElementById("message").setAttribute("style", "color: blue");
+        new StyleApplicator().apply(document);
+        panel.refreshFromDocument();
+
+        TextFragment after = panel.layoutForTesting(300).fragments().stream()
+                .filter(TextFragment.class::isInstance)
+                .map(TextFragment.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(CssColor.parse("blue"), after.color());
     }
 
     private static Document parse(String html) {

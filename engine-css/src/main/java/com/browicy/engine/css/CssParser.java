@@ -10,7 +10,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/** Fehlertoleranter Parser für Selektoren und Render-Stile. */
 public final class CssParser {
 
     private static final SelectorParser SELECTOR_PARSER = new SelectorParser();
@@ -29,7 +28,7 @@ public final class CssParser {
         return parse(css, 0);
     }
 
-    List<CssRule> parse(String css, int sourceOrderStart) {
+    List<CssRule> parse(String css, long sourceOrderStart) {
         List<CssRule> rules = new ArrayList<>();
         if (css == null || css.isBlank()) {
             return rules;
@@ -37,7 +36,7 @@ public final class CssParser {
 
         String source = COMMENTS.matcher(css).replaceAll("");
         var matcher = RULE.matcher(source);
-        int sourceOrder = sourceOrderStart;
+        long sourceOrder = sourceOrderStart;
         while (matcher.find()) {
             Map<String, String> declarations = parseDeclarations(matcher.group(2));
             if (declarations.isEmpty()) {
@@ -50,18 +49,12 @@ public final class CssParser {
                     rules.add(new CssRule(selector, declarations, sourceOrder));
                 }
             } catch (SelectorParseException ignored) {
-                // Eine ungültige Selektorliste verwirft nach CSS-Regeln die gesamte Regel.
             }
             sourceOrder++;
         }
         return rules;
     }
 
-    /**
-     * Wenn eine unvollständige Regel eine weitere öffnende Klammer enthält,
-     * umfasst der Regex-Treffer auch den defekten Deklarationsrest. Nach dem
-     * letzten Semikolon kann dennoch ein gültiger Folgeselektor beginnen.
-     */
     private static String recoverSelectorPrelude(String source) {
         String selector = source.strip();
         if (isSupportedSelectorList(selector)) {
@@ -94,7 +87,6 @@ public final class CssParser {
         }
     }
 
-    /** Parst und expandiert eine Deklarationsliste, auch aus einem style-Attribut. */
     public Map<String, String> parseDeclarations(String source) {
         Map<String, String> declarations = new LinkedHashMap<>();
         if (source == null || source.isBlank()) {

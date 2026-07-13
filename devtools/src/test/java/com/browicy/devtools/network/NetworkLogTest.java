@@ -1,5 +1,7 @@
 package com.browicy.devtools.network;
 
+import com.browicy.engine.net.NetworkRequestEvent;
+import com.browicy.engine.net.NetworkResourceType;
 import com.browicy.engine.net.PageLoad;
 import com.browicy.engine.net.PageLoadEvent;
 import com.browicy.engine.net.PageLoader;
@@ -149,4 +151,22 @@ public class NetworkLogTest {
 
         assertEquals(0, notifications.get());
     }
+    @Test
+    public void recordsStylesheetsAndScriptsAsIndependentEntries() {
+        log.onEvent(new NetworkRequestEvent.Started(
+                10, START, "https://example.test/theme.css", NetworkResourceType.STYLESHEET));
+        log.onEvent(new NetworkRequestEvent.Loaded(
+                10, END, URI.create("https://example.test/theme.css"),
+                200, 42, NetworkResourceType.STYLESHEET));
+        log.onEvent(new NetworkRequestEvent.Started(
+                11, START, "https://example.test/app.js", NetworkResourceType.SCRIPT));
+
+        List<NetworkRequestEntry> entries = log.entries();
+        assertEquals(2, entries.size());
+        assertEquals(NetworkResourceType.STYLESHEET, entries.get(0).resourceType());
+        assertEquals(42, entries.get(0).sizeBytes());
+        assertEquals(NetworkResourceType.SCRIPT, entries.get(1).resourceType());
+        assertEquals(PageLoad.State.LOADING, entries.get(1).state());
+    }
+
 }

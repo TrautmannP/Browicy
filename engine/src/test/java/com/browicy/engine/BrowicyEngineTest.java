@@ -2,14 +2,21 @@ package com.browicy.engine;
 
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.net.LocalTestServer;
+import com.browicy.engine.net.NetworkRequestEvent;
+import com.browicy.engine.net.NetworkResourceType;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class BrowicyEngineTest {
@@ -23,7 +30,8 @@ public class BrowicyEngineTest {
     }
 
     @After
-    public void stopServer() {
+    public void tearDown() {
+        engine.close();
         server.close();
     }
 
@@ -44,7 +52,6 @@ public class BrowicyEngineTest {
 
     @Test
     public void followsRedirectsLikeGoogleDotCom() {
-        // google.com leitet auf www.google.com weiter — hier lokal nachgebildet
         server.on("/", exchange -> {
             exchange.getResponseHeaders().set("Location", "/www");
             exchange.sendResponseHeaders(301, -1);
@@ -122,4 +129,153 @@ public class BrowicyEngineTest {
 
         assertTrue(document.getTitle().contains("Hallo Welt"));
     }
+
+    @Test
+    public void loadsExternalStylesheetsAgainstBaseUrl() {
+        server.serveHtml("/pages/index.html", """
+                <html><head>
+                  <base href="/assets/">
+                  <link rel="stylesheet" href="theme.css">
+                </head><body><p id="message">Text</p></body></html>
+                """);
+        server.serveText("/assets/theme.css", "text/css; charset=utf-8",
+                "#message { color: red; }");
+
+        Document document = engine.loadPage(server.url("/pages/index.html"));
+
+        assertEquals("red", document.getElementById("message")
+                .getComputedStyles().get("color"));
+    }
+
+    @Test
+    public void stylesheetSourceOrderDoesNotDependOnDownloadOrder() {
+        server.serveHtml("/styles", """
+                <html><head>
+                  <link rel="stylesheet" href="/slow.css">
+                  <link rel="stylesheet" href="/fast.css">
+                </head><body><p id="message">Text</p></body></html>
+                """);
+        server.on("/slow.css", exchange -> {
+            try {
+                Thread.sleep(120);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            LocalTestServer.respond(exchange, 200, "text/css; charset=utf-8",
+                    "#message { color: red; }".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        });
+        server.serveText("/fast.css", "text/css; charset=utf-8",
+                "#message { color: blue; }");
+
+        Document document = engine.loadPage(server.url("/styles"));
+
+        assertEquals("blue", document.getElementById("message")
+                .getComputedStyles().get("color"));
+    }
+
+    @Test
+    public void externalAndInlineScriptsShareOneGlobalContextInTreeOrder() {
+        server.serveHtml("/scripts", """
+                <html><body>
+                  <p id="message">vorher</p>
+                  <script src="/first.js"></script>
+                  <script>
+                    sharedValue += '-inline';
+                    document.getElementById('message').textContent = sharedValue;
+                  </script>
+                </body></html>
+                """);
+        server.serveText("/first.js", "application/javascript; charset=utf-8",
+                "globalThis.sharedValue = 'external';");
+
+        Document document = engine.loadPage(server.url("/scripts"));
+
+        assertEquals("external-inline", document.getElementById("message").getTextContent());
+    }
+
+    @Test
+    public void failedSubresourcesDoNotPreventRemainingPageProcessing() {
+        server.serveHtml("/robust", """
+                <html><head>
+                  <link rel="stylesheet" href="/missing.css">
+                </head><body>
+                  <p id="message">vorher</p>
+                  <script src="/missing.js"></script>
+                  <script>document.getElementById('message').textContent = 'weiter';</script>
+                </body></html>
+                """);
+        server.on("/missing.css", exchange -> {
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+        });
+        server.on("/missing.js", exchange -> {
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+        });
+
+        Document document = engine.loadPage(server.url("/robust"));
+
+        assertEquals("weiter", document.getElementById("message").getTextContent());
+    }
+
+    @Test
+    public void reportsDocumentCssAndScriptAsSeparateNetworkRequests() {
+        List<NetworkRequestEvent> events = new CopyOnWriteArrayList<>();
+        try (BrowicyEngine observedEngine = new BrowicyEngine()) {
+            observedEngine.addRequestObserver(events::add);
+            server.serveHtml("/network", """
+                    <html><head><link rel="stylesheet" href="/theme.css"></head>
+                    <body><script src="/app.js"></script></body></html>
+                    """);
+            server.serveText("/theme.css", "text/css", "body { color: black; }");
+            server.serveText("/app.js", "application/javascript",
+                    "globalThis.ok = true;");
+
+            observedEngine.loadPage(server.url("/network"));
+
+            List<NetworkResourceType> startedTypes = events.stream()
+                    .filter(NetworkRequestEvent.Started.class::isInstance)
+                    .map(NetworkRequestEvent.Started.class::cast)
+                    .map(NetworkRequestEvent.Started::resourceType)
+                    .toList();
+            assertTrue(startedTypes.contains(NetworkResourceType.DOCUMENT));
+            assertTrue(startedTypes.contains(NetworkResourceType.STYLESHEET));
+            assertTrue(startedTypes.contains(NetworkResourceType.SCRIPT));
+        }
+    }
+
+    @Test
+    public void bodyStylesheetTriggersIncrementalStyleUpdateAfterInitialPageLoad() throws Exception {
+        CountDownLatch releaseStyle = new CountDownLatch(1);
+        server.serveHtml("/incremental", """
+                <html><head><title>Inkrementell</title></head><body>
+                  <p id="message">Text</p>
+                  <link rel="stylesheet" href="/late.css">
+                </body></html>
+                """);
+        server.on("/late.css", exchange -> {
+            try {
+                releaseStyle.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            LocalTestServer.respond(exchange, 200, "text/css; charset=utf-8",
+                    "#message { color: purple; }"
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        });
+        List<PageUpdate> updates = new CopyOnWriteArrayList<>();
+
+        PageSession session = engine.loadPageSession(server.url("/incremental"), updates::add);
+
+        assertNull(session.document().getElementById("message")
+                .getComputedStyles().get("color"));
+        releaseStyle.countDown();
+        session.awaitResources();
+
+        assertEquals("purple", session.document().getElementById("message")
+                .getComputedStyles().get("color"));
+        assertEquals(1, updates.size());
+        assertTrue(updates.getFirst() instanceof PageUpdate.StylesChanged);
+    }
+
 }

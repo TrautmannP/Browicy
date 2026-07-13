@@ -1,17 +1,11 @@
 package com.browicy.engine.net;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import lombok.experimental.Accessors;
-
 import java.nio.charset.Charset;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@Getter
-@Accessors(fluent = true)
-@RequiredArgsConstructor
 public final class HttpResponse {
 
     private static final Pattern CHARSET_PARAM =
@@ -21,6 +15,29 @@ public final class HttpResponse {
     private final String reasonPhrase;
     private final HttpHeaders headers;
     private final byte[] body;
+
+    public HttpResponse(int statusCode, String reasonPhrase, HttpHeaders headers, byte[] body) {
+        this.statusCode = statusCode;
+        this.reasonPhrase = Objects.requireNonNull(reasonPhrase, "reasonPhrase");
+        this.headers = Objects.requireNonNull(headers, "headers");
+        this.body = Objects.requireNonNull(body, "body");
+    }
+
+    public int statusCode() {
+        return statusCode;
+    }
+
+    public String reasonPhrase() {
+        return reasonPhrase;
+    }
+
+    public HttpHeaders headers() {
+        return headers;
+    }
+
+    public byte[] body() {
+        return body;
+    }
 
     public boolean isRedirect() {
         return statusCode == 301 || statusCode == 302 || statusCode == 303
