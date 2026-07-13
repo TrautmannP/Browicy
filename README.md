@@ -1,98 +1,98 @@
 # browicy
 
-Ein Browser mit eigener Engine — reines Java (21+), gebaut mit Maven und GraalVM.
+A browser with its own engine — pure Java (21+), built with Maven and GraalVM.
 
-## Module
+## Modules
 
-Die Engine ist in fachlich getrennte Maven-Module zerlegt. Das hält Abhängigkeiten
-sichtbar und verhindert, dass HTML-, CSS-, JavaScript-, Netzwerk- und Rendering-Code
-mit wachsender Feature-Menge wieder zu einem Monolithen zusammenwachsen.
+The engine is split into functionally separated Maven modules. This keeps dependencies
+visible and prevents HTML, CSS, JavaScript, network, and rendering code from growing
+back into a monolith as the feature set expands.
 
-* **[engine-selectors](./engine-selectors)** — DOM-unabhängiger Selektorparser, AST, Matching und Spezifität.
-* **[engine-dom](./engine-dom)** — DOM-Knoten, Events, Range und gemeinsame DOM-Verträge.
-* **[engine-css](./engine-css)** — Stylesheet-/Deklarationsparser, Kaskade und CSS-Werte.
-* **[engine-html](./engine-html)** — HTML-Entities, Tokenizer und Tree-Construction; wendet
-  nach dem Parsen die CSS-Kaskade auf das erzeugte DOM an.
-* **[engine-js](./engine-js)** — GraalJS-Laufzeit und JavaScript-Bindings für das DOM.
-* **[engine-net](./engine-net)** — HTTP-Client, Page-Loader und Netzwerkbeobachtung.
-* **[engine-render](./engine-render)** — Render-Tree, Render-Styles sowie Block-/Inline-Boxen.
-* **[engine](./engine)** — kompatible `browicy-engine`-Fassade, die die Teilmodule bündelt
-  und mit `BrowicyEngine` den vollständigen Ladeablauf orchestriert.
-* **[engine-integration-tests](./engine-integration-tests)** — modulübergreifende
-  Integrationstests ohne zyklische Test-Abhängigkeiten zwischen den Produktivmodulen.
-* **[devtools](./devtools)** — Entwicklerwerkzeuge; hängt nur vom Netzwerkmodul ab.
-* **[desktop](./desktop)** — Swing-Oberfläche und Graphics2D-Renderer.
+* **[engine-selectors](./engine-selectors)** — DOM-independent selector parser, AST, matching, and specificity.
+* **[engine-dom](./engine-dom)** — DOM nodes, events, ranges, and shared DOM contracts.
+* **[engine-css](./engine-css)** — stylesheet/declaration parser, cascade, and CSS values.
+* **[engine-html](./engine-html)** — HTML entities, tokenizer, and tree construction; after
+  parsing it applies the CSS cascade to the generated DOM.
+* **[engine-js](./engine-js)** — GraalJS runtime and JavaScript bindings for the DOM.
+* **[engine-net](./engine-net)** — HTTP client, page loader, and network observation.
+* **[engine-render](./engine-render)** — render tree, render styles, and block/inline boxes.
+* **[engine](./engine)** — compatible `browicy-engine` facade that bundles the submodules
+  and, with `BrowicyEngine`, orchestrates the full loading process.
+* **[engine-integration-tests](./engine-integration-tests)** — cross-module
+  integration tests without cyclic test dependencies between the production modules.
+* **[devtools](./devtools)** — developer tools; depends only on the network module.
+* **[desktop](./desktop)** — Swing interface and Graphics2D renderer.
 
-Die Abhängigkeitsrichtung ist bewusst einseitig:
+The dependency direction is intentionally one-way:
 
 ```text
 engine-selectors <- engine-dom <- engine-render <- engine-css <- engine-html <- engine-js
        ^                                      |
        +--------------------------------------+
 
-engine-net ---------------------------------------------------------> engine (Fassade)
-engine-selectors/dom/render/css/html/js ----------------------------> engine (Fassade)
+engine-net ---------------------------------------------------------> engine (facade)
+engine-selectors/dom/render/css/html/js ----------------------------> engine (facade)
 ```
 
-Neue Features sollten im kleinsten passenden Modul landen. Das Fassade-Modul dient
-der Komposition und Rückwärtskompatibilität, nicht als Ablage für fachliche Klassen.
+New features should land in the smallest suitable module. The facade module serves
+composition and backward compatibility, not as a dumping ground for domain classes.
 
-## Bauen und Starten
+## Building and Running
 
-Unter Windows verwendet das Projekt Oracle GraalVM `25.1.3+9.1` (JDK `25.0.3`).
-Die Distribution liegt unter `D:\Graal\graalvm-25.1.3+9.1`. `mvn-graal.cmd` setzt
-`JAVA_HOME` und `PATH` nur für den jeweiligen Aufruf; die systemweite Java-Konfiguration
-bleibt unverändert.
+On Windows the project uses Oracle GraalVM `25.1.3+9.1` (JDK `25.0.3`).
+The distribution is located at `D:\Graal\graalvm-25.1.3+9.1`. `mvn-graal.cmd` sets
+`JAVA_HOME` and `PATH` only for the respective invocation; the system-wide Java configuration
+remains unchanged.
 
 ```bat
-# Alles bauen und Tests ausführen
+# Build everything and run tests
 mvn-graal.cmd verify
 
-# Browser starten
+# Start the browser
 run.cmd
 
-# Ausführbares Jar bauen und mit GraalVM starten
+# Build an executable jar and start it with GraalVM
 mvn-graal.cmd package
 D:\Graal\graalvm-25.1.3+9.1\bin\java.exe --sun-misc-unsafe-memory-access=allow -jar desktop\target\browicy-desktop-0.1.0-SNAPSHOT.jar
 ```
 
-Das Flag `--sun-misc-unsafe-memory-access=allow` unterdrückt die JDK-Warnung,
-die Truffle (GraalJS) beim Initialisieren auslöst; der nötige Native-Access ist
-bereits im Jar-Manifest freigeschaltet (`Enable-Native-Access: ALL-UNNAMED`).
-Bei `run.cmd` setzt `mvn-graal.cmd` beide Flags automatisch über `MAVEN_OPTS`.
+The `--sun-misc-unsafe-memory-access=allow` flag suppresses the JDK warning
+that Truffle (GraalJS) triggers during initialization; the required native access is
+already enabled in the jar manifest (`Enable-Native-Access: ALL-UNNAMED`).
+For `run.cmd`, `mvn-graal.cmd` sets both flags automatically via `MAVEN_OPTS`.
 
-Weitere Maven-Argumente werden unverändert durchgereicht, beispielsweise
-`mvn-graal.cmd test`. In IntelliJ IDEA sollte für das Projekt und den Maven Runner
-ebenfalls `D:\Graal\graalvm-25.1.3+9.1` als JDK ausgewählt werden. Zum Starten aus
-der IDE die mitgelieferte Run-Konfiguration **„Browicy“** (`.run/Browicy.run.xml`)
-verwenden — sie setzt die JVM-Flags, ohne die das JDK beim Initialisieren der
-JavaScript-Engine (Truffle/GraalJS) Warnungen ausgibt.
+Additional Maven arguments are passed through unchanged, for example
+`mvn-graal.cmd test`. In IntelliJ IDEA, `D:\Graal\graalvm-25.1.3+9.1` should also
+be selected as the JDK for the project and the Maven runner. To start from
+the IDE, use the bundled run configuration **"Browicy"** (`.run/Browicy.run.xml`)
+— it sets the JVM flags without which the JDK emits warnings when initializing the
+JavaScript engine (Truffle/GraalJS).
 
 ## GraalVM native-image
 
-Das `native`-Profil ist vorbereitet. Die installierte Distribution enthält `native-image`:
+The `native` profile is prepared. The installed distribution includes `native-image`:
 
 ```bat
 mvn-graal.cmd -Pnative -pl desktop -am package
 ```
 
-Hinweis: Swing/AWT-Unterstützung in native-image erfordert ein aktuelles GraalVM;
-ggf. sind zusätzliche Reachability-Metadaten nötig.
+Note: Swing/AWT support in native-image requires a recent GraalVM;
+additional reachability metadata may be needed.
 
-## JavaScript (Prototyp)
+## JavaScript (Prototype)
 
-Die Engine führt beim Laden einer Seite alle Inline-`<script>`-Blöcke über
-GraalJS aus (`com.browicy.engine.js.JavaScriptEngine`). Die Skripte laufen in
-einer Sandbox ohne Host-Zugriff (kein Java, kein Dateisystem, keine Prozesse)
-und mit Statement-Limit gegen Endlosschleifen. Als DOM-API stehen aktuell u.a.
+When loading a page, the engine executes all inline `<script>` blocks via
+GraalJS (`com.browicy.engine.js.JavaScriptEngine`). The scripts run in
+a sandbox without host access (no Java, no file system, no processes)
+and with a statement limit to guard against infinite loops. The currently
+available DOM API includes, among others,
 `document.title`, `document.getElementById`, `document.querySelector`,
 `document.createElement`, `element.classList`, `element.textContent`,
-`element.setAttribute` und `element.appendChild` zur
-Verfügung; `console.log`-Ausgaben und Skriptfehler werden gesammelt
-(`JsExecutionResult`) und sind wie im Browser nicht fatal.
+`element.setAttribute`, and `element.appendChild`; `console.log` output and
+script errors are collected (`JsExecutionResult`) and, as in a browser, are not fatal.
 
-Noch nicht unterstützt: externe Skripte (`<script src=…>`), Events, Timer
-(`setTimeout`) und dynamisches Nachladen.
+Not yet supported: external scripts (`<script src=…>`), events, timers
+(`setTimeout`), and dynamic loading.
 
 ## Tests
 
@@ -100,12 +100,12 @@ Noch nicht unterstützt: externe Skripte (`<script src=…>`), Events, Timer
 mvn-graal.cmd test
 ```
 
-Die 100 Acid3-Untertests liegen in einem separaten Opt-in-Modul, da noch nicht
-unterstuetzte Browser-APIs dort erwartungsgemaess zu fehlschlagenden Tests fuehren:
+The 100 Acid3 subtests are located in a separate opt-in module, since not yet
+supported browser APIs cause the expected test failures there:
 
 ```bat
 mvn-graal.cmd -Pacid3 -pl acid3-tests -am test
 ```
 
-Details zur JUnit-Abbildung und zur eingebundenen Original-Testseite stehen in
+Details on the JUnit mapping and the embedded original test page are in
 [`acid3-tests/README.md`](./acid3-tests/README.md).
