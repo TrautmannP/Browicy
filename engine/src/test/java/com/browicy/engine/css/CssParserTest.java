@@ -8,6 +8,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class CssParserTest {
 
@@ -25,7 +26,7 @@ public class CssParserTest {
                 """);
 
         assertEquals(1, rules.size());
-        assertEquals("h1", rules.getFirst().selector());
+        assertEquals("h1", rules.getFirst().selector().toString());
         var declarations = rules.getFirst().declarations();
         assertEquals("#ff0000", declarations.get("color"));
         assertEquals("white", declarations.get("background-color"));
@@ -39,6 +40,41 @@ public class CssParserTest {
         assertEquals("2px", declarations.get("border-left-width"));
         assertEquals("solid", declarations.get("border-bottom-style"));
         assertEquals("blue", declarations.get("border-top-color"));
+    }
+
+    @Test
+    public void parsesClassIdCombinedAndUniversalSelectors() {
+        List<CssRule> rules = new CssParser().parse("""
+                .notice { color: red; }
+                #warning { color: red; }
+                div.card.highlighted#main { color: red; }
+                * { color: red; }
+                """);
+
+        assertEquals(4, rules.size());
+        assertEquals(".notice", rules.get(0).selector().toString());
+        assertEquals("#warning", rules.get(1).selector().toString());
+        assertEquals("div.card.highlighted#main", rules.get(2).selector().toString());
+        assertEquals("*", rules.get(3).selector().toString());
+
+        assertTrue(rules.get(2).selector() instanceof SimpleSelector);
+        SimpleSelector combined = (SimpleSelector) rules.get(2).selector();
+        assertEquals("div", combined.tagName());
+        assertEquals("main", combined.id());
+        assertEquals(List.of("card", "highlighted"), combined.classes());
+        assertEquals(new Specificity(1, 2, 1), combined.specificity());
+    }
+
+    @Test
+    public void assignsIncreasingSourceOrderToExpandedSelectorRules() {
+        List<CssRule> rules = new CssParser().parse("""
+                h1, h2 { color: red; }
+                .notice { color: blue; }
+                """);
+
+        assertEquals(0, rules.get(0).sourceOrder());
+        assertEquals(0, rules.get(1).sourceOrder());
+        assertEquals(1, rules.get(2).sourceOrder());
     }
 
     @Test
@@ -65,7 +101,7 @@ public class CssParserTest {
                 """);
 
         assertEquals(1, rules.size());
-        assertEquals("p", rules.getFirst().selector());
+        assertEquals("p", rules.getFirst().selector().toString());
         assertFalse(rules.getFirst().declarations().containsKey("position"));
     }
 
@@ -77,8 +113,8 @@ public class CssParserTest {
                 """);
 
         assertEquals(2, rules.size());
-        assertEquals("h1", rules.get(0).selector());
-        assertEquals("h2", rules.get(1).selector());
+        assertEquals("h1", rules.get(0).selector().toString());
+        assertEquals("h2", rules.get(1).selector().toString());
         assertEquals("red", rules.get(0).declarations().get("color"));
         assertEquals("20px", rules.get(1).declarations().get("font-size"));
     }
@@ -93,7 +129,19 @@ public class CssParserTest {
                 """);
 
         assertEquals(2, rules.size());
-        assertEquals("p", rules.get(0).selector());
-        assertEquals("div", rules.get(1).selector());
+        assertEquals("p", rules.get(0).selector().toString());
+        assertEquals("div", rules.get(1).selector().toString());
+    }
+
+    @Test
+    public void skipsUnsupportedSelectorsWithoutLosingFollowingRules() {
+        List<CssRule> rules = new CssParser().parse("""
+                p:hover { color: red; }
+                div > p { color: green; }
+                .notice { color: blue; }
+                """);
+
+        assertEquals(1, rules.size());
+        assertEquals(".notice", rules.getFirst().selector().toString());
     }
 }

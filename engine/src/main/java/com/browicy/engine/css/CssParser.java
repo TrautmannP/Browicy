@@ -8,12 +8,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/** Fehlertoleranter Parser für einfache Elementselektoren und Render-Stile. */
+/** Fehlertoleranter Parser für einfache Selektoren und Render-Stile. */
 public final class CssParser {
 
-    private static final String ELEMENT_SELECTOR = "[a-zA-Z][a-zA-Z0-9-]*";
-    private static final Pattern RULE = Pattern.compile(
-            "(" + ELEMENT_SELECTOR + "(?:\\s*,\\s*" + ELEMENT_SELECTOR + ")*)\\s*\\{([^{}]*)}");
+    private static final Pattern RULE = Pattern.compile("([^{}]+)\\{([^{}]*)}");
     private static final Pattern COMMENTS = Pattern.compile("/\\*.*?\\*/", Pattern.DOTALL);
     private static final Pattern LENGTH = Pattern.compile(
             "(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em)|0)", Pattern.CASE_INSENSITIVE);
@@ -25,6 +23,10 @@ public final class CssParser {
     private static final List<String> SIDES = List.of("top", "right", "bottom", "left");
 
     public List<CssRule> parse(String css) {
+        return parse(css, 0);
+    }
+
+    List<CssRule> parse(String css, int sourceOrderStart) {
         List<CssRule> rules = new ArrayList<>();
         if (css == null || css.isBlank()) {
             return rules;
@@ -32,15 +34,57 @@ public final class CssParser {
 
         String source = COMMENTS.matcher(css).replaceAll("");
         var matcher = RULE.matcher(source);
+        int sourceOrder = sourceOrderStart;
         while (matcher.find()) {
             Map<String, String> declarations = parseDeclarations(matcher.group(2));
-            if (!declarations.isEmpty()) {
-                for (String selector : matcher.group(1).split(",")) {
-                    rules.add(new CssRule(selector.trim().toLowerCase(Locale.ROOT), declarations));
+            if (declarations.isEmpty()) {
+                continue;
+            }
+
+            String selectorSource = recoverSelectorPrelude(matcher.group(1));
+            for (String selectorText : selectorSource.split(",")) {
+                var selector = CssSelectorParser.parse(selectorText);
+                if (selector.isPresent()) {
+                    rules.add(new CssRule(selector.get(), declarations, sourceOrder));
                 }
             }
+            sourceOrder++;
         }
         return rules;
+    }
+
+    /**
+     * Wenn eine unvollständige Regel eine weitere öffnende Klammer enthält,
+     * umfasst der Regex-Treffer auch den defekten Deklarationsrest. Nach dem
+     * letzten Semikolon kann dennoch ein gültiger Folgeselektor beginnen.
+     */
+    private static String recoverSelectorPrelude(String source) {
+        String selector = source.strip();
+        if (isSupportedSelectorList(selector)) {
+            return selector;
+        }
+        int lastSemicolon = selector.lastIndexOf(';');
+        if (lastSemicolon < 0) {
+            return selector;
+        }
+        String recovered = selector.substring(lastSemicolon + 1).strip();
+        if (isSupportedSelectorList(recovered)) {
+            return recovered;
+        }
+        int lastLineBreak = Math.max(recovered.lastIndexOf('\n'), recovered.lastIndexOf('\r'));
+        return lastLineBreak < 0 ? recovered : recovered.substring(lastLineBreak + 1).strip();
+    }
+
+    private static boolean isSupportedSelectorList(String source) {
+        if (source.isEmpty()) {
+            return false;
+        }
+        for (String selector : source.split(",", -1)) {
+            if (CssSelectorParser.parse(selector).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Parst und expandiert eine Deklarationsliste, auch aus einem style-Attribut. */

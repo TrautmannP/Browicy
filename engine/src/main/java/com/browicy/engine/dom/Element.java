@@ -80,6 +80,27 @@ public final class Element extends Node {
         return attributes.containsKey(name.toLowerCase());
     }
 
+    /** Liefert die ID dieses Elements oder {@code null}, wenn keine gesetzt ist. */
+    public String getId() {
+        return getAttribute("id");
+    }
+
+    /**
+     * Liefert die durch HTML-Leerraum getrennten Klassen als unveränderliche
+     * Token-Liste. Eine fehlende oder leere class-Angabe ergibt eine leere Liste.
+     */
+    public List<String> getClassNames() {
+        String classAttribute = getAttribute("class");
+        if (classAttribute == null || classAttribute.isBlank()) {
+            return List.of();
+        }
+        return List.of(classAttribute.strip().split("\\s+"));
+    }
+
+    public boolean hasClass(String className) {
+        return className != null && getClassNames().contains(className);
+    }
+
     /**
      * Setzt bzw. überschreibt ein Attribut. Attributnamen werden wie beim
      * Parsen in Kleinbuchstaben normalisiert.

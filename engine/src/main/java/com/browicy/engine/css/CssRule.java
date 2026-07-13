@@ -3,16 +3,21 @@ package com.browicy.engine.css;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
-/** Eine minimale CSS-Regel mit Elementselektor und unterstützten Deklarationen. */
-public record CssRule(String selector, Map<String, String> declarations) {
+/** Eine geparste CSS-Regel mit Selektor, Deklarationen und Quellreihenfolge. */
+public record CssRule(CssSelector selector, Map<String, String> declarations, int sourceOrder) {
 
     public CssRule {
+        Objects.requireNonNull(selector, "selector");
         declarations = Collections.unmodifiableMap(new LinkedHashMap<>(declarations));
     }
 
-    /** Element-Typ-Selektoren besitzen eine Spezifität von 0-0-1. */
-    public int specificity() {
-        return 1;
+    public CssRule(CssSelector selector, Map<String, String> declarations) {
+        this(selector, declarations, 0);
+    }
+
+    public Specificity specificity() {
+        return selector.specificity();
     }
 }
