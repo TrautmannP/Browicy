@@ -1,29 +1,42 @@
-This is a Kotlin Multiplatform project targeting Desktop (JVM).
+# browicy
 
-* [/shared](./shared/src) is for code that will be shared across your Compose Multiplatform applications. It contains
-  several subfolders:
-    - [commonMain](./shared/src/commonMain/kotlin) is for code that’s common for all targets.
-    - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name. For
-      example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-      the [iosMain](./shared/src/iosMain/kotlin) folder would be the right place for such calls. Similarly, if you want
-      to edit the Desktop (JVM) specific part, the [jvmMain](./shared/src/jvmMain/kotlin)
-      folder is the appropriate location.
+Ein Browser mit eigener Engine — reines Java (21+), gebaut mit Maven.
 
-### Running the apps
+## Module
 
-Use the run configurations provided by the run widget in your IDE's toolbar. You can also use these commands and
-options:
+* **[engine](./engine)** — die Browicy-Browser-Engine: HTML-Tokenizer, Parser und DOM.
+  Keine externen Abhängigkeiten.
+* **[desktop](./desktop)** — das Browser-Fenster (Swing): rahmenloses Fenster mit eigener
+  Titelleiste, Tabs, Adressleiste und DOM-Renderer. Reines Java ohne UI-Fremdbibliotheken,
+  damit später eine Kompilierung mit GraalVM native-image möglich ist.
 
-- Desktop app:
-    - Hot reload: `./gradlew :desktopApp:hotRun --auto`
-    - Standard run: `./gradlew :desktopApp:run`
+## Bauen und Starten
 
-### Running tests
+```bash
+# Alles bauen und Tests ausführen
+mvn verify
 
-Use the run button in your IDE's editor gutter, or run tests using Gradle tasks:
+# Browser starten
+mvn -pl desktop -am compile exec:java
 
-- Desktop tests: `./gradlew :shared:jvmTest`
+# Ausführbares Jar bauen und starten
+mvn package
+java -jar desktop/target/browicy-desktop-0.1.0-SNAPSHOT.jar
+```
 
----
+## GraalVM native-image (später)
 
-Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…
+Das `native`-Profil ist vorbereitet. Mit einem GraalVM-JDK (inkl. `native-image`) als `JAVA_HOME`:
+
+```bash
+mvn -Pnative -pl desktop -am package
+```
+
+Hinweis: Swing/AWT-Unterstützung in native-image erfordert ein aktuelles GraalVM;
+ggf. sind zusätzliche Reachability-Metadaten nötig.
+
+## Tests
+
+```bash
+mvn test
+```
