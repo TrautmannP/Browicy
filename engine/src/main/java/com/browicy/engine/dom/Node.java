@@ -22,16 +22,27 @@ public abstract class Node {
     }
 
     public void appendChild(Node child) {
+        insertBefore(child, null);
+    }
+
+    public void insertBefore(Node child, Node reference) {
         for (Node ancestor = this; ancestor != null; ancestor = ancestor.parent) {
             if (ancestor == child) {
                 throw new IllegalArgumentException("Node kann nicht in einen eigenen Nachfahren eingefügt werden");
             }
         }
+        int index = reference == null ? children.size() : children.indexOf(reference);
+        if (index < 0) {
+            throw new IllegalArgumentException("Referenz-Node ist kein Kind dieses Knotens");
+        }
         if (child.parent != null) {
+            if (child.parent == this && children.indexOf(child) < index) {
+                index--;
+            }
             child.parent.removeChild(child);
         }
         child.parent = this;
-        children.add(child);
+        children.add(index, child);
     }
 
     public void removeChild(Node child) {

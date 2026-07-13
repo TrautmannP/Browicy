@@ -56,14 +56,14 @@ public final class JavaScriptEngine {
      * wirken direkt auf das übergebene Dokument.
      */
     public JsExecutionResult runScripts(Document document) {
-        List<String> scripts = new ArrayList<>();
+        List<Script> scripts = new ArrayList<>();
         for (Element script : document.getElementsByTagName("script")) {
             if (script.hasAttribute("src")) {
                 continue; // Externe Skripte lädt der Prototyp noch nicht
             }
             String code = script.getTextContent();
             if (!code.isBlank()) {
-                scripts.add(code);
+                scripts.add(new Script(code, script));
             }
         }
         if (scripts.isEmpty()) {
@@ -77,15 +77,16 @@ public final class JavaScriptEngine {
      * spätere Entwickler-Konsole).
      */
     public JsExecutionResult execute(Document document, String script) {
-        return execute(document, List.of(script));
+        return execute(document, List.of(new Script(script, null)));
     }
 
-    private JsExecutionResult execute(Document document, List<String> scripts) {
+    private JsExecutionResult execute(Document document, List<Script> scripts) {
         JsConsole console = new JsConsole();
         List<String> errors = new ArrayList<>();
         try (Context context = newSandboxedContext()) {
             Value bindings = context.getBindings("js");
-            bindings.putMember("document", new JsDocument(document));
+            JsDocument jsDocument = new JsDocument(document);
+            bindings.putMember("document", jsDocument);
             bindings.putMember("console", console);
             Deque<Value> timers = new ArrayDeque<>();
             bindings.putMember("setTimeout", (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
@@ -95,10 +96,11 @@ public final class JavaScriptEngine {
                 return 0;
             });
             int index = 0;
-            for (String script : scripts) {
+            for (Script script : scripts) {
                 index++;
                 try {
-                    context.eval(Source.newBuilder("js", script, "inline-script-" + index + ".js")
+                    jsDocument.setCurrentScript(script.element());
+                    context.eval(Source.newBuilder("js", script.code(), "inline-script-" + index + ".js")
                             .buildLiteral());
                 } catch (PolyglotException e) {
                     errors.add(e.getMessage() == null ? e.toString() : e.getMessage());
@@ -107,6 +109,7 @@ public final class JavaScriptEngine {
                     }
                 }
             }
+            jsDocument.setCurrentScript(null);
             Element body = document.getBody();
             if (body != null && body.hasAttribute("onload")) {
                 context.eval(Source.newBuilder("js", body.getAttribute("onload"), "body-onload.js")
@@ -119,6 +122,9 @@ public final class JavaScriptEngine {
             errors.add(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }
         return new JsExecutionResult(List.copyOf(console.getMessages()), List.copyOf(errors));
+    }
+
+    private record Script(String code, Element element) {
     }
 
     private Context newSandboxedContext() {

@@ -218,6 +218,24 @@ public class JavaScriptEngineTest {
         assertEquals("2/100", document.getElementsByTagName("p").get(0).getTextContent());
     }
 
+    @Test
+    public void documentWriteInsertsParsedHtmlAfterCurrentScript() {
+        Document document = parse("""
+                <html><body><p>vorher</p>
+                  <script>document.write('<map><area href=""><iframe>fallback<\\/iframe><\\/map>');</script>
+                  <p id="after">nachher</p>
+                </body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(1, document.getElementsByTagName("map").size());
+        assertEquals(1, document.getElementsByTagName("area").size());
+        assertEquals("fallback", document.getElementsByTagName("iframe").get(0).getTextContent());
+        assertEquals("nachher", document.getElementById("after").getTextContent());
+    }
+
     // --- Sandbox ----------------------------------------------------------
 
     @Test

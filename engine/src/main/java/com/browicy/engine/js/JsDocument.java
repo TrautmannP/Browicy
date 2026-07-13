@@ -4,6 +4,7 @@ import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Node;
 import com.browicy.engine.dom.TextNode;
+import com.browicy.engine.html.HtmlParser;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
@@ -28,10 +29,11 @@ final class JsDocument implements ProxyObject {
 
     private static final List<String> MEMBERS = List.of(
             "title", "body", "documentElement", "URL",
-            "getElementById", "getElementsByTagName", "createElement");
+            "currentScript", "getElementById", "getElementsByTagName", "createElement", "write");
 
     private final Document document;
     private final Map<Node, Object> wrappers = new IdentityHashMap<>();
+    private Element currentScript;
 
     JsDocument(Document document) {
         this.document = document;
@@ -62,6 +64,7 @@ final class JsDocument implements ProxyObject {
             case "body" -> wrap(document.getBody());
             case "documentElement" -> wrap(document.getDocumentElement());
             case "URL" -> document.getUrl();
+            case "currentScript" -> wrap(currentScript);
             case "getElementById" -> (ProxyExecutable) args ->
                     wrap(document.getElementById(asString(args, 0)));
             case "getElementsByTagName" -> (ProxyExecutable) args ->
@@ -70,8 +73,40 @@ final class JsDocument implements ProxyObject {
                             .collect(Collectors.toList()));
             case "createElement" -> (ProxyExecutable) args ->
                     wrap(new Element(asString(args, 0)));
+            case "write" -> (ProxyExecutable) args -> {
+                StringBuilder html = new StringBuilder();
+                for (int i = 0; i < args.length; i++) {
+                    html.append(asString(args, i));
+                }
+                write(html.toString());
+                return null;
+            };
             default -> null;
         };
+    }
+
+    void setCurrentScript(Element currentScript) {
+        this.currentScript = currentScript;
+    }
+
+    private void write(String html) {
+        Node parent = currentScript == null ? document.getBody() : currentScript.getParent();
+        if (parent == null) {
+            parent = document;
+        }
+        Node reference = null;
+        if (currentScript != null) {
+            List<Node> siblings = parent.getChildren();
+            int index = siblings.indexOf(currentScript);
+            if (index >= 0 && index + 1 < siblings.size()) {
+                reference = siblings.get(index + 1);
+            }
+        }
+
+        Document fragment = new HtmlParser().parse(html, document.getUrl());
+        for (Node node : List.copyOf(fragment.getChildren())) {
+            parent.insertBefore(node, reference);
+        }
     }
 
     @Override
