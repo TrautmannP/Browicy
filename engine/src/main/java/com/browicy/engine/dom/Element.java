@@ -18,6 +18,7 @@ public final class Element extends Node {
     private final String prefix;
     private final String localName;
     private final Map<String, String> attributes;
+    private final Map<String, String> computedStyles = new LinkedHashMap<>();
     private String valueState;
     private Boolean checkedState;
 
@@ -57,6 +58,18 @@ public final class Element extends Node {
 
     public Map<String, String> getAttributes() {
         return Collections.unmodifiableMap(attributes);
+    }
+
+    public Map<String, String> getComputedStyles() {
+        return Collections.unmodifiableMap(computedStyles);
+    }
+
+    public void setComputedStyle(String property, String value) {
+        computedStyles.put(property, value);
+    }
+
+    public void clearComputedStyles() {
+        computedStyles.clear();
     }
 
     public String getAttribute(String name) {
@@ -99,6 +112,7 @@ public final class Element extends Node {
         Element copy = new Element(namespaceUri, tagName, attributes);
         copy.valueState = valueState;
         copy.checkedState = checkedState;
+        copy.computedStyles.putAll(computedStyles);
         return copy;
     }
 

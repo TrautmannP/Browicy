@@ -1,5 +1,6 @@
 package com.browicy.engine.html;
 
+import com.browicy.engine.css.StyleApplicator;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Node;
@@ -61,6 +62,7 @@ public final class HtmlParser {
                 case DOCTYPE -> openNodes.peek().appendChild(new DocumentType(token.data()));
             }
         }
+        new StyleApplicator().apply(document);
         return document;
     }
 
