@@ -1,6 +1,7 @@
 package com.browicy.engine.js;
 
 import com.browicy.engine.dom.Node;
+import com.browicy.engine.dom.DocumentType;
 import com.browicy.engine.dom.TextNode;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyObject;
@@ -9,7 +10,7 @@ import java.util.List;
 
 final class JsNode implements ProxyObject, JsNodeLike {
     private static final List<String> MEMBERS = List.of(
-            "data", "nodeName", "nodeType", "nodeValue", "parentNode", "childNodes", "firstChild", "lastChild",
+            "data", "name", "publicId", "systemId", "nodeName", "nodeType", "nodeValue", "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild",
             "previousSibling", "nextSibling", "textContent", "appendChild", "insertBefore",
             "replaceChild", "removeChild", "hasChildNodes", "contains",
             "compareDocumentPosition", "isSameNode", "isEqualNode",
@@ -32,11 +33,15 @@ final class JsNode implements ProxyObject, JsNodeLike {
     public Object getMember(String key) {
         return switch (key) {
             case "data" -> node.getNodeValue();
+            case "name" -> node instanceof DocumentType type ? type.getName() : null;
+            case "publicId" -> node instanceof DocumentType type ? type.getPublicId() : null;
+            case "systemId" -> node instanceof DocumentType type ? type.getSystemId() : null;
             case "textContent" -> node.getTextContent();
             case "nodeName" -> node.getNodeName();
             case "nodeType" -> node.getNodeType();
             case "nodeValue" -> node.getNodeValue();
             case "parentNode" -> document.wrap(node.getParent());
+            case "ownerDocument" -> document.wrapOwnerDocument(node);
             case "childNodes" -> org.graalvm.polyglot.proxy.ProxyArray.fromList(node.getChildren().stream()
                     .map(document::wrap).toList());
             case "firstChild" -> childAt(0);

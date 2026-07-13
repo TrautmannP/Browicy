@@ -33,6 +33,7 @@ public abstract class Node implements EventTarget {
 
     private final long nodeOrder = NEXT_NODE_ORDER.getAndIncrement();
     private Node parent;
+    private Document ownerDocument;
     private final List<Node> children = new ArrayList<>();
     private final Map<String, List<RegisteredEventListener>> eventListeners = new HashMap<>();
 
@@ -42,6 +43,10 @@ public abstract class Node implements EventTarget {
 
     public List<Node> getChildren() {
         return Collections.unmodifiableList(children);
+    }
+
+    public Document getOwnerDocument() {
+        return ownerDocument;
     }
 
     public abstract short getNodeType();
@@ -207,6 +212,8 @@ public abstract class Node implements EventTarget {
             child.parent.removeChild(child);
         }
         child.parent = this;
+        Document newOwner = this instanceof Document document ? document : ownerDocument;
+        child.setOwnerDocument(newOwner);
         children.add(index, child);
         if (updateRanges) {
             Range.nodeInserted(this, index, 1);
@@ -393,6 +400,16 @@ public abstract class Node implements EventTarget {
             collectText(child, sb);
         }
     }
+
+    final void setOwnerDocument(Document document) {
+        if (!(this instanceof Document)) {
+            ownerDocument = document;
+        }
+        for (Node child : children) {
+            child.setOwnerDocument(document);
+        }
+    }
+
 
     private static final class RegisteredEventListener {
         private final EventListener listener;

@@ -116,6 +116,31 @@ public class JavaScriptEngineTest {
         assertEquals(List.of("log: true", "log: true"), result.consoleMessages());
     }
 
+    @Test
+    public void supportsLiveHtmlCollectionsFormsAndTableDom() {
+        Document document = parse("""
+                <html><body>
+                  <form id="login"><input name="user"><select name="role"><option>A</option></select></form>
+                  <table id="grid"><tbody><tr><td>A</td></tr></tbody></table>
+                  <script>
+                    var forms = document.forms;
+                    var form = forms.login;
+                    var extra = document.createElement('input'); extra.name = 'token'; form.appendChild(extra);
+                    var table = document.getElementById('grid');
+                    var row = table.insertRow(-1); row.insertCell(-1).textContent = 'B';
+                    console.log(forms.length, form.elements.length, form.elements.token === extra);
+                    console.log(table.rows.length, row.rowIndex, row.cells.length, row.cells.item(0).cellIndex);
+                    console.log(form.elements.role.options.length, form.elements.role.selectedIndex);
+                  </script>
+                </body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: 1 3 true", "log: 2 1 1 0", "log: 1 0"), result.consoleMessages());
+    }
+
     // --- Skript-Semantik --------------------------------------------------
 
     @Test
@@ -416,6 +441,54 @@ public class JavaScriptEngineTest {
         assertEquals(List.of(
                 "log: InvalidNodeTypeError 24 24 true",
                 "log: HierarchyRequestError 3 3 true"), result.consoleMessages());
+    }
+
+    @Test
+    public void domImplementationCreatesNamespacedDocuments() {
+        Document document = parse("""
+                <html><body><script>
+                  var type = document.implementation.createDocumentType('root', 'public', 'system');
+                  var xml = document.implementation.createDocument('urn:test', 'p:root', type);
+                  var child = xml.createElementNS('urn:child', 'c:item');
+                  xml.documentElement.appendChild(child);
+                  console.log(xml.firstChild === type, type.ownerDocument === xml,
+                              type.name, type.publicId, type.systemId);
+                  console.log(xml.documentElement.tagName, xml.documentElement.namespaceURI,
+                              xml.documentElement.prefix, xml.documentElement.localName);
+                  console.log(child.nodeName, child.namespaceURI, xml.childNodes.length);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                "log: true true root public system",
+                "log: p:root urn:test p root",
+                "log: c:item urn:child 2"), result.consoleMessages());
+    }
+
+    @Test
+    public void invalidQualifiedNamesProduceDomExceptions() {
+        Document document = parse("""
+                <html><body><script>
+                  for (const operation of [
+                    () => document.createElement('bad name'),
+                    () => document.createElementNS(null, 'p:name'),
+                    () => document.createElementNS('urn:test', 'xml:name')
+                  ]) {
+                    try { operation(); } catch (error) { console.log(error.name, error.code); }
+                  }
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                "log: InvalidCharacterError 5",
+                "log: NamespaceError 14",
+                "log: NamespaceError 14"), result.consoleMessages());
     }
 
     // --- DOM Events -------------------------------------------------------

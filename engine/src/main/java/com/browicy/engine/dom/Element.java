@@ -4,6 +4,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -13,6 +14,9 @@ import java.util.stream.Collectors;
 public final class Element extends Node {
 
     private final String tagName;
+    private final String namespaceUri;
+    private final String prefix;
+    private final String localName;
     private final Map<String, String> attributes;
 
     public Element(String tagName) {
@@ -20,7 +24,19 @@ public final class Element extends Node {
     }
 
     public Element(String tagName, Map<String, String> attributes) {
-        this.tagName = tagName.toLowerCase();
+        this(null, tagName.toLowerCase(java.util.Locale.ROOT), attributes);
+    }
+
+    public Element(String namespaceUri, String qualifiedName) {
+        this(namespaceUri, qualifiedName, Map.of());
+    }
+
+    private Element(String namespaceUri, String qualifiedName, Map<String, String> attributes) {
+        this.tagName = qualifiedName;
+        this.namespaceUri = namespaceUri;
+        int separator = qualifiedName.indexOf(':');
+        this.prefix = separator < 0 ? null : qualifiedName.substring(0, separator);
+        this.localName = separator < 0 ? qualifiedName : qualifiedName.substring(separator + 1);
         this.attributes = new LinkedHashMap<>(attributes);
     }
 
@@ -28,8 +44,14 @@ public final class Element extends Node {
         return tagName;
     }
 
+    public String getNamespaceUri() { return namespaceUri; }
+    public String getPrefix() { return prefix; }
+    public String getLocalName() { return localName; }
+
     @Override public short getNodeType() { return ELEMENT_NODE; }
-    @Override public String getNodeName() { return tagName.toUpperCase(java.util.Locale.ROOT); }
+    @Override public String getNodeName() {
+        return namespaceUri == null ? tagName.toUpperCase(java.util.Locale.ROOT) : tagName;
+    }
 
     public Map<String, String> getAttributes() {
         return Collections.unmodifiableMap(attributes);
@@ -52,7 +74,7 @@ public final class Element extends Node {
     }
 
     public void removeAttribute(String name) {
-        attributes.remove(name.toLowerCase());
+        attributes.remove(name.toLowerCase(Locale.ROOT));
     }
 
     /**
@@ -70,7 +92,7 @@ public final class Element extends Node {
      * in diesem Teilbaum (inklusive dieses Elements selbst).
      */
     public Element findFirst(String tag) {
-        String wanted = tag.toLowerCase();
+        String wanted = tag.toLowerCase(Locale.ROOT);
         if (tagName.equals(wanted)) {
             return this;
         }
@@ -83,6 +105,23 @@ public final class Element extends Node {
             }
         }
         return null;
+    }
+
+    /** Returns descendants in tree order, excluding this element. */
+    public List<Element> getElementsByTagName(String tag) {
+        String wanted = tag.toLowerCase(Locale.ROOT);
+        List<Element> result = new java.util.ArrayList<>();
+        collectByTag(this, wanted, result);
+        return result;
+    }
+
+    private static void collectByTag(Element root, String wanted, List<Element> result) {
+        for (Node child : root.getChildren()) {
+            if (child instanceof Element element) {
+                if ("*".equals(wanted) || element.tagName.equals(wanted)) result.add(element);
+                collectByTag(element, wanted, result);
+            }
+        }
     }
 
     @Override

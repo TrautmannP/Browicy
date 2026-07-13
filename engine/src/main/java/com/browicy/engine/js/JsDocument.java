@@ -32,13 +32,14 @@ import java.util.stream.Collectors;
 final class JsDocument implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "title", "body", "documentElement", "URL", "nodeType", "nodeName", "nodeValue",
-            "parentNode", "childNodes", "firstChild", "lastChild", "hasChildNodes",
+            "title", "body", "documentElement", "forms", "implementation", "URL", "nodeType", "nodeName", "nodeValue",
+            "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild", "hasChildNodes",
+            "appendChild", "insertBefore", "replaceChild", "removeChild",
             "compareDocumentPosition", "isSameNode", "isEqualNode",
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
             "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
             "DOCUMENT_POSITION_CONTAINS", "DOCUMENT_POSITION_CONTAINED_BY", "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC",
-            "currentScript", "getElementById", "getElementsByTagName", "createElement",
+            "currentScript", "getElementById", "getElementsByTagName", "createElement", "createElementNS",
             "createTextNode", "createComment", "createDocumentFragment", "createRange", "createEvent",
             "createNodeIterator", "createTreeWalker", "write",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT);
@@ -46,15 +47,24 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private final Document document;
     private final Consumer<String> errorSink;
     private final Map<Node, Object> wrappers = new IdentityHashMap<>();
+    private final Map<Document, JsDocument> documentWrappers;
     private final Map<Event, JsEvent> eventWrappers = new IdentityHashMap<>();
     private final List<ListenerRegistration> listenerRegistrations = new ArrayList<>();
     private Element currentScript;
     private Value eventListenerInvoker;
     private Value domOperationWrapper;
+    private JsDomImplementation implementation;
 
     JsDocument(Document document, Consumer<String> errorSink) {
+        this(document, errorSink, new IdentityHashMap<>());
+    }
+
+    private JsDocument(Document document, Consumer<String> errorSink,
+                       Map<Document, JsDocument> documentWrappers) {
         this.document = document;
         this.errorSink = errorSink;
+        this.documentWrappers = documentWrappers;
+        documentWrappers.put(document, this);
     }
 
     @Override public Document unwrapNode() { return document; }
@@ -78,6 +88,26 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             return wrap(element);
         }
         return wrappers.computeIfAbsent(node, value -> new JsNode(value, this));
+    }
+
+    JsDocument wrapDocument(Document relatedDocument) {
+        JsDocument existing = documentWrappers.get(relatedDocument);
+        if (existing != null) {
+            return existing;
+        }
+        JsDocument wrapper = new JsDocument(relatedDocument, errorSink, documentWrappers);
+        wrapper.setEventListenerInvoker(eventListenerInvoker);
+        wrapper.setDomOperationWrapper(domOperationWrapper);
+        return wrapper;
+    }
+
+    Object wrapOwnerDocument(Node node) {
+        Document ownerDocument = node.getOwnerDocument();
+        return ownerDocument == null ? null : wrapDocument(ownerDocument);
+    }
+
+    void preserveWrapper(JsNodeLike wrapper) {
+        wrappers.put(wrapper.unwrapNode(), wrapper);
     }
 
     JsEvent wrap(Event event) {
@@ -145,14 +175,39 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "title" -> document.getTitle();
             case "body" -> wrap(document.getBody());
             case "documentElement" -> wrap(document.getDocumentElement());
+            case "forms" -> new JsHtmlCollection(() -> document.getElementsByTagName("form"), this);
+            case "implementation" -> implementation == null
+                    ? implementation = new JsDomImplementation(this) : implementation;
             case "URL" -> document.getUrl();
             case "nodeType" -> document.getNodeType();
             case "nodeName" -> document.getNodeName();
-            case "nodeValue", "parentNode" -> null;
+            case "nodeValue", "parentNode", "ownerDocument" -> null;
             case "childNodes" -> ProxyArray.fromList(document.getChildren().stream().map(this::wrap).toList());
             case "firstChild" -> wrap(document.getFirstChild());
             case "lastChild" -> wrap(document.getLastChild());
             case "hasChildNodes" -> (ProxyExecutable) args -> document.hasChildNodes();
+            case "appendChild" -> domOperation((ProxyExecutable) args -> {
+                JsNodeLike child = JsElement.expectNode(args, 0, false);
+                document.appendChild(child.unwrapNode());
+                return child;
+            });
+            case "insertBefore" -> domOperation((ProxyExecutable) args -> {
+                JsNodeLike child = JsElement.expectNode(args, 0, false);
+                JsNodeLike reference = JsElement.expectNode(args, 1, true);
+                document.insertBefore(child.unwrapNode(), reference == null ? null : reference.unwrapNode());
+                return child;
+            });
+            case "replaceChild" -> domOperation((ProxyExecutable) args -> {
+                JsNodeLike replacement = JsElement.expectNode(args, 0, false);
+                JsNodeLike oldChild = JsElement.expectNode(args, 1, false);
+                document.replaceChild(replacement.unwrapNode(), oldChild.unwrapNode());
+                return oldChild;
+            });
+            case "removeChild" -> domOperation((ProxyExecutable) args -> {
+                JsNodeLike child = JsElement.expectNode(args, 0, false);
+                document.removeChild(child.unwrapNode());
+                return child;
+            });
             case "compareDocumentPosition" -> (ProxyExecutable) args ->
                     document.compareDocumentPosition(expectNode(args, 0));
             case "isSameNode" -> (ProxyExecutable) args -> {
@@ -179,11 +234,11 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "getElementById" -> (ProxyExecutable) args ->
                     wrap(document.getElementById(asString(args, 0)));
             case "getElementsByTagName" -> (ProxyExecutable) args ->
-                    ProxyArray.fromList(document.getElementsByTagName(asString(args, 0)).stream()
-                            .map(element -> (Object) wrap(element))
-                            .collect(Collectors.toList()));
-            case "createElement" -> (ProxyExecutable) args ->
-                    wrap(document.createElement(asString(args, 0)));
+                    new JsHtmlCollection(() -> document.getElementsByTagName(asString(args, 0)), this);
+            case "createElement" -> domOperation((ProxyExecutable) args ->
+                    wrap(document.createElement(asString(args, 0))));
+            case "createElementNS" -> domOperation((ProxyExecutable) args ->
+                    wrap(document.createElementNS(nullableString(args, 0), asString(args, 1))));
             case "createTextNode" -> (ProxyExecutable) args -> wrap(document.createTextNode(asString(args, 0)));
             case "createComment" -> (ProxyExecutable) args -> wrap(document.createComment(asString(args, 0)));
             case "createDocumentFragment" -> (ProxyExecutable) args -> wrap(document.createDocumentFragment());
@@ -302,6 +357,10 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         }
         Value value = args[index];
         return value.isString() ? value.asString() : value.toString();
+    }
+
+    private static String nullableString(Value[] args, int index) {
+        return index >= args.length || args[index].isNull() ? null : asString(args, index);
     }
 
     private record ListenerRegistration(Node target, String type,

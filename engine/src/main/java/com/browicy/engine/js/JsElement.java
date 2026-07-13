@@ -7,6 +7,8 @@ import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -22,9 +24,14 @@ import java.util.stream.Collectors;
 final class JsElement implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "tagName", "nodeName", "nodeType", "nodeValue", "id", "className", "type", "textContent", "children", "childNodes",
-            "parentNode", "firstChild", "lastChild", "previousSibling", "nextSibling",
-            "getAttribute", "setAttribute", "removeAttribute", "hasAttribute",
+            "tagName", "nodeName", "nodeType", "nodeValue", "namespaceURI", "prefix", "localName",
+            "id", "className", "name", "type", "value", "checked", "selected", "defaultSelected",
+            "textContent", "children", "childNodes", "length", "elements", "form", "options", "selectedIndex",
+            "caption", "tHead", "tFoot", "tBodies", "rows", "cells", "rowIndex", "sectionRowIndex", "cellIndex",
+            "parentNode", "ownerDocument", "firstChild", "lastChild", "previousSibling", "nextSibling",
+            "getAttribute", "setAttribute", "removeAttribute", "hasAttribute", "getElementsByTagName",
+            "createCaption", "deleteCaption", "createTHead", "deleteTHead", "createTFoot", "deleteTFoot",
+            "insertRow", "deleteRow", "insertCell", "deleteCell", "add", "remove",
             "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
             "compareDocumentPosition", "isSameNode", "isEqualNode", "click",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
@@ -51,20 +58,42 @@ final class JsElement implements ProxyObject, JsNodeLike {
     public Object getMember(String key) {
         return switch (key) {
             // Wie im Browser-DOM: Tag-Namen von HTML-Elementen sind GROSS geschrieben
-            case "tagName" -> element.getTagName().toUpperCase();
-            case "nodeName" -> element.getTagName().toUpperCase();
+            case "tagName" -> element.getNodeName();
+            case "nodeName" -> element.getNodeName();
             case "nodeType" -> element.getNodeType();
             case "nodeValue" -> null;
+            case "namespaceURI" -> element.getNamespaceUri();
+            case "prefix" -> element.getPrefix();
+            case "localName" -> element.getLocalName();
             case "id" -> orEmpty(element.getAttribute("id"));
             case "className" -> orEmpty(element.getAttribute("class"));
-            case "type" -> orEmpty(element.getAttribute("type"));
+            case "name" -> orEmpty(element.getAttribute("name"));
+            case "type" -> inputType();
+            case "value" -> value();
+            case "checked" -> element.hasAttribute("checked");
+            case "selected" -> element.hasAttribute("selected");
+            case "defaultSelected" -> element.hasAttribute("selected");
             case "textContent" -> element.getTextContent();
-            case "children" -> ProxyArray.fromList(element.getChildElements().stream()
-                    .map(child -> (Object) document.wrap(child))
-                    .collect(Collectors.toList()));
+            case "children" -> collection(element::getChildElements);
             case "childNodes" -> ProxyArray.fromList(element.getChildren().stream()
                     .map(document::wrap).collect(Collectors.toList()));
+            case "elements" -> collection(this::formControls);
+            case "length" -> "form".equals(tag()) ? formControls().size()
+                    : "select".equals(tag()) ? options().size() : 0;
+            case "form" -> document.wrap(formOwner());
+            case "options" -> collection(this::options);
+            case "selectedIndex" -> selectedIndex();
+            case "caption" -> document.wrap(direct("caption"));
+            case "tHead" -> document.wrap(direct("thead"));
+            case "tFoot" -> document.wrap(direct("tfoot"));
+            case "tBodies" -> collection(() -> directAll("tbody"));
+            case "rows" -> collection(this::rows);
+            case "cells" -> collection(this::cells);
+            case "rowIndex" -> rowIndex(false);
+            case "sectionRowIndex" -> rowIndex(true);
+            case "cellIndex" -> cellIndex();
             case "parentNode" -> document.wrap(element.getParent());
+            case "ownerDocument" -> document.wrapOwnerDocument(element);
             case "firstChild" -> childAt(0);
             case "lastChild" -> childAt(element.getChildren().size() - 1);
             case "previousSibling" -> sibling(-1);
@@ -79,6 +108,20 @@ final class JsElement implements ProxyObject, JsNodeLike {
                 return null;
             };
             case "hasAttribute" -> (ProxyExecutable) args -> element.hasAttribute(asString(args, 0));
+            case "getElementsByTagName" -> (ProxyExecutable) args ->
+                    collection(() -> element.getElementsByTagName(asString(args, 0)));
+            case "createCaption" -> (ProxyExecutable) args -> document.wrap(createTablePart("caption", 0));
+            case "deleteCaption" -> removeTablePart("caption");
+            case "createTHead" -> (ProxyExecutable) args -> document.wrap(createTablePart("thead", afterCaption()));
+            case "deleteTHead" -> removeTablePart("thead");
+            case "createTFoot" -> (ProxyExecutable) args -> document.wrap(createTablePart("tfoot", element.getChildren().size()));
+            case "deleteTFoot" -> removeTablePart("tfoot");
+            case "insertRow" -> (ProxyExecutable) args -> document.wrap(insertRow(indexArg(args, 0, -1)));
+            case "deleteRow" -> (ProxyExecutable) args -> { deleteFrom(rows(), indexArg(args, 0, -2)); return null; };
+            case "insertCell" -> (ProxyExecutable) args -> document.wrap(insertCell(indexArg(args, 0, -1)));
+            case "deleteCell" -> (ProxyExecutable) args -> { deleteFrom(cells(), indexArg(args, 0, -2)); return null; };
+            case "add" -> (ProxyExecutable) args -> { addOption(args); return null; };
+            case "remove" -> (ProxyExecutable) args -> { removeOption(args); return null; };
             case "appendChild" -> (ProxyExecutable) args -> {
                 JsNodeLike child = expectNode(args, 0, false);
                 element.appendChild(child.unwrapNode());
@@ -142,11 +185,110 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "textContent" -> element.setTextContent(toText(value));
             case "id" -> element.setAttribute("id", toText(value));
             case "className" -> element.setAttribute("class", toText(value));
-            case "type" -> element.setAttribute("type", toText(value));
+            case "name" -> element.setAttribute("name", toText(value));
+            case "type" -> element.setAttribute("type", toText(value).toLowerCase(Locale.ROOT));
+            case "value" -> element.setAttribute("value", toText(value));
+            case "checked" -> booleanAttribute("checked", value.asBoolean());
+            case "selected", "defaultSelected" -> booleanAttribute("selected", value.asBoolean());
+            case "selectedIndex" -> setSelectedIndex(value.asInt());
             default -> throw new UnsupportedOperationException(
                     "Eigenschaft nicht unterstützt oder schreibgeschützt: " + key);
         }
     }
+
+    private String tag() { return element.getTagName().toLowerCase(Locale.ROOT); }
+    private JsHtmlCollection collection(java.util.function.Supplier<List<Element>> query) {
+        return new JsHtmlCollection(query, document);
+    }
+    private String inputType() {
+        String type = element.getAttribute("type");
+        if (type == null || type.isEmpty()) return "button".equals(tag()) ? "submit" : "input".equals(tag()) ? "text" : "";
+        return type.toLowerCase(Locale.ROOT);
+    }
+    private String value() {
+        String value = element.getAttribute("value");
+        return value == null ? ("option".equals(tag()) ? element.getTextContent() : "") : value;
+    }
+    private void booleanAttribute(String name, boolean enabled) {
+        if (enabled) element.setAttribute(name, name); else element.removeAttribute(name);
+    }
+    private List<Element> formControls() {
+        if (!"form".equals(tag())) return List.of();
+        return element.getElementsByTagName("*").stream().filter(e ->
+                List.of("button", "fieldset", "input", "object", "output", "select", "textarea").contains(e.getTagName())).toList();
+    }
+    private Element formOwner() {
+        for (com.browicy.engine.dom.Node node = element.getParent(); node != null; node = node.getParent())
+            if (node instanceof Element e && "form".equals(e.getTagName())) return e;
+        return null;
+    }
+    private List<Element> options() { return element.getElementsByTagName("option"); }
+    private int selectedIndex() {
+        List<Element> options = options();
+        for (int i = 0; i < options.size(); i++) if (options.get(i).hasAttribute("selected")) return i;
+        return options.isEmpty() ? -1 : 0;
+    }
+    private void setSelectedIndex(int selected) {
+        List<Element> options = options();
+        for (int i = 0; i < options.size(); i++) {
+            if (i == selected) options.get(i).setAttribute("selected", "selected"); else options.get(i).removeAttribute("selected");
+        }
+    }
+    private Element direct(String wanted) { return directAll(wanted).stream().findFirst().orElse(null); }
+    private List<Element> directAll(String wanted) {
+        return element.getChildElements().stream().filter(e -> wanted.equals(e.getTagName())).toList();
+    }
+    private List<Element> rows() {
+        if ("tr".equals(tag())) return List.of();
+        if (!"table".equals(tag())) return directAll("tr");
+        List<Element> rows = new ArrayList<>();
+        for (Element child : element.getChildElements()) {
+            if ("tr".equals(child.getTagName())) rows.add(child);
+            else if (List.of("thead", "tbody", "tfoot").contains(child.getTagName())) rows.addAll(child.getChildElements().stream().filter(e -> "tr".equals(e.getTagName())).toList());
+        }
+        return rows;
+    }
+    private List<Element> cells() { return directAll("td").isEmpty() ? directAll("th") : element.getChildElements().stream().filter(e -> "td".equals(e.getTagName()) || "th".equals(e.getTagName())).toList(); }
+    private Element createTablePart(String name, int index) {
+        Element existing = direct(name); if (existing != null) return existing;
+        Element created = new Element(name);
+        com.browicy.engine.dom.Node ref = index < element.getChildren().size() ? element.getChildren().get(index) : null;
+        element.insertBefore(created, ref); return created;
+    }
+    private int afterCaption() { return direct("caption") == null ? 0 : element.getChildren().indexOf(direct("caption")) + 1; }
+    private ProxyExecutable removeTablePart(String name) { return args -> { Element part = direct(name); if (part != null) element.removeChild(part); return null; }; }
+    private Element insertRow(int index) {
+        List<Element> rows = rows(); if (index < -1 || index > rows.size()) throw new IndexOutOfBoundsException();
+        Element row = new Element("tr");
+        if (index >= 0 && index < rows.size()) rows.get(index).getParent().insertBefore(row, rows.get(index));
+        else if ("table".equals(tag())) { Element body = direct("tbody"); (body == null ? element : body).appendChild(row); }
+        else element.appendChild(row);
+        return row;
+    }
+    private Element insertCell(int index) {
+        List<Element> cells = cells(); if (index < -1 || index > cells.size()) throw new IndexOutOfBoundsException();
+        Element cell = new Element("td"); element.insertBefore(cell, index >= 0 && index < cells.size() ? cells.get(index) : null); return cell;
+    }
+    private void deleteFrom(List<Element> values, int index) {
+        if (index == -1) index = values.size() - 1;
+        if (index < 0 || index >= values.size()) throw new IndexOutOfBoundsException();
+        values.get(index).getParent().removeChild(values.get(index));
+    }
+    private int rowIndex(boolean section) {
+        if (!"tr".equals(tag())) return -1;
+        Element parent = element.getParent() instanceof Element e ? e : null;
+        if (parent == null) return -1;
+        if (section) return parent.getChildElements().stream().filter(e -> "tr".equals(e.getTagName())).toList().indexOf(element);
+        for (com.browicy.engine.dom.Node n = parent; n != null; n = n.getParent()) if (n instanceof Element e && "table".equals(e.getTagName())) return new JsElement(e, document).rows().indexOf(element);
+        return -1;
+    }
+    private int cellIndex() { return element.getParent() instanceof Element e ? e.getChildElements().stream().filter(c -> "td".equals(c.getTagName()) || "th".equals(c.getTagName())).toList().indexOf(element) : -1; }
+    private void addOption(Value[] args) {
+        JsNodeLike option = expectNode(args, 0, false); JsNodeLike before = args.length < 2 || args[1].isNull() ? null : expectNode(args, 1, true);
+        element.insertBefore(option.unwrapNode(), before == null ? null : before.unwrapNode());
+    }
+    private void removeOption(Value[] args) { int index = indexArg(args, 0, -2); List<Element> values = options(); if (index >= 0 && index < values.size()) values.get(index).getParent().removeChild(values.get(index)); }
+    private static int indexArg(Value[] args, int index, int defaultValue) { return index >= args.length ? defaultValue : args[index].asInt(); }
 
     private Object childAt(int index) {
         return index >= 0 && index < element.getChildren().size()
