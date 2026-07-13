@@ -167,6 +167,73 @@ public class JavaScriptEngineTest {
                 result.consoleMessages());
     }
 
+    @Test
+    public void classListIsLiveMutableAndKeepsWrapperIdentity() {
+        Document document = parse("""
+                <html><body><div id="box" class="card active"></div><script>
+                  var box = document.getElementById('box');
+                  var classes = box.classList;
+                  console.log(classes === box.classList, classes.length, classes.item(0));
+                  classes.add('wide', 'active');
+                  classes.remove('card');
+                  console.log(classes.toggle('open'), classes.toggle('active', false));
+                  box.setAttribute('class', 'external synced');
+                  console.log(classes.contains('external'), classes.value, box.className);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                "log: true 2 card",
+                "log: true false",
+                "log: true external synced external synced"), result.consoleMessages());
+        assertEquals("external synced", document.getElementById("box").getAttribute("class"));
+    }
+
+    @Test
+    public void querySelectorsWorkOnDocumentElementsAndDocumentFragments() {
+        Document document = parse("""
+                <html><body>
+                  <section id="main"><p id="first" class="note"></p><div><span id="second" class="note"></span></div></section>
+                  <script>
+                    var matches = document.querySelectorAll('#main .note');
+                    var main = document.querySelector('#main');
+                    var later = document.createElement('p'); later.className = 'note'; main.appendChild(later);
+                    var fragment = document.createDocumentFragment();
+                    var wrapper = document.createElement('div');
+                    var target = document.createElement('b'); target.className = 'target'; wrapper.appendChild(target); fragment.appendChild(wrapper);
+                    console.log(document.querySelector('section > p.note').id,
+                                matches.length, matches.item(1).id, matches[0] === document.getElementById('first'));
+                    console.log(main.querySelectorAll('.note').length, main.querySelector('#main') === null,
+                                fragment.querySelector('div > .target') === target);
+                  </script>
+                </body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: first 2 second true", "log: 3 true true"),
+                result.consoleMessages());
+    }
+
+    @Test
+    public void invalidQuerySelectorRaisesDomSyntaxError() {
+        Document document = parse("""
+                <html><body><script>
+                  try { document.querySelector('div + p'); }
+                  catch (error) { console.log(error.name, error.code); }
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: SyntaxError 12"), result.consoleMessages());
+    }
+
     // --- Skript-Semantik --------------------------------------------------
 
     @Test

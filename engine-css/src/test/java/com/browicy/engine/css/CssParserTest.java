@@ -1,5 +1,8 @@
 package com.browicy.engine.css;
 
+import com.browicy.engine.selectors.ComplexSelector;
+import com.browicy.engine.selectors.CompoundSelector;
+import com.browicy.engine.selectors.Specificity;
 import java.util.List;
 import org.junit.Test;
 
@@ -54,11 +57,12 @@ public class CssParserTest {
         assertEquals("div.card.highlighted#main", rules.get(2).selector().toString());
         assertEquals("*", rules.get(3).selector().toString());
 
-        assertTrue(rules.get(2).selector() instanceof SimpleSelector);
-        SimpleSelector combined = (SimpleSelector) rules.get(2).selector();
-        assertEquals("div", combined.tagName());
-        assertEquals("main", combined.id());
-        assertEquals(List.of("card", "highlighted"), combined.classes());
+        assertTrue(rules.get(2).selector() instanceof ComplexSelector);
+        ComplexSelector combined = (ComplexSelector) rules.get(2).selector();
+        CompoundSelector compound = combined.steps().getFirst().selector();
+        assertEquals("div", compound.typeName());
+        assertEquals("main", compound.id());
+        assertEquals(List.of("card", "highlighted"), compound.classes());
         assertEquals(new Specificity(1, 2, 1), combined.specificity());
     }
 
@@ -115,15 +119,29 @@ public class CssParserTest {
         assertEquals("div", rules.get(1).selector().toString());
     }
 
+
     @Test
-    public void skipsUnsupportedSelectorsWithoutLosingFollowingRules() {
+    public void invalidSelectorListDiscardsTheWholeCssRule() {
         List<CssRule> rules = new CssParser().parse("""
-                p:hover { color: red; }
-                div > p { color: green; }
+                .notice, p:hover { color: red; }
                 .notice { color: blue; }
                 """);
 
         assertEquals(1, rules.size());
         assertEquals(".notice", rules.getFirst().selector().toString());
+        assertEquals("blue", rules.getFirst().declarations().get("color"));
+    }
+
+    @Test
+    public void supportsCombinatorsAndSkipsUnsupportedSelectors() {
+        List<CssRule> rules = new CssParser().parse("""
+                p:hover { color: red; }
+                div > p { color: green; }
+                main .notice { color: blue; }
+                """);
+
+        assertEquals(2, rules.size());
+        assertEquals("div > p", rules.get(0).selector().toString());
+        assertEquals("main .notice", rules.get(1).selector().toString());
     }
 }

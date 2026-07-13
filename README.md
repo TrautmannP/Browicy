@@ -8,8 +8,9 @@ Die Engine ist in fachlich getrennte Maven-Module zerlegt. Das hält Abhängigke
 sichtbar und verhindert, dass HTML-, CSS-, JavaScript-, Netzwerk- und Rendering-Code
 mit wachsender Feature-Menge wieder zu einem Monolithen zusammenwachsen.
 
+* **[engine-selectors](./engine-selectors)** — DOM-unabhängiger Selektorparser, AST, Matching und Spezifität.
 * **[engine-dom](./engine-dom)** — DOM-Knoten, Events, Range und gemeinsame DOM-Verträge.
-* **[engine-css](./engine-css)** — CSS-Parser, Selektoren, Kaskade, Spezifität und CSS-Werte.
+* **[engine-css](./engine-css)** — Stylesheet-/Deklarationsparser, Kaskade und CSS-Werte.
 * **[engine-html](./engine-html)** — HTML-Entities, Tokenizer und Tree-Construction; wendet
   nach dem Parsen die CSS-Kaskade auf das erzeugte DOM an.
 * **[engine-js](./engine-js)** — GraalJS-Laufzeit und JavaScript-Bindings für das DOM.
@@ -25,12 +26,12 @@ mit wachsender Feature-Menge wieder zu einem Monolithen zusammenwachsen.
 Die Abhängigkeitsrichtung ist bewusst einseitig:
 
 ```text
-engine-dom <- engine-render <- engine-css <- engine-html <- engine-js
-     ^                          ^
-     +--------------------------+
+engine-selectors <- engine-dom <- engine-render <- engine-css <- engine-html <- engine-js
+       ^                                      |
+       +--------------------------------------+
 
-engine-net ------------------------------------------> engine (Fassade)
-engine-dom/render/css/html/js -----------------------> engine (Fassade)
+engine-net ---------------------------------------------------------> engine (Fassade)
+engine-selectors/dom/render/css/html/js ----------------------------> engine (Fassade)
 ```
 
 Neue Features sollten im kleinsten passenden Modul landen. Das Fassade-Modul dient
@@ -84,8 +85,9 @@ Die Engine führt beim Laden einer Seite alle Inline-`<script>`-Blöcke über
 GraalJS aus (`com.browicy.engine.js.JavaScriptEngine`). Die Skripte laufen in
 einer Sandbox ohne Host-Zugriff (kein Java, kein Dateisystem, keine Prozesse)
 und mit Statement-Limit gegen Endlosschleifen. Als DOM-API stehen aktuell u.a.
-`document.title`, `document.getElementById`, `document.createElement`,
-`element.textContent`, `element.setAttribute` und `element.appendChild` zur
+`document.title`, `document.getElementById`, `document.querySelector`,
+`document.createElement`, `element.classList`, `element.textContent`,
+`element.setAttribute` und `element.appendChild` zur
 Verfügung; `console.log`-Ausgaben und Skriptfehler werden gesammelt
 (`JsExecutionResult`) und sind wie im Browser nicht fatal.
 

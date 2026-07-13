@@ -1,6 +1,8 @@
 package com.browicy.engine.css;
 
 import com.browicy.engine.render.CssColor;
+import com.browicy.engine.selectors.SelectorParseException;
+import com.browicy.engine.selectors.SelectorParser;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -8,9 +10,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/** Fehlertoleranter Parser für einfache Selektoren und Render-Stile. */
+/** Fehlertoleranter Parser für Selektoren und Render-Stile. */
 public final class CssParser {
 
+    private static final SelectorParser SELECTOR_PARSER = new SelectorParser();
     private static final Pattern RULE = Pattern.compile("([^{}]+)\\{([^{}]*)}");
     private static final Pattern COMMENTS = Pattern.compile("/\\*.*?\\*/", Pattern.DOTALL);
     private static final Pattern LENGTH = Pattern.compile(
@@ -42,11 +45,12 @@ public final class CssParser {
             }
 
             String selectorSource = recoverSelectorPrelude(matcher.group(1));
-            for (String selectorText : selectorSource.split(",")) {
-                var selector = CssSelectorParser.parse(selectorText);
-                if (selector.isPresent()) {
-                    rules.add(new CssRule(selector.get(), declarations, sourceOrder));
+            try {
+                for (var selector : SELECTOR_PARSER.parse(selectorSource).selectors()) {
+                    rules.add(new CssRule(selector, declarations, sourceOrder));
                 }
+            } catch (SelectorParseException ignored) {
+                // Eine ungültige Selektorliste verwirft nach CSS-Regeln die gesamte Regel.
             }
             sourceOrder++;
         }
@@ -68,23 +72,26 @@ public final class CssParser {
             return selector;
         }
         String recovered = selector.substring(lastSemicolon + 1).strip();
-        if (isSupportedSelectorList(recovered)) {
-            return recovered;
-        }
         int lastLineBreak = Math.max(recovered.lastIndexOf('\n'), recovered.lastIndexOf('\r'));
-        return lastLineBreak < 0 ? recovered : recovered.substring(lastLineBreak + 1).strip();
+        if (lastLineBreak >= 0) {
+            String lastLine = recovered.substring(lastLineBreak + 1).strip();
+            if (isSupportedSelectorList(lastLine)) {
+                return lastLine;
+            }
+        }
+        return recovered;
     }
 
     private static boolean isSupportedSelectorList(String source) {
         if (source.isEmpty()) {
             return false;
         }
-        for (String selector : source.split(",", -1)) {
-            if (CssSelectorParser.parse(selector).isEmpty()) {
-                return false;
-            }
+        try {
+            SELECTOR_PARSER.parse(source);
+            return true;
+        } catch (SelectorParseException ignored) {
+            return false;
         }
-        return true;
     }
 
     /** Parst und expandiert eine Deklarationsliste, auch aus einem style-Attribut. */

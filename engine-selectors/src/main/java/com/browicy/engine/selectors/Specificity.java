@@ -1,7 +1,7 @@
-package com.browicy.engine.css;
+package com.browicy.engine.selectors;
 
 /**
- * Vereinfachte CSS-Spezifität aus ID-, Klassen- und Elementanteil.
+ * CSS-Spezifität aus ID-, Klassen- und Elementanteil.
  * Der Vergleich erfolgt lexikographisch in genau dieser Reihenfolge.
  */
 public record Specificity(int ids, int classes, int elements)
@@ -13,6 +13,11 @@ public record Specificity(int ids, int classes, int elements)
         if (ids < 0 || classes < 0 || elements < 0) {
             throw new IllegalArgumentException("Spezifitätswerte dürfen nicht negativ sein");
         }
+    }
+
+    public Specificity add(Specificity other) {
+        return new Specificity(ids + other.ids, classes + other.classes,
+                elements + other.elements);
     }
 
     @Override

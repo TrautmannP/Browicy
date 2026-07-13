@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.Locale;
 import java.util.stream.Collectors;
 
-public final class Element extends Node {
+public final class Element extends Node implements ParentNode {
 
     @Getter
     private final String tagName;
@@ -21,6 +21,7 @@ public final class Element extends Node {
     private final String localName;
     private final Map<String, String> attributes;
     private final Map<String, String> computedStyles = new LinkedHashMap<>();
+    private final DOMTokenList classList = new DOMTokenList(this);
     private String valueState;
     private Boolean checkedState;
 
@@ -78,12 +79,12 @@ public final class Element extends Node {
         return getAttribute("id");
     }
 
+    public DOMTokenList getClassList() {
+        return classList;
+    }
+
     public List<String> getClassNames() {
-        String classAttribute = getAttribute("class");
-        if (classAttribute == null || classAttribute.isBlank()) {
-            return List.of();
-        }
-        return List.of(classAttribute.strip().split("\\s+"));
+        return classList.tokens();
     }
 
     public boolean hasClass(String className) {

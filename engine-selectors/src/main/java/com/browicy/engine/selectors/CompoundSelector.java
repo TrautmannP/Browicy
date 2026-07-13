@@ -1,21 +1,18 @@
-package com.browicy.engine.css;
+package com.browicy.engine.selectors;
 
-import com.browicy.engine.dom.Element;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
 /**
- * Zusammengesetzter einfacher Selektor ohne DOM-Beziehungen, zum Beispiel
+ * Zusammengesetzter Selektor ohne DOM-Beziehung, etwa
  * {@code div.card.active#main}, {@code .notice} oder {@code *}.
  */
-public record SimpleSelector(String tagName, String id, List<String> classes)
-        implements CssSelector {
+public record CompoundSelector(String typeName, String id, List<String> classes) {
 
-    public SimpleSelector {
-        tagName = tagName == null ? null : tagName.toLowerCase(Locale.ROOT);
+    public CompoundSelector {
         classes = List.copyOf(Objects.requireNonNull(classes, "classes"));
-        if (tagName != null && tagName.isBlank()) {
+        if (typeName != null && typeName.isBlank()) {
             throw new IllegalArgumentException("Der Elementname darf nicht leer sein");
         }
         if (id != null && id.isBlank()) {
@@ -24,23 +21,28 @@ public record SimpleSelector(String tagName, String id, List<String> classes)
         if (classes.stream().anyMatch(className -> className == null || className.isBlank())) {
             throw new IllegalArgumentException("Klassennamen dürfen nicht leer sein");
         }
-        if (tagName == null && id == null && classes.isEmpty()) {
+        if (typeName == null && id == null && classes.isEmpty()) {
             throw new IllegalArgumentException("Ein Selektor benötigt mindestens einen Bestandteil");
         }
     }
 
-    @Override
-    public boolean matches(Element element) {
+    public Specificity specificity() {
+        return new Specificity(id == null ? 0 : 1, classes.size(),
+                typeName == null || "*".equals(typeName) ? 0 : 1);
+    }
+
+    <N> boolean matches(N element, SelectorNodeAdapter<N> adapter) {
         Objects.requireNonNull(element, "element");
-        if (tagName != null && !"*".equals(tagName)
-                && !tagName.equals(element.getTagName())) {
+        Objects.requireNonNull(adapter, "adapter");
+        if (typeName != null && !"*".equals(typeName)
+                && !adapter.matchesType(element, typeName)) {
             return false;
         }
-        if (id != null && !id.equals(element.getId())) {
+        if (id != null && !id.equals(adapter.id(element))) {
             return false;
         }
         for (String className : classes) {
-            if (!element.hasClass(className)) {
+            if (!adapter.hasClass(element, className)) {
                 return false;
             }
         }
@@ -48,16 +50,12 @@ public record SimpleSelector(String tagName, String id, List<String> classes)
     }
 
     @Override
-    public Specificity specificity() {
-        return new Specificity(id == null ? 0 : 1, classes.size(),
-                tagName == null || "*".equals(tagName) ? 0 : 1);
-    }
-
-    @Override
     public String toString() {
         StringBuilder result = new StringBuilder();
-        if (tagName != null) {
-            result.append(tagName);
+        if (typeName != null) {
+            result.append(typeName.indexOf(':') < 0
+                    ? typeName.toLowerCase(Locale.ROOT)
+                    : typeName);
         }
         for (String className : classes) {
             result.append('.').append(className);

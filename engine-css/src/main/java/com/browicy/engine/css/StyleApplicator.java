@@ -1,8 +1,10 @@
 package com.browicy.engine.css;
 
 import com.browicy.engine.dom.Document;
+import com.browicy.engine.dom.DomSelectorAdapter;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Node;
+import com.browicy.engine.selectors.Specificity;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -41,7 +43,7 @@ public final class StyleApplicator {
             element.clearComputedStyles();
             Map<String, DeclarationCandidate> winners = new HashMap<>();
             for (CssRule rule : rules) {
-                if (rule.selector().matches(element)) {
+                if (rule.selector().matches(element, DomSelectorAdapter.INSTANCE)) {
                     addCandidates(winners, rule.declarations(),
                             new CascadePriority(false, rule.specificity(), rule.sourceOrder()));
                 }

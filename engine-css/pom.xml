@@ -12,9 +12,13 @@
 
     <artifactId>browicy-engine-css</artifactId>
     <name>browicy-engine-css</name>
-    <description>CSS-Parser, Selektoren, Kaskade, Spezifität und berechnete Styles.</description>
+    <description>Stylesheet- und Deklarationsparser, Kaskade und berechnete Styles.</description>
 
     <dependencies>
+        <dependency>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-selectors</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.browicy</groupId>
             <artifactId>browicy-engine-dom</artifactId>

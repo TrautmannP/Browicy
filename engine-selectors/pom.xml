@@ -10,15 +10,11 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>browicy-engine-dom</artifactId>
-    <name>browicy-engine-dom</name>
-    <description>DOM-Baum, Events, Traversal-Grundlagen und Range-API.</description>
+    <artifactId>browicy-engine-selectors</artifactId>
+    <name>browicy-engine-selectors</name>
+    <description>DOM-unabhängiger CSS-Selektorparser, AST, Matching und Spezifität.</description>
 
     <dependencies>
-        <dependency>
-            <groupId>com.browicy</groupId>
-            <artifactId>browicy-engine-selectors</artifactId>
-        </dependency>
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>

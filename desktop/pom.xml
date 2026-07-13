@@ -32,7 +32,6 @@
         <dependency>
             <groupId>com.browicy</groupId>
             <artifactId>browicy-engine-html</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.browicy</groupId>

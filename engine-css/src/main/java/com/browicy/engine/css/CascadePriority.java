@@ -1,5 +1,6 @@
 package com.browicy.engine.css;
 
+import com.browicy.engine.selectors.Specificity;
 import java.util.Objects;
 
 /** Vergleichsgewicht einer Deklaration innerhalb der unterstützten CSS-Kaskade. */

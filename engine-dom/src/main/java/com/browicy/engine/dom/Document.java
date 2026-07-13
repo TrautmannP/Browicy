@@ -8,7 +8,7 @@ import java.util.List;
 
 @Getter
 @RequiredArgsConstructor
-public final class Document extends Node {
+public final class Document extends Node implements ParentNode {
 
     private static final String XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace";
     private static final String XMLNS_NAMESPACE = "http://www.w3.org/2000/xmlns/";

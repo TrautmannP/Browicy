@@ -19,11 +19,12 @@ final class JsElement implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
             "tagName", "nodeName", "nodeType", "nodeValue", "namespaceURI", "prefix", "localName",
-            "id", "className", "name", "type", "value", "checked", "defaultChecked", "selected", "defaultSelected",
+            "id", "className", "classList", "name", "type", "value", "checked", "defaultChecked", "selected", "defaultSelected",
             "textContent", "children", "childNodes", "length", "elements", "form", "options", "selectedIndex",
             "caption", "tHead", "tFoot", "tBodies", "rows", "cells", "rowIndex", "sectionRowIndex", "cellIndex",
             "parentNode", "ownerDocument", "firstChild", "lastChild", "previousSibling", "nextSibling",
             "getAttribute", "setAttribute", "removeAttribute", "hasAttribute", "getElementsByTagName",
+            "querySelector", "querySelectorAll",
             "createCaption", "deleteCaption", "createTHead", "deleteTHead", "createTFoot", "deleteTFoot",
             "insertRow", "deleteRow", "insertCell", "deleteCell", "add", "remove",
             "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
@@ -35,6 +36,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
 
     private final Element element;
     private final JsDocument document;
+    private JsDomTokenList classList;
 
     Element unwrap() {
         return element;
@@ -54,6 +56,8 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "localName" -> element.getLocalName();
             case "id" -> orEmpty(element.getAttribute("id"));
             case "className" -> orEmpty(element.getAttribute("class"));
+            case "classList" -> classList == null
+                    ? classList = new JsDomTokenList(element.getClassList(), document) : classList;
             case "name" -> orEmpty(element.getAttribute("name"));
             case "type" -> inputType();
             case "value" -> value();
@@ -98,6 +102,10 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "hasAttribute" -> (ProxyExecutable) args -> element.hasAttribute(asString(args, 0));
             case "getElementsByTagName" -> (ProxyExecutable) args ->
                     collection(() -> element.getElementsByTagName(asString(args, 0)));
+            case "querySelector" -> document.domOperation((ProxyExecutable) args ->
+                    document.wrap(element.querySelector(asString(args, 0))));
+            case "querySelectorAll" -> document.domOperation((ProxyExecutable) args ->
+                    new JsNodeList(element.querySelectorAll(asString(args, 0)), document));
             case "createCaption" -> (ProxyExecutable) args -> document.wrap(createTablePart("caption", 0));
             case "deleteCaption" -> removeTablePart("caption");
             case "createTHead" -> (ProxyExecutable) args -> document.wrap(createTablePart("thead", afterCaption()));

@@ -4,6 +4,7 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 
 import com.browicy.engine.dom.Node;
+import com.browicy.engine.dom.ParentNode;
 import com.browicy.engine.dom.DocumentType;
 import com.browicy.engine.dom.TextNode;
 import org.graalvm.polyglot.Value;
@@ -86,6 +87,14 @@ final class JsNode implements ProxyObject, JsNodeLike {
             };
             case "cloneNode" -> (org.graalvm.polyglot.proxy.ProxyExecutable) args -> document.wrap(
                     node.cloneNode(args.length > 0 && args[0].asBoolean()));
+            case "querySelector" -> node instanceof ParentNode parent
+                    ? document.domOperation((org.graalvm.polyglot.proxy.ProxyExecutable) args ->
+                            document.wrap(parent.querySelector(text(args, 0))))
+                    : null;
+            case "querySelectorAll" -> node instanceof ParentNode parent
+                    ? document.domOperation((org.graalvm.polyglot.proxy.ProxyExecutable) args ->
+                            new JsNodeList(parent.querySelectorAll(text(args, 0)), document))
+                    : null;
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(node, document);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(node, document);
             case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(node);
@@ -134,11 +143,26 @@ final class JsNode implements ProxyObject, JsNodeLike {
 
     @Override
     public Object getMemberKeys() {
-        return MEMBERS.toArray();
+        if (!(node instanceof ParentNode)) {
+            return MEMBERS.toArray();
+        }
+        List<String> keys = new java.util.ArrayList<>(MEMBERS);
+        keys.add("querySelector");
+        keys.add("querySelectorAll");
+        return keys.toArray();
     }
 
     @Override
     public boolean hasMember(String key) {
-        return MEMBERS.contains(key);
+        return MEMBERS.contains(key)
+                || node instanceof ParentNode && ("querySelector".equals(key) || "querySelectorAll".equals(key));
+    }
+
+    private static String text(Value[] args, int index) {
+        if (index >= args.length) {
+            throw new IllegalArgumentException("Argument " + index + " fehlt");
+        }
+        Value value = args[index];
+        return value.isNull() ? "null" : value.isString() ? value.asString() : value.toString();
     }
 }

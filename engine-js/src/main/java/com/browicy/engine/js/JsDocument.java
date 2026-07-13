@@ -33,7 +33,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
             "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
             "DOCUMENT_POSITION_CONTAINS", "DOCUMENT_POSITION_CONTAINED_BY", "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC",
-            "currentScript", "getElementById", "getElementsByTagName", "createElement", "createElementNS",
+            "currentScript", "getElementById", "getElementsByTagName", "querySelector", "querySelectorAll", "createElement", "createElementNS",
             "createTextNode", "createComment", "createDocumentFragment", "createRange", "createEvent",
             "createNodeIterator", "createTreeWalker", "write",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT);
@@ -223,6 +223,10 @@ final class JsDocument implements ProxyObject, JsNodeLike {
                     wrap(document.getElementById(asString(args, 0)));
             case "getElementsByTagName" -> (ProxyExecutable) args ->
                     new JsHtmlCollection(() -> document.getElementsByTagName(asString(args, 0)), this);
+            case "querySelector" -> domOperation((ProxyExecutable) args ->
+                    wrap(document.querySelector(asString(args, 0))));
+            case "querySelectorAll" -> domOperation((ProxyExecutable) args ->
+                    new JsNodeList(document.querySelectorAll(asString(args, 0)), this));
             case "createElement" -> domOperation((ProxyExecutable) args ->
                     wrap(document.createElement(asString(args, 0))));
             case "createElementNS" -> domOperation((ProxyExecutable) args ->

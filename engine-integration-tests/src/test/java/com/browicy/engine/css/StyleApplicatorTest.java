@@ -162,6 +162,25 @@ public class StyleApplicatorTest {
         assertEquals("red", document.getDocumentElement().getComputedStyles().get("color"));
     }
 
+
+    @Test
+    public void cssAndParentNodeShareCombinatorSemantics() {
+        Document document = parse("""
+                body > section.card p.note { color: red; }
+                body > p.note { color: blue; }
+                """, """
+                <section class="card"><div><p class="note">Treffer</p></div></section>
+                <p class="note">Direktes Kind</p>
+                """);
+
+        Element nested = document.querySelector("body > section.card p.note");
+        Element direct = document.querySelector("body > p.note");
+
+        assertEquals("red", nested.getComputedStyles().get("color"));
+        assertEquals("blue", direct.getComputedStyles().get("color"));
+        assertEquals(List.of(nested, direct), document.querySelectorAll("p.note"));
+    }
+
     @Test
     public void unsupportedSelectorDoesNotDamageFollowingRule() {
         Document document = parse("""
