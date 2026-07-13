@@ -329,6 +329,108 @@ public class JavaScriptEngineTest {
         assertEquals(List.of("log: MAIN,A,C", "log: A MAIN"), result.consoleMessages());
     }
 
+    // --- DOM Events -------------------------------------------------------
+
+    @Test
+    public void uiEventsDispatchOnElementsAndTextNodesAndCanBeRemoved() {
+        Document document = parse("""
+                <html><body><div id="result"><span id="score"></span>text</div><script>
+                  var count = 0;
+                  var valid = true;
+                  var listener = function (event) {
+                    valid = valid && event.detail === 6 && event.type === 'test';
+                    count++;
+                  };
+                  var result = document.getElementById('result');
+                  var score = document.getElementById('score');
+                  result.addEventListener('test', listener, false);
+                  var event = document.createEvent('UIEvents');
+                  event.initUIEvent('test', true, false, null, 6);
+                  console.log(score.dispatchEvent(event));
+                  console.log(score.nextSibling.dispatchEvent(event));
+                  result.removeEventListener('test', listener, false);
+                  console.log(score.dispatchEvent(event), count, valid);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: true", "log: true", "log: true 2 true"),
+                result.consoleMessages());
+    }
+
+    @Test
+    public void clickEventCapturesStopsAndBubblesThroughDocument() {
+        Document document = parse("""
+                <html><body><script>
+                  var input = document.createElement('input');
+                  var div = document.createElement('div');
+                  div.appendChild(input);
+                  document.body.appendChild(div);
+                  var captureCount = 0;
+                  var bodyBubbleCount = 0;
+                  var valid = true;
+                  function capture(event) {
+                    valid = valid && event.type === 'click' && event.target === input &&
+                            event.currentTarget === div && event.eventPhase === 1 &&
+                            event.bubbles && event.cancelable && this === div;
+                    captureCount++;
+                    event.stopPropagation();
+                  }
+                  div.addEventListener('click', function (event) { capture.call(this, event); }, true);
+                  div.addEventListener('click', function (event) { capture.call(this, event); }, true);
+                  document.body.addEventListener('click', function () { bodyBubbleCount++; }, false);
+                  input.type = 'reset';
+                  input.click();
+                  console.log(captureCount, bodyBubbleCount, valid, input.type);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: 2 0 true reset"), result.consoleMessages());
+    }
+
+    @Test
+    public void eventConstructorPreventDefaultAndObjectListenersWork() {
+        Document document = parse("""
+                <html><body><button id="button"></button><script>
+                  var button = document.getElementById('button');
+                  var calls = 0;
+                  var listener = { handleEvent(event) { calls++; event.preventDefault(); } };
+                  button.addEventListener('save', listener, {capture: false});
+                  var event = new Event('save', {bubbles: true, cancelable: true});
+                  console.log(button.dispatchEvent(event), event.defaultPrevented, calls);
+                  button.removeEventListener('save', listener, {capture: false});
+                  console.log(button.dispatchEvent(new Event('save')), calls);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: false true 1", "log: true 1"), result.consoleMessages());
+    }
+
+    @Test
+    public void loadAttributeAndRegisteredLoadListenersUseEventSystem() {
+        Document document = parse("""
+                <html><body onload="console.log('inline', event.type, this === document.body)"><script>
+                  document.body.addEventListener('load', function (event) {
+                    console.log('listener', event.target === document.body, event.eventPhase);
+                  });
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: listener true 2", "log: inline load true"),
+                result.consoleMessages());
+    }
+
     // --- Sandbox ----------------------------------------------------------
 
     @Test

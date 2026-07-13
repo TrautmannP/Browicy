@@ -12,6 +12,7 @@ final class JsNode implements ProxyObject, JsNodeLike {
             "data", "nodeName", "nodeType", "nodeValue", "parentNode", "childNodes", "firstChild", "lastChild",
             "previousSibling", "nextSibling", "textContent", "appendChild", "insertBefore",
             "replaceChild", "removeChild", "hasChildNodes", "contains",
+            JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE");
 
     private final Node node;
@@ -66,6 +67,9 @@ final class JsNode implements ProxyObject, JsNodeLike {
                 JsNodeLike other = JsElement.expectNode(args, 0, true);
                 return other != null && node.contains(other.unwrapNode());
             };
+            case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(node, document);
+            case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(node, document);
+            case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(node);
             case "ELEMENT_NODE" -> Node.ELEMENT_NODE;
             case "TEXT_NODE" -> Node.TEXT_NODE;
             case "COMMENT_NODE" -> Node.COMMENT_NODE;

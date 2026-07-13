@@ -2,6 +2,7 @@ package com.browicy.engine.js;
 
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
+import com.browicy.engine.dom.Event;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.HostAccess;
 import org.graalvm.polyglot.PolyglotException;
@@ -9,10 +10,11 @@ import org.graalvm.polyglot.ResourceLimits;
 import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.io.IOAccess;
+import org.graalvm.polyglot.proxy.ProxyExecutable;
 
 import java.io.OutputStream;
-import java.util.ArrayList;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 
@@ -21,7 +23,7 @@ import java.util.List;
  * (GraalVM Polyglot API). Statt eine eigene JS-Engine zu bauen, wird die
  * vollständige ECMAScript-Implementierung von GraalVM eingebettet; Browicy
  * steuert nur bei, was ein Browser darüber hinaus braucht: die Anbindung
- * des DOM ({@code document}) und der Konsole ({@code console}).
+ * des DOM ({@code document}), der DOM-Events und der Konsole ({@code console}).
  *
  * <p><b>Sandbox:</b> Skripte laufen ohne Host-Zugriff (kein Java-Zugriff,
  * kein Dateisystem, keine Prozesse/Threads) und mit einem Statement-Limit
@@ -29,14 +31,55 @@ import java.util.List;
  * {@link org.graalvm.polyglot.proxy.Proxy}-Objekte erreichbar.</p>
  *
  * <p><b>Prototyp-Grenzen:</b> Nur Inline-Skripte werden ausgeführt
- * (externe {@code <script src=…>} werden übersprungen), es gibt keine
- * Events, Timer oder dynamisches Nachladen. Pro Seite wird ein frischer,
- * nach der Ausführung geschlossener Kontext verwendet.</p>
+ * (externe {@code <script src=…>} werden übersprungen), Timer werden als
+ * einfache FIFO-Microtask-Näherung abgearbeitet und pro Seite wird noch ein
+ * frischer, nach der Ausführung geschlossener Kontext verwendet.</p>
  */
 public final class JavaScriptEngine {
 
     /** Großzügiges Limit; echte Seiten-Skripte bleiben weit darunter. */
     public static final long DEFAULT_STATEMENT_LIMIT = 10_000_000;
+
+    private static final String BROWSER_BOOTSTRAP = """
+            globalThis.window = globalThis;
+            globalThis.NodeFilter = Object.freeze({
+              FILTER_ACCEPT:1,FILTER_REJECT:2,FILTER_SKIP:3,
+              SHOW_ALL:0xFFFFFFFF,SHOW_ELEMENT:1,SHOW_ATTRIBUTE:2,SHOW_TEXT:4,
+              SHOW_CDATA_SECTION:8,SHOW_ENTITY_REFERENCE:16,SHOW_ENTITY:32,
+              SHOW_PROCESSING_INSTRUCTION:64,SHOW_COMMENT:128,SHOW_DOCUMENT:256,
+              SHOW_DOCUMENT_TYPE:512,SHOW_DOCUMENT_FRAGMENT:1024,SHOW_NOTATION:2048
+            });
+            globalThis.Event = function Event(type, init) {
+              init = init || {};
+              const event = document.createEvent('Event');
+              event.initEvent(String(type), Boolean(init.bubbles), Boolean(init.cancelable));
+              return event;
+            };
+            Event.NONE = 0;
+            Event.CAPTURING_PHASE = 1;
+            Event.AT_TARGET = 2;
+            Event.BUBBLING_PHASE = 3;
+            globalThis.UIEvent = function UIEvent(type, init) {
+              init = init || {};
+              const event = document.createEvent('UIEvent');
+              event.initUIEvent(String(type), Boolean(init.bubbles), Boolean(init.cancelable),
+                                init.view == null ? null : init.view, Number(init.detail) || 0);
+              return event;
+            };
+            UIEvent.NONE = Event.NONE;
+            UIEvent.CAPTURING_PHASE = Event.CAPTURING_PHASE;
+            UIEvent.AT_TARGET = Event.AT_TARGET;
+            UIEvent.BUBBLING_PHASE = Event.BUBBLING_PHASE;
+            """;
+
+    private static final String EVENT_LISTENER_INVOKER = """
+            (listener, currentTarget, event) => {
+              if (typeof listener === 'function') {
+                return listener.call(currentTarget, event);
+              }
+              return listener.handleEvent.call(listener, event);
+            }
+            """;
 
     private final long statementLimit;
 
@@ -66,7 +109,11 @@ public final class JavaScriptEngine {
                 scripts.add(new Script(code, script));
             }
         }
-        if (scripts.isEmpty()) {
+        Element body = document.getBody();
+        boolean hasInlineLoadHandler = body != null
+                && body.hasAttribute("onload")
+                && !body.getAttribute("onload").isBlank();
+        if (scripts.isEmpty() && !hasInlineLoadHandler) {
             return JsExecutionResult.EMPTY;
         }
         return execute(document, scripts);
@@ -85,49 +132,99 @@ public final class JavaScriptEngine {
         List<String> errors = new ArrayList<>();
         try (Context context = newSandboxedContext()) {
             Value bindings = context.getBindings("js");
-            JsDocument jsDocument = new JsDocument(document);
-            bindings.putMember("document", jsDocument);
-            bindings.putMember("console", console);
-            context.eval("js", "globalThis.NodeFilter = Object.freeze({" +
-                    "FILTER_ACCEPT:1,FILTER_REJECT:2,FILTER_SKIP:3," +
-                    "SHOW_ALL:0xFFFFFFFF,SHOW_ELEMENT:1,SHOW_ATTRIBUTE:2,SHOW_TEXT:4," +
-                    "SHOW_CDATA_SECTION:8,SHOW_ENTITY_REFERENCE:16,SHOW_ENTITY:32," +
-                    "SHOW_PROCESSING_INSTRUCTION:64,SHOW_COMMENT:128,SHOW_DOCUMENT:256," +
-                    "SHOW_DOCUMENT_TYPE:512,SHOW_DOCUMENT_FRAGMENT:1024,SHOW_NOTATION:2048});");
-            Deque<Value> timers = new ArrayDeque<>();
-            bindings.putMember("setTimeout", (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
-                if (args.length > 0 && args[0].canExecute()) {
-                    timers.addLast(args[0]);
-                }
-                return 0;
-            });
-            int index = 0;
-            for (Script script : scripts) {
-                index++;
-                try {
-                    jsDocument.setCurrentScript(script.element());
-                    context.eval(Source.newBuilder("js", script.code(), "inline-script-" + index + ".js")
-                            .buildLiteral());
-                } catch (PolyglotException e) {
-                    errors.add(e.getMessage() == null ? e.toString() : e.getMessage());
-                    if (e.isCancelled() || e.isResourceExhausted()) {
-                        break; // Kontext ist nach Limit-Überschreitung nicht mehr nutzbar
+            JsDocument jsDocument = new JsDocument(document, errors::add);
+            try {
+                bindings.putMember("document", jsDocument);
+                bindings.putMember("console", console);
+                context.eval("js", BROWSER_BOOTSTRAP);
+                jsDocument.setEventListenerInvoker(context.eval("js", EVENT_LISTENER_INVOKER));
+
+                Deque<Value> timers = new ArrayDeque<>();
+                bindings.putMember("setTimeout", (ProxyExecutable) args -> {
+                    if (args.length > 0 && args[0].canExecute()) {
+                        timers.addLast(args[0]);
+                    }
+                    return 0;
+                });
+
+                boolean contextUsable = true;
+                int index = 0;
+                for (Script script : scripts) {
+                    index++;
+                    try {
+                        jsDocument.setCurrentScript(script.element());
+                        context.eval(Source.newBuilder("js", script.code(), "inline-script-" + index + ".js")
+                                .buildLiteral());
+                    } catch (PolyglotException exception) {
+                        errors.add(message(exception));
+                        if (exception.isCancelled() || exception.isResourceExhausted()) {
+                            contextUsable = false;
+                            break; // Kontext ist nach Limit-Überschreitung nicht mehr nutzbar
+                        }
                     }
                 }
-            }
-            jsDocument.setCurrentScript(null);
-            Element body = document.getBody();
-            if (body != null && body.hasAttribute("onload")) {
-                context.eval(Source.newBuilder("js", body.getAttribute("onload"), "body-onload.js")
-                        .buildLiteral());
-                while (!timers.isEmpty()) {
-                    timers.removeFirst().executeVoid();
+                jsDocument.setCurrentScript(null);
+
+                if (contextUsable) {
+                    dispatchLoadEvent(context, jsDocument, document, errors);
+                    runTimers(timers, errors);
                 }
+            } finally {
+                // GraalJS-Values sind nach Context.close() ungültig. Listener dieses
+                // kurzlebigen Ausführungskontexts werden deshalb sauber aus dem DOM gelöst.
+                jsDocument.clearEventListeners();
             }
-        } catch (RuntimeException e) {
-            errors.add(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        } catch (RuntimeException exception) {
+            errors.add(message(exception));
         }
         return new JsExecutionResult(List.copyOf(console.getMessages()), List.copyOf(errors));
+    }
+
+    private static void dispatchLoadEvent(Context context, JsDocument jsDocument,
+                                          Document document, List<String> errors) {
+        Element body = document.getBody();
+        if (body == null) {
+            return;
+        }
+
+        JsEventListener inlineListener = null;
+        if (body.hasAttribute("onload") && !body.getAttribute("onload").isBlank()) {
+            try {
+                Value callback = context.eval(Source.newBuilder("js",
+                                "(function(event) {\n" + body.getAttribute("onload") + "\n})",
+                                "body-onload.js")
+                        .buildLiteral());
+                inlineListener = new JsEventListener(callback, jsDocument);
+                body.addEventListener("load", inlineListener, false);
+            } catch (PolyglotException exception) {
+                errors.add(message(exception));
+            }
+        }
+
+        try {
+            body.dispatchEvent(new Event("load", false, false));
+        } finally {
+            if (inlineListener != null) {
+                body.removeEventListener("load", inlineListener, false);
+            }
+        }
+    }
+
+    private static void runTimers(Deque<Value> timers, List<String> errors) {
+        while (!timers.isEmpty()) {
+            try {
+                timers.removeFirst().executeVoid();
+            } catch (PolyglotException exception) {
+                errors.add(message(exception));
+                if (exception.isCancelled() || exception.isResourceExhausted()) {
+                    return;
+                }
+            }
+        }
+    }
+
+    private static String message(RuntimeException exception) {
+        return exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
     }
 
     private record Script(String code, Element element) {

@@ -2,28 +2,32 @@ package com.browicy.engine.js;
 
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
+import com.browicy.engine.dom.Event;
 import com.browicy.engine.dom.Node;
-import com.browicy.engine.dom.TextNode;
+import com.browicy.engine.dom.UiEvent;
 import com.browicy.engine.html.HtmlParser;
+import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
+import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
  * JavaScript-Sicht auf das {@link Document}: das globale {@code document}-Objekt.
  *
- * <p>Unterstützt: {@code title} (lesen und schreiben), {@code body},
- * {@code documentElement}, {@code URL}, {@code getElementById},
- * {@code getElementsByTagName} und {@code createElement}.</p>
+ * <p>Unterstützt neben DOM-Core- und Traversal-Funktionen auch das
+ * DOM-Level-2-EventTarget-Modell und {@code document.createEvent()}.</p>
  *
- * <p>Element-Wrapper werden pro Dokument gecacht, damit Identität wie im
- * Browser funktioniert ({@code document.body === document.body}).</p>
+ * <p>Knoten- und Event-Wrapper werden pro Dokument gecacht, damit Identität
+ * wie im Browser funktioniert ({@code document.body === document.body}).</p>
  */
 final class JsDocument implements ProxyObject, JsNodeLike {
 
@@ -32,15 +36,21 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             "parentNode", "childNodes", "firstChild", "lastChild", "hasChildNodes",
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
             "currentScript", "getElementById", "getElementsByTagName", "createElement",
-            "createTextNode", "createComment", "createDocumentFragment",
-            "createNodeIterator", "createTreeWalker", "write");
+            "createTextNode", "createComment", "createDocumentFragment", "createEvent",
+            "createNodeIterator", "createTreeWalker", "write",
+            JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT);
 
     private final Document document;
+    private final Consumer<String> errorSink;
     private final Map<Node, Object> wrappers = new IdentityHashMap<>();
+    private final Map<Event, JsEvent> eventWrappers = new IdentityHashMap<>();
+    private final List<ListenerRegistration> listenerRegistrations = new ArrayList<>();
     private Element currentScript;
+    private Value eventListenerInvoker;
 
-    JsDocument(Document document) {
+    JsDocument(Document document, Consumer<String> errorSink) {
         this.document = document;
+        this.errorSink = errorSink;
     }
 
     @Override public Document unwrapNode() { return document; }
@@ -57,10 +67,61 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         if (node == null) {
             return null;
         }
+        if (node == document) {
+            return this;
+        }
         if (node instanceof Element element) {
             return wrap(element);
         }
         return wrappers.computeIfAbsent(node, value -> new JsNode(value, this));
+    }
+
+    JsEvent wrap(Event event) {
+        if (event == null) {
+            return null;
+        }
+        return eventWrappers.computeIfAbsent(event, value -> new JsEvent(value, this));
+    }
+
+    void setEventListenerInvoker(Value eventListenerInvoker) {
+        this.eventListenerInvoker = eventListenerInvoker;
+    }
+
+    void addEventListener(Node target, String type, Value callback, boolean capture) {
+        JsEventListener listener = new JsEventListener(callback, this);
+        target.addEventListener(type, listener, capture);
+        ListenerRegistration registration = new ListenerRegistration(target, type, listener, capture);
+        if (!listenerRegistrations.contains(registration)) {
+            listenerRegistrations.add(registration);
+        }
+    }
+
+    void removeEventListener(Node target, String type, Value callback, boolean capture) {
+        JsEventListener listener = new JsEventListener(callback, this);
+        target.removeEventListener(type, listener, capture);
+        listenerRegistrations.remove(new ListenerRegistration(target, type, listener, capture));
+    }
+
+    void clearEventListeners() {
+        for (ListenerRegistration registration : List.copyOf(listenerRegistrations)) {
+            registration.target().removeEventListener(
+                    registration.type(), registration.listener(), registration.capture());
+        }
+        listenerRegistrations.clear();
+    }
+
+    void invokeEventListener(Value callback, Event event) {
+        if (eventListenerInvoker == null) {
+            throw new IllegalStateException("JavaScript-Event-Invoker ist nicht initialisiert");
+        }
+        try {
+            eventListenerInvoker.executeVoid(callback, wrap(event.getCurrentTarget()), wrap(event));
+        } catch (PolyglotException exception) {
+            if (exception.isCancelled() || exception.isResourceExhausted()) {
+                throw exception;
+            }
+            errorSink.accept(exception.getMessage() == null ? exception.toString() : exception.getMessage());
+        }
     }
 
     @Override
@@ -95,6 +156,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "createTextNode" -> (ProxyExecutable) args -> wrap(document.createTextNode(asString(args, 0)));
             case "createComment" -> (ProxyExecutable) args -> wrap(document.createComment(asString(args, 0)));
             case "createDocumentFragment" -> (ProxyExecutable) args -> wrap(document.createDocumentFragment());
+            case "createEvent" -> (ProxyExecutable) args -> wrap(createEvent(asString(args, 0)));
             case "createNodeIterator" -> (ProxyExecutable) args -> new JsNodeIterator(this,
                     expectNode(args, 0), whatToShow(args, 1), filter(args, 2));
             case "createTreeWalker" -> (ProxyExecutable) args -> new JsTreeWalker(this,
@@ -107,7 +169,18 @@ final class JsDocument implements ProxyObject, JsNodeLike {
                 write(html.toString());
                 return null;
             };
+            case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(document, this);
+            case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(document, this);
+            case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(document);
             default -> null;
+        };
+    }
+
+    private static Event createEvent(String interfaceName) {
+        return switch (interfaceName.toLowerCase(Locale.ROOT)) {
+            case "event", "events", "htmlevents" -> new Event();
+            case "uievent", "uievents" -> new UiEvent();
+            default -> throw new IllegalArgumentException("Nicht unterstütztes Event-Interface: " + interfaceName);
         };
     }
 
@@ -197,6 +270,10 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         }
         Value value = args[index];
         return value.isString() ? value.asString() : value.toString();
+    }
+
+    private record ListenerRegistration(Node target, String type,
+                                        JsEventListener listener, boolean capture) {
     }
 
     @Override

@@ -22,10 +22,11 @@ import java.util.stream.Collectors;
 final class JsElement implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "tagName", "nodeName", "nodeType", "nodeValue", "id", "className", "textContent", "children", "childNodes",
+            "tagName", "nodeName", "nodeType", "nodeValue", "id", "className", "type", "textContent", "children", "childNodes",
             "parentNode", "firstChild", "lastChild", "previousSibling", "nextSibling",
             "getAttribute", "setAttribute", "removeAttribute", "hasAttribute",
-            "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
+            "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains", "click",
+            JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE");
 
     private final Element element;
@@ -53,6 +54,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "nodeValue" -> null;
             case "id" -> orEmpty(element.getAttribute("id"));
             case "className" -> orEmpty(element.getAttribute("class"));
+            case "type" -> orEmpty(element.getAttribute("type"));
             case "textContent" -> element.getTextContent();
             case "children" -> ProxyArray.fromList(element.getChildElements().stream()
                     .map(child -> (Object) document.wrap(child))
@@ -101,6 +103,10 @@ final class JsElement implements ProxyObject, JsNodeLike {
                 JsNodeLike other = expectNode(args, 0, true);
                 return other != null && element.contains(other.unwrapNode());
             };
+            case "click" -> JsEventTarget.click(element);
+            case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(element, document);
+            case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(element, document);
+            case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(element);
             case "ELEMENT_NODE" -> com.browicy.engine.dom.Node.ELEMENT_NODE;
             case "TEXT_NODE" -> com.browicy.engine.dom.Node.TEXT_NODE;
             case "COMMENT_NODE" -> com.browicy.engine.dom.Node.COMMENT_NODE;
@@ -117,6 +123,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "textContent" -> element.setTextContent(toText(value));
             case "id" -> element.setAttribute("id", toText(value));
             case "className" -> element.setAttribute("class", toText(value));
+            case "type" -> element.setAttribute("type", toText(value));
             default -> throw new UnsupportedOperationException(
                     "Eigenschaft nicht unterstützt oder schreibgeschützt: " + key);
         }
