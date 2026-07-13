@@ -9,7 +9,10 @@ import com.browicy.engine.net.PageLoadObserver;
 import com.browicy.engine.net.PageLoader;
 import com.browicy.engine.net.SubResourceLoader;
 import java.net.URI;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class BrowicyEngine implements AutoCloseable {
 
@@ -32,6 +35,7 @@ public final class BrowicyEngine implements AutoCloseable {
     private final PageLoader pageLoader;
     private final SubResourceLoader subResourceLoader;
     private final PageResourceCoordinator resourceCoordinator;
+    private final Map<Document, PageSession> activeSessions = new ConcurrentHashMap<>();
 
     public BrowicyEngine() {
         this(new PageLoader(), new SubResourceLoader(), new HtmlParser(), new JavaScriptEngine());
@@ -72,8 +76,12 @@ public final class BrowicyEngine implements AutoCloseable {
 
     public Document loadPage(String url) {
         PageSession session = loadPageSession(url, PageUpdateListener.NO_OP);
-        session.awaitResources();
-        return session.document();
+        try {
+            session.awaitResources();
+            return session.document();
+        } finally {
+            session.close();
+        }
     }
 
     public PageSession loadPageSession(String url, PageUpdateListener listener) {
@@ -82,20 +90,21 @@ public final class BrowicyEngine implements AutoCloseable {
         try {
             uri = PageLoader.normalize(url);
         } catch (IllegalArgumentException invalidUrl) {
-            return PageSession.completed(errorPage(url, "Die Adresse ist keine gültige URL."));
+            return createSession(
+                    errorPage(url, "Die Adresse ist keine gültige URL."), listener);
         }
         String scheme = uri.getScheme();
         if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
             Document document = parser.parse(HELLO_WORLD_HTML, url);
-            return resourceCoordinator.load(document, listener);
+            return createSession(document, listener);
         }
         try {
             PageLoader.Page page = pageLoader.load(url);
             Document document = parser.parse(page.html(), page.uri().toString());
-            return resourceCoordinator.load(document, listener);
+            return createSession(document, listener);
         } catch (Exception e) {
             String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-            return PageSession.completed(errorPage(url, message));
+            return createSession(errorPage(url, message), listener);
         }
     }
 
@@ -105,6 +114,13 @@ public final class BrowicyEngine implements AutoCloseable {
 
     public JsExecutionResult executeScripts(Document document) {
         return jsEngine.runScripts(document);
+    }
+
+    private PageSession createSession(Document document, PageUpdateListener listener) {
+        PageSession session = resourceCoordinator.load(
+                document, listener, () -> activeSessions.remove(document));
+        activeSessions.put(document, session);
+        return session;
     }
 
     private Document errorPage(String url, String message) {
@@ -131,6 +147,10 @@ public final class BrowicyEngine implements AutoCloseable {
 
     @Override
     public void close() {
+        for (PageSession session : List.copyOf(activeSessions.values())) {
+            session.close();
+        }
+        activeSessions.clear();
         subResourceLoader.close();
         pageLoader.close();
     }

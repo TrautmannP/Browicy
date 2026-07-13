@@ -33,6 +33,11 @@ public final class BrowserState {
         return Collections.unmodifiableList(tabs);
     }
 
+    public BrowserTab findTab(String id) {
+        int index = indexOf(id);
+        return index < 0 ? null : tabs.get(index);
+    }
+
     public BrowserTab getSelectedTab() {
         for (BrowserTab tab : tabs) {
             if (tab.getId().equals(selectedTabId)) {
@@ -61,7 +66,8 @@ public final class BrowserState {
         if (index < 0) {
             return;
         }
-        tabs.remove(index);
+        BrowserTab removed = tabs.remove(index);
+        removed.closePageSession();
         if (tabs.isEmpty()) {
             tabs.add(new BrowserTab());
         }
@@ -75,6 +81,7 @@ public final class BrowserState {
     public void updateUrl(String id, String url) {
         int index = indexOf(id);
         if (index >= 0 && !tabs.get(index).getUrl().equals(url)) {
+            tabs.get(index).closePageSession();
             tabs.get(index).setUrl(url);
             fireChanged();
         }
@@ -85,6 +92,12 @@ public final class BrowserState {
         if (index >= 0 && !tabs.get(index).getTitle().equals(title)) {
             tabs.get(index).setTitle(title);
             fireChanged();
+        }
+    }
+
+    public void close() {
+        for (BrowserTab tab : List.copyOf(tabs)) {
+            tab.closePageSession();
         }
     }
 

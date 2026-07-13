@@ -12,12 +12,17 @@ public final class CommentNode extends Node {
 
     public void setData(String data) {
         String normalized = data == null ? "" : data;
+        String oldValue = this.data;
         this.data = normalized;
         Range.characterDataReset(this, normalized.length());
+        notifyCharacterDataChanged(oldValue, normalized);
     }
 
     void setDataWithoutRangeAdjustment(String data) {
-        this.data = data == null ? "" : data;
+        String normalized = data == null ? "" : data;
+        String oldValue = this.data;
+        this.data = normalized;
+        notifyCharacterDataChanged(oldValue, normalized);
     }
 
     @Override public short getNodeType() { return COMMENT_NODE; }

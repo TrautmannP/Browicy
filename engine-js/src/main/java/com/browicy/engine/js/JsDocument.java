@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 final class JsDocument implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "title", "body", "documentElement", "forms", "implementation", "URL", "nodeType", "nodeName", "nodeValue",
+            "title", "body", "documentElement", "forms", "implementation", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
             "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild", "hasChildNodes",
             "appendChild", "insertBefore", "replaceChild", "removeChild",
             "compareDocumentPosition", "isSameNode", "isEqualNode",
@@ -43,7 +43,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private final Map<Node, Object> wrappers = new IdentityHashMap<>();
     private final Map<Document, JsDocument> documentWrappers;
     private final Map<Event, JsEvent> eventWrappers = new IdentityHashMap<>();
-    private final List<ListenerRegistration> listenerRegistrations = new ArrayList<>();
+    private final List<ListenerRegistration> listenerRegistrations;
     @Setter(AccessLevel.PACKAGE)
     private Element currentScript;
     @Setter(AccessLevel.PACKAGE)
@@ -53,14 +53,16 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private JsDomImplementation implementation;
 
     JsDocument(Document document, Consumer<String> errorSink) {
-        this(document, errorSink, new IdentityHashMap<>());
+        this(document, errorSink, new IdentityHashMap<>(), new ArrayList<>());
     }
 
     private JsDocument(Document document, Consumer<String> errorSink,
-                       Map<Document, JsDocument> documentWrappers) {
+                       Map<Document, JsDocument> documentWrappers,
+                       List<ListenerRegistration> listenerRegistrations) {
         this.document = document;
         this.errorSink = errorSink;
         this.documentWrappers = documentWrappers;
+        this.listenerRegistrations = listenerRegistrations;
         documentWrappers.put(document, this);
     }
 
@@ -91,7 +93,8 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         if (existing != null) {
             return existing;
         }
-        JsDocument wrapper = new JsDocument(relatedDocument, errorSink, documentWrappers);
+        JsDocument wrapper = new JsDocument(
+                relatedDocument, errorSink, documentWrappers, listenerRegistrations);
         wrapper.setEventListenerInvoker(eventListenerInvoker);
         wrapper.setDomOperationWrapper(domOperationWrapper);
         return wrapper;
@@ -167,6 +170,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "implementation" -> implementation == null
                     ? implementation = new JsDomImplementation(this) : implementation;
             case "URL" -> document.getUrl();
+            case "readyState" -> document.getReadyState().scriptValue();
             case "nodeType" -> document.getNodeType();
             case "nodeName" -> document.getNodeName();
             case "nodeValue", "parentNode", "ownerDocument" -> null;

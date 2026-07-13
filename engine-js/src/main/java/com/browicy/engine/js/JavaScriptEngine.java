@@ -1,32 +1,19 @@
 package com.browicy.engine.js;
 
-import lombok.RequiredArgsConstructor;
-
 import com.browicy.engine.dom.Document;
+import com.browicy.engine.dom.DocumentReadyState;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Event;
-import org.graalvm.polyglot.Context;
-import org.graalvm.polyglot.HostAccess;
-import org.graalvm.polyglot.PolyglotException;
-import org.graalvm.polyglot.ResourceLimits;
-import org.graalvm.polyglot.Source;
-import org.graalvm.polyglot.Value;
-import org.graalvm.polyglot.io.IOAccess;
-import org.graalvm.polyglot.proxy.ProxyExecutable;
-
-import java.io.OutputStream;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
 
-@RequiredArgsConstructor
+/** Factory and compatibility facade for document-bound JavaScript runtimes. */
 public final class JavaScriptEngine {
 
     public static final long DEFAULT_STATEMENT_LIMIT = 10_000_000;
 
-    private static final String BROWSER_BOOTSTRAP = """
+    static final String BROWSER_BOOTSTRAP = """
             globalThis.window = globalThis;
             globalThis.Node = function Node() { throw new TypeError('Illegal constructor'); };
             Node.ELEMENT_NODE = 1;
@@ -96,12 +83,26 @@ public final class JavaScriptEngine {
             UIEvent.BUBBLING_PHASE = Event.BUBBLING_PHASE;
             """;
 
-    private static final String EVENT_LISTENER_INVOKER = """
+    static final String EVENT_LISTENER_INVOKER = """
             (listener, currentTarget, event) => {
               if (typeof listener === 'function') {
                 return listener.call(currentTarget, event);
               }
               return listener.handleEvent.call(listener, event);
+            }
+            """;
+
+    static final String DOM_OPERATION_WRAPPER = """
+            operation => (...args) => {
+              try { return operation(...args); }
+              catch (error) {
+                const message = String(error && error.message || error);
+                const marker = 'DOM_EXCEPTION|';
+                const start = message.indexOf(marker);
+                if (start < 0) throw error;
+                const fields = message.substring(start + marker.length).split('|');
+                throw new DOMException(fields.slice(2).join('|'), fields[0]);
+              }
             }
             """;
 
@@ -111,7 +112,23 @@ public final class JavaScriptEngine {
         this(DEFAULT_STATEMENT_LIMIT);
     }
 
+    public JavaScriptEngine(long statementLimit) {
+        if (statementLimit <= 0) {
+            throw new IllegalArgumentException("Statement-Limit muss positiv sein");
+        }
+        this.statementLimit = statementLimit;
+    }
+
+    public PageRuntime createPageRuntime(Document document) {
+        return createPageRuntime(document, PageRuntimeObserver.NO_OP);
+    }
+
+    public PageRuntime createPageRuntime(Document document, PageRuntimeObserver observer) {
+        return new GraalPageRuntime(document, statementLimit, observer);
+    }
+
     public JsExecutionResult runScripts(Document document) {
+        Objects.requireNonNull(document, "document");
         List<JavaScriptSource> scripts = new ArrayList<>();
         for (Element script : document.getElementsByTagName("script")) {
             if (script.hasAttribute("src")) {
@@ -119,164 +136,49 @@ public final class JavaScriptEngine {
             }
             String code = script.getTextContent();
             if (!code.isBlank()) {
-                scripts.add(new JavaScriptSource(code, script, "inline-script-" + (scripts.size() + 1) + ".js"));
+                scripts.add(new JavaScriptSource(
+                        code, script, "inline-script-" + (scripts.size() + 1) + ".js"));
             }
         }
-        Element body = document.getBody();
-        boolean hasInlineLoadHandler = body != null
-                && body.hasAttribute("onload")
-                && !body.getAttribute("onload").isBlank();
-        if (scripts.isEmpty() && !hasInlineLoadHandler) {
-            return JsExecutionResult.EMPTY;
-        }
-        return execute(document, scripts);
+        return executeSequence(document, scripts);
     }
 
     public JsExecutionResult runScripts(Document document, List<JavaScriptSource> scripts) {
-        Element body = document.getBody();
-        boolean hasInlineLoadHandler = body != null
-                && body.hasAttribute("onload")
-                && !body.getAttribute("onload").isBlank();
-        if (scripts.isEmpty() && !hasInlineLoadHandler) {
-            return JsExecutionResult.EMPTY;
-        }
-        return execute(document, List.copyOf(scripts));
+        Objects.requireNonNull(scripts, "scripts");
+        return executeSequence(document, List.copyOf(scripts));
     }
 
     public JsExecutionResult runScriptSequence(
             Document document, Iterable<JavaScriptSource> scripts) {
         Objects.requireNonNull(document, "document");
         Objects.requireNonNull(scripts, "scripts");
-        return execute(document, scripts);
+        return executeSequence(document, scripts);
     }
 
     public JsExecutionResult execute(Document document, String script) {
-        return execute(document, List.of(new JavaScriptSource(script, null, "script.js")));
+        return executeSequence(document, List.of(new JavaScriptSource(script, null, "script.js")));
     }
 
-    private JsExecutionResult execute(Document document, Iterable<JavaScriptSource> scripts) {
-        JsConsole console = new JsConsole();
-        List<String> errors = new ArrayList<>();
-        try (Context context = newSandboxedContext()) {
-            Value bindings = context.getBindings("js");
-            JsDocument jsDocument = new JsDocument(document, errors::add);
-            try {
-                bindings.putMember("document", jsDocument);
-                bindings.putMember("console", console);
-                context.eval("js", BROWSER_BOOTSTRAP);
-                jsDocument.setDomOperationWrapper(context.eval("js", """
-                        operation => (...args) => {
-                          try { return operation(...args); }
-                          catch (error) {
-                            const message = String(error && error.message || error);
-                            const marker = 'DOM_EXCEPTION|';
-                            const start = message.indexOf(marker);
-                            if (start < 0) throw error;
-                            const fields = message.substring(start + marker.length).split('|');
-                            throw new DOMException(fields.slice(2).join('|'), fields[0]);
-                          }
-                        }
-                        """));
-                jsDocument.setEventListenerInvoker(context.eval("js", EVENT_LISTENER_INVOKER));
-
-                Deque<Value> timers = new ArrayDeque<>();
-                bindings.putMember("setTimeout", (ProxyExecutable) args -> {
-                    if (args.length > 0 && args[0].canExecute()) {
-                        timers.addLast(args[0]);
-                    }
-                    return 0;
-                });
-
-                boolean contextUsable = true;
-                for (JavaScriptSource script : scripts) {
-                    try {
-                        jsDocument.setCurrentScript(script.element());
-                        context.eval(Source.newBuilder("js", script.code(), script.sourceName())
-                                .buildLiteral());
-                    } catch (PolyglotException exception) {
-                        errors.add(message(exception));
-                        if (exception.isCancelled() || exception.isResourceExhausted()) {
-                            contextUsable = false;
-                            break;
-                        }
-                    }
-                }
-                jsDocument.setCurrentScript(null);
-
-                if (contextUsable) {
-                    dispatchLoadEvent(context, jsDocument, document, errors);
-                    runTimers(timers, errors);
-                }
-            } finally {
-                jsDocument.clearEventListeners();
+    private JsExecutionResult executeSequence(
+            Document document, Iterable<JavaScriptSource> scripts) {
+        Objects.requireNonNull(document, "document");
+        try (PageRuntime runtime = createPageRuntime(document)) {
+            for (JavaScriptSource source : scripts) {
+                runtime.execute(source);
             }
-        } catch (RuntimeException exception) {
-            errors.add(message(exception));
+            completeLifecycle(document, runtime);
+            runtime.awaitIdle();
+            return ((GraalPageRuntime) runtime).snapshotResult();
         }
-        return new JsExecutionResult(List.copyOf(console.getMessages()), List.copyOf(errors));
     }
 
-    private static void dispatchLoadEvent(Context context, JsDocument jsDocument,
-                                          Document document, List<String> errors) {
+    private static void completeLifecycle(Document document, PageRuntime runtime) {
+        runtime.enqueueTask(() -> document.transitionTo(DocumentReadyState.INTERACTIVE));
+        runtime.submitEvent(document, new Event("DOMContentLoaded", true, false)).join();
+        runtime.enqueueTask(() -> document.transitionTo(DocumentReadyState.COMPLETE));
         Element body = document.getBody();
-        if (body == null) {
-            return;
+        if (body != null) {
+            runtime.submitEvent(body, new Event("load", false, false)).join();
         }
-
-        JsEventListener inlineListener = null;
-        if (body.hasAttribute("onload") && !body.getAttribute("onload").isBlank()) {
-            try {
-                Value callback = context.eval(Source.newBuilder("js",
-                                "(function(event) {\n" + body.getAttribute("onload") + "\n})",
-                                "body-onload.js")
-                        .buildLiteral());
-                inlineListener = new JsEventListener(callback, jsDocument);
-                body.addEventListener("load", inlineListener, false);
-            } catch (PolyglotException exception) {
-                errors.add(message(exception));
-            }
-        }
-
-        try {
-            body.dispatchEvent(new Event("load", false, false));
-        } finally {
-            if (inlineListener != null) {
-                body.removeEventListener("load", inlineListener, false);
-            }
-        }
-    }
-
-    private static void runTimers(Deque<Value> timers, List<String> errors) {
-        while (!timers.isEmpty()) {
-            try {
-                timers.removeFirst().executeVoid();
-            } catch (PolyglotException exception) {
-                errors.add(message(exception));
-                if (exception.isCancelled() || exception.isResourceExhausted()) {
-                    return;
-                }
-            }
-        }
-    }
-
-    private static String message(RuntimeException exception) {
-        return exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
-    }
-
-
-    private Context newSandboxedContext() {
-        return Context.newBuilder("js")
-                .allowHostAccess(HostAccess.NONE)
-                .allowHostClassLookup(className -> false)
-                .allowIO(IOAccess.NONE)
-                .allowCreateProcess(false)
-                .allowCreateThread(false)
-                .resourceLimits(ResourceLimits.newBuilder()
-                        .statementLimit(statementLimit, null)
-                        .build())
-                .option("engine.WarnInterpreterOnly", "false")
-                .out(OutputStream.nullOutputStream())
-                .err(OutputStream.nullOutputStream())
-                .build();
     }
 }

@@ -10,6 +10,11 @@ import java.awt.BorderLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -21,9 +26,9 @@ public final class ContentPanel extends JPanel {
 
     private final BrowserState state;
     private final BrowicyEngine engine;
+    private final Map<String, PendingLoad> pendingLoads = new HashMap<>();
     private String renderedTabId;
     private String renderedUrl;
-    private PageSession activeSession;
     private Document shownDocument;
     private DomViewPanel domViewPanel;
 
@@ -36,11 +41,11 @@ public final class ContentPanel extends JPanel {
     }
 
     public void refresh() {
+        discardRemovedTabLoads();
         BrowserTab tab = state.getSelectedTab();
         if (tab.getId().equals(renderedTabId) && tab.getUrl().equals(renderedUrl)) {
             return;
         }
-        cancelActiveSession();
         renderedTabId = tab.getId();
         renderedUrl = tab.getUrl();
         shownDocument = null;
@@ -54,52 +59,110 @@ public final class ContentPanel extends JPanel {
             return;
         }
 
+        PageSession existingSession = tab.getPageSession();
+        if (existingSession != null && !existingSession.isClosed()) {
+            showDocument(tab.getId(), existingSession);
+            return;
+        }
+
         add(loadingContent(tab.getUrl()), BorderLayout.CENTER);
         revalidate();
         repaint();
+        startLoad(tab);
+    }
 
+    private void startLoad(BrowserTab tab) {
         String tabId = tab.getId();
         String url = tab.getUrl();
-        new SwingWorker<PageSession, Void>() {
+        PendingLoad current = pendingLoads.get(tabId);
+        if (current != null && current.url().equals(url)) {
+            return;
+        }
+        if (current != null) {
+            current.worker().cancel(true);
+        }
+
+        SwingWorker<PageSession, Void> worker = new SwingWorker<>() {
+            private volatile PageSession producedSession;
+
             @Override
             protected PageSession doInBackground() {
-                return engine.loadPageSession(url, update -> SwingUtilities.invokeLater(
+                PageSession session = engine.loadPageSession(url, update -> SwingUtilities.invokeLater(
                         () -> applyPageUpdate(tabId, url, update)));
+                producedSession = session;
+                return session;
             }
 
             @Override
             protected void done() {
+                PendingLoad activeLoad = pendingLoads.get(tabId);
+                if (activeLoad == null || activeLoad.worker() != this) {
+                    closeProducedSession();
+                    return;
+                }
+                pendingLoads.remove(tabId);
+                if (isCancelled()) {
+                    closeProducedSession();
+                    return;
+                }
+
                 PageSession session;
                 try {
                     session = get();
-                } catch (Exception e) {
+                } catch (CancellationException cancelled) {
+                    return;
+                } catch (Exception failure) {
                     Document document = engine.parseHtml(
                             "<body><h1>Seite konnte nicht geladen werden</h1></body>", url);
                     session = PageSession.completed(document);
                 }
-                if (!tabId.equals(renderedTabId) || !url.equals(renderedUrl)) {
-                    session.cancel();
+
+                BrowserTab loadedTab = state.findTab(tabId);
+                if (loadedTab == null || !url.equals(loadedTab.getUrl())) {
+                    session.close();
                     return;
                 }
-                activeSession = session;
-                showDocument(tabId, session.document());
+                loadedTab.attachPageSession(session);
+                if (tabId.equals(renderedTabId) && url.equals(renderedUrl)) {
+                    showDocument(tabId, session);
+                }
             }
-        }.execute();
+
+            private void closeProducedSession() {
+                PageSession session = producedSession;
+                if (session != null) {
+                    session.close();
+                }
+            }
+        };
+        pendingLoads.put(tabId, new PendingLoad(url, worker));
+        worker.execute();
     }
 
     private void applyPageUpdate(String tabId, String url, PageUpdate update) {
-        if (!tabId.equals(renderedTabId) || !url.equals(renderedUrl)
-                || shownDocument != update.document() || domViewPanel == null) {
+        BrowserTab tab = state.findTab(tabId);
+        if (tab == null || !url.equals(tab.getUrl())) {
             return;
         }
-        if (update instanceof PageUpdate.StylesChanged) {
-            domViewPanel.refreshFromDocument();
+        PageSession session = tab.getPageSession();
+        if (session == null || session.document() != update.document()) {
+            return;
+        }
+
+        String title = update.document().getTitle();
+        if (!title.isBlank()) {
+            state.updateTitle(tabId, title);
+        }
+        if (tabId.equals(renderedTabId) && url.equals(renderedUrl)
+                && shownDocument == update.document() && domViewPanel != null) {
+            domViewPanel.applyPageUpdate(update);
         }
     }
 
-    private void showDocument(String tabId, Document document) {
+    private void showDocument(String tabId, PageSession session) {
+        Document document = session.document();
         shownDocument = document;
-        domViewPanel = new DomViewPanel(document);
+        domViewPanel = new DomViewPanel(session);
 
         removeAll();
         JScrollPane scrollPane = new JScrollPane(domViewPanel);
@@ -115,11 +178,27 @@ public final class ContentPanel extends JPanel {
         }
     }
 
-    private void cancelActiveSession() {
-        if (activeSession != null) {
-            activeSession.cancel();
-            activeSession = null;
+    private void discardRemovedTabLoads() {
+        Set<String> liveTabIds = new HashSet<>();
+        for (BrowserTab tab : state.getTabs()) {
+            liveTabIds.add(tab.getId());
         }
+        pendingLoads.entrySet().removeIf(entry -> {
+            if (liveTabIds.contains(entry.getKey())) {
+                return false;
+            }
+            entry.getValue().worker().cancel(true);
+            return true;
+        });
+    }
+
+    public void close() {
+        for (PendingLoad load : pendingLoads.values()) {
+            load.worker().cancel(true);
+        }
+        pendingLoads.clear();
+        shownDocument = null;
+        domViewPanel = null;
     }
 
     private JPanel loadingContent(String url) {
@@ -156,5 +235,8 @@ public final class ContentPanel extends JPanel {
         panel.add(tabInfo, gbc);
 
         return panel;
+    }
+
+    private record PendingLoad(String url, SwingWorker<PageSession, Void> worker) {
     }
 }

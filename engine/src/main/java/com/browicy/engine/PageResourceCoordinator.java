@@ -9,12 +9,12 @@ import com.browicy.engine.html.ScriptResource;
 import com.browicy.engine.html.StyleSheetResource;
 import com.browicy.engine.js.JavaScriptEngine;
 import com.browicy.engine.js.JavaScriptSource;
+import com.browicy.engine.js.PageRuntime;
 import com.browicy.engine.net.NetworkResourceType;
 import com.browicy.engine.net.SubResourceLoad;
 import com.browicy.engine.net.SubResourceLoader;
 import com.browicy.engine.net.TextResource;
 import java.io.IOException;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -24,7 +24,8 @@ import java.util.concurrent.CompletableFuture;
 
 final class PageResourceCoordinator {
 
-    private static final System.Logger LOGGER = System.getLogger(PageResourceCoordinator.class.getName());
+    private static final System.Logger LOGGER =
+            System.getLogger(PageResourceCoordinator.class.getName());
 
     private final DocumentResourceScanner scanner;
     private final SubResourceLoader resourceLoader;
@@ -46,22 +47,59 @@ final class PageResourceCoordinator {
     }
 
     PageSession load(Document document, PageUpdateListener listener) {
+        return load(document, listener, () -> { });
+    }
+
+    PageSession load(Document document, PageUpdateListener listener, Runnable onClose) {
         Objects.requireNonNull(document, "document");
         Objects.requireNonNull(listener, "listener");
+        Objects.requireNonNull(onClose, "onClose");
+
         DocumentResources resources = scanner.scan(document);
         StyleSheetRegistry styleSheets = new StyleSheetRegistry();
         registerInlineStyleSheets(resources, styleSheets);
-
-        Object documentLock = new Object();
-        LoadingState state = new LoadingState();
+        DocumentUpdateCoordinator updates = new DocumentUpdateCoordinator(
+                document, styleSheets, styleApplicator, listener);
+        PageRuntime runtime = javaScriptEngine.createPageRuntime(document, ignored -> updates.flush());
         List<SubResourceLoad> cancellableLoads = new ArrayList<>();
-        List<CompletableFuture<Void>> styleTasks = new ArrayList<>();
-        List<CompletableFuture<Void>> renderBlockingTasks = new ArrayList<>();
 
-        synchronized (documentLock) {
-            styleApplicator.apply(document, styleSheets);
+        try {
+            StyleLoadPlan styleLoads = startStyleLoads(
+                    resources, styleSheets, updates, runtime, cancellableLoads);
+            synchronized (document) {
+                styleApplicator.apply(document, styleSheets);
+            }
+
+            for (JavaScriptSource source : scriptSequence(resources, cancellableLoads)) {
+                runtime.execute(source);
+            }
+
+            PageLifecycleCoordinator lifecycle = new PageLifecycleCoordinator(document, runtime);
+            lifecycle.markInteractive();
+            awaitRenderBlocking(styleLoads.renderBlockingTasks());
+            lifecycle.markComplete();
+            runtime.awaitIdle();
+            updates.enableNotifications();
+
+            CompletableFuture<Void> allStyles = CompletableFuture.allOf(
+                    styleLoads.allTasks().toArray(CompletableFuture[]::new));
+            return new PageSession(
+                    document, runtime, styleSheets, allStyles, cancellableLoads, updates, onClose);
+        } catch (RuntimeException failure) {
+            cancellableLoads.forEach(SubResourceLoad::cancel);
+            updates.close();
+            runtime.close();
+            throw failure;
         }
+    }
 
+    private StyleLoadPlan startStyleLoads(DocumentResources resources,
+                                          StyleSheetRegistry styleSheets,
+                                          DocumentUpdateCoordinator updates,
+                                          PageRuntime runtime,
+                                          List<SubResourceLoad> cancellableLoads) {
+        List<CompletableFuture<Void>> allTasks = new ArrayList<>();
+        List<CompletableFuture<Void>> renderBlockingTasks = new ArrayList<>();
         for (StyleSheetResource styleSheet : resources.styleSheets()) {
             if (!(styleSheet instanceof StyleSheetResource.External external)) {
                 continue;
@@ -69,46 +107,32 @@ final class PageResourceCoordinator {
             SubResourceLoad load = resourceLoader.loadAsync(
                     external.uri(), NetworkResourceType.STYLESHEET);
             cancellableLoads.add(load);
-            CompletableFuture<Void> task = load.future().handle((resource, failure) -> {
-                if (resource == null) {
-                    return null;
-                }
-                styleSheets.register(external.sourceOrder(), resource.content());
-                synchronized (documentLock) {
-                    if (!state.scriptsFinished) {
-                        state.pendingStyleUpdates.add(resource.uri());
-                        return null;
-                    }
-                    styleApplicator.apply(document, styleSheets);
-                }
-                notifySafely(listener,
-                        new PageUpdate.StylesChanged(document, List.of(resource.uri())));
-                return null;
-            });
-            styleTasks.add(task);
+            CompletableFuture<Void> task = load.future()
+                    .handle((resource, failure) -> resource)
+                    .thenCompose(resource -> applyStyleSheet(
+                            resource, external, styleSheets, updates, runtime))
+                    .exceptionally(failure -> null);
+            allTasks.add(task);
             if (external.renderBlocking()) {
                 renderBlockingTasks.add(task);
             }
         }
+        return new StyleLoadPlan(allTasks, renderBlockingTasks);
+    }
 
-        Iterable<JavaScriptSource> scripts = scriptSequence(resources, cancellableLoads);
-        List<URI> initiallyApplied;
-        synchronized (documentLock) {
-            javaScriptEngine.runScriptSequence(document, scripts);
-            state.scriptsFinished = true;
-            initiallyApplied = List.copyOf(state.pendingStyleUpdates);
-            state.pendingStyleUpdates.clear();
-            styleApplicator.apply(document, styleSheets);
+    private static CompletableFuture<Void> applyStyleSheet(
+            TextResource resource,
+            StyleSheetResource.External external,
+            StyleSheetRegistry styleSheets,
+            DocumentUpdateCoordinator updates,
+            PageRuntime runtime) {
+        if (resource == null || runtime.isClosed()) {
+            return CompletableFuture.completedFuture(null);
         }
-        if (!initiallyApplied.isEmpty()) {
-            notifySafely(listener, new PageUpdate.StylesChanged(document, initiallyApplied));
-        }
-
-        awaitRenderBlocking(renderBlockingTasks);
-
-        CompletableFuture<Void> allStyles = CompletableFuture.allOf(
-                styleTasks.toArray(CompletableFuture[]::new));
-        return new PageSession(document, allStyles, cancellableLoads);
+        return runtime.submitTask(() -> {
+            styleSheets.register(external.sourceOrder(), resource.content());
+            updates.stylesheetChanged(resource.uri());
+        }).exceptionally(failure -> null);
     }
 
     private static void registerInlineStyleSheets(DocumentResources resources,
@@ -204,17 +228,11 @@ final class PageResourceCoordinator {
         }
     }
 
-    private static void notifySafely(PageUpdateListener listener, PageUpdate update) {
-        try {
-            listener.onUpdate(update);
-        } catch (RuntimeException failure) {
-            LOGGER.log(System.Logger.Level.WARNING,
-                    "Listener einer Seitenaktualisierung warf eine Exception", failure);
+    private record StyleLoadPlan(List<CompletableFuture<Void>> allTasks,
+                                 List<CompletableFuture<Void>> renderBlockingTasks) {
+        private StyleLoadPlan {
+            allTasks = List.copyOf(allTasks);
+            renderBlockingTasks = List.copyOf(renderBlockingTasks);
         }
-    }
-
-    private static final class LoadingState {
-        private boolean scriptsFinished;
-        private final List<URI> pendingStyleUpdates = new ArrayList<>();
     }
 }

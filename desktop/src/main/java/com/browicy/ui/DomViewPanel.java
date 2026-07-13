@@ -1,6 +1,12 @@
 package com.browicy.ui;
 
+import com.browicy.engine.InvalidationType;
+import com.browicy.engine.PageSession;
+import com.browicy.engine.PageUpdate;
 import com.browicy.engine.dom.Document;
+import com.browicy.engine.dom.Element;
+import com.browicy.engine.dom.Event;
+import com.browicy.engine.js.PageRuntime;
 import com.browicy.engine.render.BoxBorders;
 import com.browicy.engine.render.BoxEdges;
 import com.browicy.engine.render.CssColor;
@@ -21,8 +27,13 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.List;
 import javax.swing.BorderFactory;
 import javax.swing.JPanel;
 import javax.swing.Scrollable;
@@ -34,15 +45,27 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private static final int SCROLL_UNIT = 24;
 
     private final Document document;
+    private final PageRuntime runtime;
     private RenderTree renderTree;
+    private Element pressedTarget;
     private final RenderLayoutEngine layoutEngine = new RenderLayoutEngine();
     private LayoutResult layoutResult;
     private int layoutWidth = -1;
 
     public DomViewPanel(Document document) {
+        this(document, PageRuntime.closed());
+    }
+
+    public DomViewPanel(PageSession session) {
+        this(session.document(), session.runtime());
+    }
+
+    private DomViewPanel(Document document, PageRuntime runtime) {
         this.document = document;
+        this.runtime = runtime;
         setLayout(null);
         setOpaque(true);
+        setFocusable(true);
         setBackground(UiTheme.BACKGROUND);
         setBorder(BorderFactory.createEmptyBorder(
                 CONTENT_PADDING, CONTENT_PADDING, CONTENT_PADDING, CONTENT_PADDING));
@@ -58,17 +81,131 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                 }
             }
         });
+
+        MouseAdapter mouseEvents = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent event) {
+                requestFocusInWindow();
+                pressedTarget = hitTest(event.getX(), event.getY());
+                dispatchDomEvent(pressedTarget, "mousedown", true, true);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent event) {
+                Element releasedTarget = hitTest(event.getX(), event.getY());
+                dispatchDomEvent(releasedTarget, "mouseup", true, true);
+                if (releasedTarget != null && releasedTarget == pressedTarget) {
+                    dispatchDomEvent(releasedTarget, "click", true, true);
+                }
+                pressedTarget = null;
+            }
+
+            @Override
+            public void mouseMoved(MouseEvent event) {
+                dispatchDomEvent(hitTest(event.getX(), event.getY()), "mousemove", true, false);
+            }
+
+            @Override
+            public void mouseDragged(MouseEvent event) {
+                mouseMoved(event);
+            }
+        };
+        addMouseListener(mouseEvents);
+        addMouseMotionListener(mouseEvents);
+        addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent event) {
+                dispatchDomEvent(document.getBody(), "keydown", true, true);
+            }
+
+            @Override
+            public void keyReleased(KeyEvent event) {
+                dispatchDomEvent(document.getBody(), "keyup", true, true);
+            }
+        });
     }
 
     public void refreshFromDocument() {
-        rebuildRenderTree();
-        revalidate();
-        repaint();
+        applyInvalidation(InvalidationType.RENDER_TREE);
+    }
+
+    public void applyPageUpdate(PageUpdate update) {
+        if (update.document() != document) {
+            return;
+        }
+        applyInvalidation(update.invalidation());
+    }
+
+    private void applyInvalidation(InvalidationType invalidation) {
+        if (invalidation.requires(InvalidationType.RENDER_TREE)) {
+            rebuildRenderTree();
+            revalidate();
+            repaint();
+        } else if (invalidation.requires(InvalidationType.LAYOUT)) {
+            invalidateReflow();
+            revalidate();
+            repaint();
+        } else {
+            repaint();
+        }
     }
 
     private void rebuildRenderTree() {
-        renderTree = new RenderTreeBuilder().build(document);
+        synchronized (document) {
+            renderTree = new RenderTreeBuilder().build(document);
+        }
         invalidateReflow();
+    }
+
+    private Element hitTest(int x, int y) {
+        ensureLayoutForHitTesting();
+        if (layoutResult == null) {
+            return null;
+        }
+        List<PaintFragment> fragments = layoutResult.fragments();
+        for (int index = fragments.size() - 1; index >= 0; index--) {
+            PaintFragment fragment = fragments.get(index);
+            Element source = null;
+            float left;
+            float width;
+            if (fragment instanceof BoxFragment box) {
+                source = box.box().source();
+                left = box.x();
+                width = box.width();
+            } else if (fragment instanceof InlineBoxFragment inline) {
+                source = inline.box().source();
+                left = inline.x();
+                width = inline.width();
+            } else {
+                continue;
+            }
+            if (source != null && x >= left && x < left + width
+                    && y >= fragment.top() && y < fragment.bottom()) {
+                return source;
+            }
+        }
+        return document.getBody();
+    }
+
+    private void ensureLayoutForHitTesting() {
+        int width = Math.max(1, currentLayoutWidth());
+        if (layoutWidth == width && layoutResult != null) {
+            return;
+        }
+        BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        try {
+            configureGraphics(graphics);
+            ensureLayout(width, graphics);
+        } finally {
+            graphics.dispose();
+        }
+    }
+
+    private void dispatchDomEvent(Element target, String type, boolean bubbles, boolean cancelable) {
+        if (target != null && !runtime.isClosed()) {
+            runtime.dispatchEvent(target, new Event(type, bubbles, cancelable));
+        }
     }
 
     @Override

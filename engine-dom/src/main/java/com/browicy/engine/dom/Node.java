@@ -214,6 +214,7 @@ public abstract class Node implements EventTarget {
         if (updateRanges) {
             Range.nodeInserted(this, index, 1);
         }
+        notifyMutation(new DomMutation.ChildListChanged(this, List.of(child), List.of()));
     }
 
     public void removeChild(Node child) {
@@ -224,6 +225,7 @@ public abstract class Node implements EventTarget {
         Range.nodeRemoved(this, index, child);
         children.remove(index);
         child.parent = null;
+        notifyMutation(new DomMutation.ChildListChanged(this, List.of(), List.of(child)));
     }
 
     public void replaceChild(Node replacement, Node oldChild) {
@@ -340,6 +342,19 @@ public abstract class Node implements EventTarget {
             if (event.isImmediatePropagationStopped()) {
                 break;
             }
+        }
+    }
+
+    final void notifyCharacterDataChanged(String oldValue, String newValue) {
+        if (!Objects.equals(oldValue, newValue)) {
+            notifyMutation(new DomMutation.CharacterDataChanged(this, oldValue, newValue));
+        }
+    }
+
+    final void notifyMutation(DomMutation mutation) {
+        Node root = rootOf(this);
+        if (root instanceof Document document) {
+            document.dispatchMutation(mutation);
         }
     }
 

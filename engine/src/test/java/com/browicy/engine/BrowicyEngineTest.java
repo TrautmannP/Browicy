@@ -1,6 +1,8 @@
 package com.browicy.engine;
 
 import com.browicy.engine.dom.Document;
+import com.browicy.engine.dom.DocumentReadyState;
+import com.browicy.engine.dom.Event;
 import com.browicy.engine.net.LocalTestServer;
 import com.browicy.engine.net.NetworkRequestEvent;
 import com.browicy.engine.net.NetworkResourceType;
@@ -276,6 +278,80 @@ public class BrowicyEngineTest {
                 .getComputedStyles().get("color"));
         assertEquals(1, updates.size());
         assertTrue(updates.getFirst() instanceof PageUpdate.StylesChanged);
+    }
+
+    @Test
+    public void persistentSessionBatchesClickMutationsAndRecalculatesStyles() {
+        server.serveHtml("/interactive", """
+                <html><head>
+                  <style>body { color: black; } body.dark { color: white; }</style>
+                </head><body>
+                  <button id="button">Öffnen</button>
+                  <p id="message">1</p>
+                  <script>
+                    window.counter = 1;
+                    document.addEventListener('DOMContentLoaded', () => {
+                      document.body.setAttribute('data-dom-ready', document.readyState);
+                    });
+                    document.body.addEventListener('load', () => {
+                      document.body.setAttribute('data-load-ready', document.readyState);
+                    });
+                    document.getElementById('button').addEventListener('click', () => {
+                      counter++;
+                      document.body.classList.add('dark');
+                      document.body.setAttribute('aria-expanded', 'true');
+                      for (let i = 0; i < 10; i++) {
+                        document.body.setAttribute('data-change-' + i, String(i));
+                      }
+                      document.getElementById('message').textContent = String(counter);
+                    });
+                  </script>
+                </body></html>
+                """);
+        List<PageUpdate> updates = new CopyOnWriteArrayList<>();
+
+        try (PageSession session = engine.loadPageSession(server.url("/interactive"), updates::add)) {
+            assertEquals(DocumentReadyState.COMPLETE, session.document().getReadyState());
+            assertEquals("interactive", session.document().getBody()
+                    .getAttribute("data-dom-ready"));
+            assertEquals("complete", session.document().getBody()
+                    .getAttribute("data-load-ready"));
+            assertTrue(updates.isEmpty());
+
+            session.runtime().submitEvent(
+                    session.document().getElementById("button"),
+                    new Event("click", true, true)).join();
+
+            assertEquals("2", session.document().getElementById("message").getTextContent());
+            assertEquals("white", session.document().getBody()
+                    .getComputedStyles().get("color"));
+            assertEquals(1, updates.size());
+            assertEquals(InvalidationType.STYLE, updates.getFirst().invalidation());
+            assertTrue(updates.getFirst().mutations().size() >= 13);
+        }
+    }
+
+    @Test
+    public void timerScheduledFromLoadUpdatesPageAfterInitialLoad() throws Exception {
+        server.serveHtml("/timer", """
+                <html><body><p id="message">Warte</p><script>
+                  document.body.addEventListener('load', () => {
+                    setTimeout(() => {
+                      document.getElementById('message').textContent = 'Fertig';
+                    }, 100);
+                  });
+                </script></body></html>
+                """);
+        CountDownLatch updated = new CountDownLatch(1);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/timer"), update -> updated.countDown())) {
+            assertEquals("Warte", session.document().getElementById("message").getTextContent());
+            assertTrue("Timer-Update wurde nicht veröffentlicht",
+                    updated.await(2, TimeUnit.SECONDS));
+            session.runtime().awaitIdle();
+            assertEquals("Fertig", session.document().getElementById("message").getTextContent());
+        }
     }
 
 }

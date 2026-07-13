@@ -92,11 +92,22 @@ public final class Element extends Node implements ParentNode {
     }
 
     public void setAttribute(String name, String value) {
-        attributes.put(name.toLowerCase(), value == null ? "" : value);
+        String normalizedName = name.toLowerCase(Locale.ROOT);
+        String normalizedValue = value == null ? "" : value;
+        String oldValue = attributes.put(normalizedName, normalizedValue);
+        if (!java.util.Objects.equals(oldValue, normalizedValue)) {
+            notifyMutation(new DomMutation.AttributeChanged(
+                    this, normalizedName, oldValue, normalizedValue));
+        }
     }
 
     public void removeAttribute(String name) {
-        attributes.remove(name.toLowerCase(Locale.ROOT));
+        String normalizedName = name.toLowerCase(Locale.ROOT);
+        if (!attributes.containsKey(normalizedName)) {
+            return;
+        }
+        String oldValue = attributes.remove(normalizedName);
+        notifyMutation(new DomMutation.AttributeChanged(this, normalizedName, oldValue, null));
     }
 
     public String getValueState() {

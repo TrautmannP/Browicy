@@ -125,6 +125,8 @@ public final class BrowserFrame extends JFrame {
 
     @Override
     public void dispose() {
+        content.close();
+        state.close();
         engine.close();
         super.dispose();
     }

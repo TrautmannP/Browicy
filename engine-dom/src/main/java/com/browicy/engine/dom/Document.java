@@ -4,9 +4,11 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public final class Document extends Node implements ParentNode {
 
+    private static final System.Logger LOGGER = System.getLogger(Document.class.getName());
     private static final String XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace";
     private static final String XMLNS_NAMESPACE = "http://www.w3.org/2000/xmlns/";
     private static final String XML_NAME = "[A-Za-z_][A-Za-z0-9._-]*";
@@ -15,6 +17,9 @@ public final class Document extends Node implements ParentNode {
     private final String url;
     private final URI documentUri;
     private URI baseUri;
+    private final CopyOnWriteArrayList<DocumentMutationListener> mutationListeners =
+            new CopyOnWriteArrayList<>();
+    private volatile DocumentReadyState readyState = DocumentReadyState.LOADING;
 
     public Document(String url) {
         this.url = url == null || url.isBlank() ? FALLBACK_URI.toString() : url;
@@ -32,6 +37,43 @@ public final class Document extends Node implements ParentNode {
 
     public URI getBaseUri() {
         return baseUri;
+    }
+
+    public DocumentReadyState getReadyState() {
+        return readyState;
+    }
+
+    /**
+     * Advances the loading state. A document lifecycle is monotonic and cannot return to an
+     * earlier state.
+     */
+    public void transitionTo(DocumentReadyState nextState) {
+        Objects.requireNonNull(nextState, "nextState");
+        DocumentReadyState current = readyState;
+        if (nextState.ordinal() < current.ordinal()) {
+            throw new IllegalStateException(
+                    "Dokumentstatus kann nicht von " + current + " nach " + nextState + " zurückgesetzt werden");
+        }
+        readyState = nextState;
+    }
+
+    public void addMutationListener(DocumentMutationListener listener) {
+        mutationListeners.addIfAbsent(Objects.requireNonNull(listener, "listener"));
+    }
+
+    public void removeMutationListener(DocumentMutationListener listener) {
+        mutationListeners.remove(listener);
+    }
+
+    void dispatchMutation(DomMutation mutation) {
+        for (DocumentMutationListener listener : mutationListeners) {
+            try {
+                listener.onMutation(mutation);
+            } catch (RuntimeException failure) {
+                LOGGER.log(System.Logger.Level.WARNING,
+                        "DOM-Mutationslistener warf eine Exception", failure);
+            }
+        }
     }
 
     @Override public short getNodeType() { return DOCUMENT_NODE; }
