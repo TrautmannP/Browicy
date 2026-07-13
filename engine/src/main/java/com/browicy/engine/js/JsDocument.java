@@ -25,11 +25,15 @@ import java.util.stream.Collectors;
  * <p>Element-Wrapper werden pro Dokument gecacht, damit Identität wie im
  * Browser funktioniert ({@code document.body === document.body}).</p>
  */
-final class JsDocument implements ProxyObject {
+final class JsDocument implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "title", "body", "documentElement", "URL",
-            "currentScript", "getElementById", "getElementsByTagName", "createElement", "write");
+            "title", "body", "documentElement", "URL", "nodeType", "nodeName", "nodeValue",
+            "parentNode", "childNodes", "firstChild", "lastChild", "hasChildNodes",
+            "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
+            "currentScript", "getElementById", "getElementsByTagName", "createElement",
+            "createTextNode", "createComment", "createDocumentFragment",
+            "createNodeIterator", "createTreeWalker", "write");
 
     private final Document document;
     private final Map<Node, Object> wrappers = new IdentityHashMap<>();
@@ -38,6 +42,8 @@ final class JsDocument implements ProxyObject {
     JsDocument(Document document) {
         this.document = document;
     }
+
+    @Override public Document unwrapNode() { return document; }
 
     /** Liefert den (gecachten) JavaScript-Wrapper für ein DOM-Element. */
     JsElement wrap(Element element) {
@@ -64,6 +70,19 @@ final class JsDocument implements ProxyObject {
             case "body" -> wrap(document.getBody());
             case "documentElement" -> wrap(document.getDocumentElement());
             case "URL" -> document.getUrl();
+            case "nodeType" -> document.getNodeType();
+            case "nodeName" -> document.getNodeName();
+            case "nodeValue", "parentNode" -> null;
+            case "childNodes" -> ProxyArray.fromList(document.getChildren().stream().map(this::wrap).toList());
+            case "firstChild" -> wrap(document.getFirstChild());
+            case "lastChild" -> wrap(document.getLastChild());
+            case "hasChildNodes" -> (ProxyExecutable) args -> document.hasChildNodes();
+            case "ELEMENT_NODE" -> Node.ELEMENT_NODE;
+            case "TEXT_NODE" -> Node.TEXT_NODE;
+            case "COMMENT_NODE" -> Node.COMMENT_NODE;
+            case "DOCUMENT_NODE" -> Node.DOCUMENT_NODE;
+            case "DOCUMENT_TYPE_NODE" -> Node.DOCUMENT_TYPE_NODE;
+            case "DOCUMENT_FRAGMENT_NODE" -> Node.DOCUMENT_FRAGMENT_NODE;
             case "currentScript" -> wrap(currentScript);
             case "getElementById" -> (ProxyExecutable) args ->
                     wrap(document.getElementById(asString(args, 0)));
@@ -72,7 +91,14 @@ final class JsDocument implements ProxyObject {
                             .map(element -> (Object) wrap(element))
                             .collect(Collectors.toList()));
             case "createElement" -> (ProxyExecutable) args ->
-                    wrap(new Element(asString(args, 0)));
+                    wrap(document.createElement(asString(args, 0)));
+            case "createTextNode" -> (ProxyExecutable) args -> wrap(document.createTextNode(asString(args, 0)));
+            case "createComment" -> (ProxyExecutable) args -> wrap(document.createComment(asString(args, 0)));
+            case "createDocumentFragment" -> (ProxyExecutable) args -> wrap(document.createDocumentFragment());
+            case "createNodeIterator" -> (ProxyExecutable) args -> new JsNodeIterator(this,
+                    expectNode(args, 0), whatToShow(args, 1), filter(args, 2));
+            case "createTreeWalker" -> (ProxyExecutable) args -> new JsTreeWalker(this,
+                    expectNode(args, 0), whatToShow(args, 1), filter(args, 2));
             case "write" -> (ProxyExecutable) args -> {
                 StringBuilder html = new StringBuilder();
                 for (int i = 0; i < args.length; i++) {
@@ -83,6 +109,19 @@ final class JsDocument implements ProxyObject {
             };
             default -> null;
         };
+    }
+
+    private static Node expectNode(Value[] args, int index) {
+        JsNodeLike node = JsElement.expectNode(args, index, false);
+        return node.unwrapNode();
+    }
+
+    private static long whatToShow(Value[] args, int index) {
+        return index >= args.length || args[index].isNull() ? 0xFFFFFFFFL : args[index].asLong() & 0xFFFFFFFFL;
+    }
+
+    private static Value filter(Value[] args, int index) {
+        return index >= args.length || args[index].isNull() ? null : args[index];
     }
 
     void setCurrentScript(Element currentScript) {

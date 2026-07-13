@@ -236,6 +236,99 @@ public class JavaScriptEngineTest {
         assertEquals("nachher", document.getElementById("after").getTextContent());
     }
 
+    @Test
+    public void domCoreCreatesAndSplicesGenericNodeTypes() {
+        Document document = parse("""
+                <!doctype html><html><body><div id="target"></div><script>
+                  var target = document.getElementById('target');
+                  var fragment = document.createDocumentFragment();
+                  var text = document.createTextNode('eins');
+                  var comment = document.createComment('messbar');
+                  fragment.appendChild(text);
+                  fragment.appendChild(comment);
+                  target.appendChild(fragment);
+                  console.log(document.nodeType, document.firstChild.nodeType,
+                              target.nodeType, target.childNodes.length,
+                              text.nodeType, comment.nodeType, fragment.childNodes.length,
+                              target.contains(comment), target.hasChildNodes());
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: 9 10 1 2 3 8 0 true true"), result.consoleMessages());
+    }
+
+    @Test
+    public void nodeIteratorTraversesLiveTreeInBothDirections() {
+        Document document = parse("""
+                <html><body><main id="root"><a></a><b><c></c></b></main><script>
+                  var root = document.getElementById('root');
+                  var iterator = document.createNodeIterator(root, NodeFilter.SHOW_ELEMENT, null);
+                  var forward = [], node;
+                  while ((node = iterator.nextNode())) {
+                    forward.push(node.nodeName);
+                    if (node.nodeName == 'A') root.insertBefore(document.createElement('x'), node.nextSibling);
+                  }
+                  var backward = [];
+                  while ((node = iterator.previousNode())) backward.push(node.nodeName);
+                  console.log(forward.join(','));
+                  console.log(backward.join(','));
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: MAIN,A,X,B,C", "log: C,B,X,A,MAIN"), result.consoleMessages());
+    }
+
+    @Test
+    public void nodeIteratorTreatsRejectLikeSkipAndForwardsFilterExceptions() {
+        Document document = parse("""
+                <html><body><main id="root"><a><b></b></a><c></c></main><script>
+                  var root = document.getElementById('root');
+                  var iterator = document.createNodeIterator(root, NodeFilter.SHOW_ELEMENT,
+                    function (node) { return node.nodeName == 'A' ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; });
+                  var names = [], node;
+                  while ((node = iterator.nextNode())) names.push(node.nodeName);
+                  console.log(names.join(','));
+                  var expected = {};
+                  var throwing = document.createNodeIterator(root, NodeFilter.SHOW_ALL, function () { throw expected; });
+                  try { throwing.nextNode(); } catch (error) { console.log(error === expected); }
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: MAIN,B,C", "log: true"), result.consoleMessages());
+    }
+
+    @Test
+    public void treeWalkerDistinguishesSkippedAndRejectedSubtrees() {
+        Document document = parse("""
+                <html><body><main id="root"><skip><a></a></skip><reject><b></b></reject><c></c></main><script>
+                  var root = document.getElementById('root');
+                  var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, function (node) {
+                    if (node.nodeName == 'SKIP') return NodeFilter.FILTER_SKIP;
+                    if (node.nodeName == 'REJECT') return NodeFilter.FILTER_REJECT;
+                    return NodeFilter.FILTER_ACCEPT;
+                  });
+                  var names = [walker.currentNode.nodeName], node;
+                  while ((node = walker.nextNode())) names.push(node.nodeName);
+                  console.log(names.join(','));
+                  console.log(walker.previousNode().nodeName, walker.parentNode().nodeName);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: MAIN,A,C", "log: A MAIN"), result.consoleMessages());
+    }
+
     // --- Sandbox ----------------------------------------------------------
 
     @Test

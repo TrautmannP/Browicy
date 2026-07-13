@@ -22,6 +22,14 @@ public final class Document extends Node {
         return url;
     }
 
+    @Override public short getNodeType() { return DOCUMENT_NODE; }
+    @Override public String getNodeName() { return "#document"; }
+
+    public Element createElement(String name) { return new Element(name); }
+    public TextNode createTextNode(String data) { return new TextNode(data); }
+    public CommentNode createComment(String data) { return new CommentNode(data); }
+    public DocumentFragment createDocumentFragment() { return new DocumentFragment(); }
+
     public Element getDocumentElement() {
         return findFirst("html");
     }

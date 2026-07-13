@@ -19,13 +19,14 @@ import java.util.stream.Collectors;
  * {@code children}, {@code getAttribute}, {@code setAttribute},
  * {@code hasAttribute} und {@code appendChild}.</p>
  */
-final class JsElement implements ProxyObject {
+final class JsElement implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "tagName", "nodeName", "id", "className", "textContent", "children",
+            "tagName", "nodeName", "nodeType", "nodeValue", "id", "className", "textContent", "children", "childNodes",
             "parentNode", "firstChild", "lastChild", "previousSibling", "nextSibling",
             "getAttribute", "setAttribute", "removeAttribute", "hasAttribute",
-            "appendChild", "removeChild");
+            "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
+            "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE");
 
     private final Element element;
     private final JsDocument document;
@@ -40,18 +41,24 @@ final class JsElement implements ProxyObject {
         return element;
     }
 
+    @Override public Element unwrapNode() { return element; }
+
     @Override
     public Object getMember(String key) {
         return switch (key) {
             // Wie im Browser-DOM: Tag-Namen von HTML-Elementen sind GROSS geschrieben
             case "tagName" -> element.getTagName().toUpperCase();
             case "nodeName" -> element.getTagName().toUpperCase();
+            case "nodeType" -> element.getNodeType();
+            case "nodeValue" -> null;
             case "id" -> orEmpty(element.getAttribute("id"));
             case "className" -> orEmpty(element.getAttribute("class"));
             case "textContent" -> element.getTextContent();
             case "children" -> ProxyArray.fromList(element.getChildElements().stream()
                     .map(child -> (Object) document.wrap(child))
                     .collect(Collectors.toList()));
+            case "childNodes" -> ProxyArray.fromList(element.getChildren().stream()
+                    .map(document::wrap).collect(Collectors.toList()));
             case "parentNode" -> document.wrap(element.getParent());
             case "firstChild" -> childAt(0);
             case "lastChild" -> childAt(element.getChildren().size() - 1);
@@ -68,15 +75,38 @@ final class JsElement implements ProxyObject {
             };
             case "hasAttribute" -> (ProxyExecutable) args -> element.hasAttribute(asString(args, 0));
             case "appendChild" -> (ProxyExecutable) args -> {
-                JsElement child = expectElement(args, 0);
-                element.appendChild(child.unwrap());
+                JsNodeLike child = expectNode(args, 0, false);
+                element.appendChild(child.unwrapNode());
                 return child;
+            };
+            case "insertBefore" -> (ProxyExecutable) args -> {
+                JsNodeLike child = expectNode(args, 0, false);
+                JsNodeLike reference = expectNode(args, 1, true);
+                element.insertBefore(child.unwrapNode(), reference == null ? null : reference.unwrapNode());
+                return child;
+            };
+            case "replaceChild" -> (ProxyExecutable) args -> {
+                JsNodeLike replacement = expectNode(args, 0, false);
+                JsNodeLike oldChild = expectNode(args, 1, false);
+                element.replaceChild(replacement.unwrapNode(), oldChild.unwrapNode());
+                return oldChild;
             };
             case "removeChild" -> (ProxyExecutable) args -> {
-                JsElement child = expectElement(args, 0);
-                element.removeChild(child.unwrap());
+                JsNodeLike child = expectNode(args, 0, false);
+                element.removeChild(child.unwrapNode());
                 return child;
             };
+            case "hasChildNodes" -> (ProxyExecutable) args -> element.hasChildNodes();
+            case "contains" -> (ProxyExecutable) args -> {
+                JsNodeLike other = expectNode(args, 0, true);
+                return other != null && element.contains(other.unwrapNode());
+            };
+            case "ELEMENT_NODE" -> com.browicy.engine.dom.Node.ELEMENT_NODE;
+            case "TEXT_NODE" -> com.browicy.engine.dom.Node.TEXT_NODE;
+            case "COMMENT_NODE" -> com.browicy.engine.dom.Node.COMMENT_NODE;
+            case "DOCUMENT_NODE" -> com.browicy.engine.dom.Node.DOCUMENT_NODE;
+            case "DOCUMENT_TYPE_NODE" -> com.browicy.engine.dom.Node.DOCUMENT_TYPE_NODE;
+            case "DOCUMENT_FRAGMENT_NODE" -> com.browicy.engine.dom.Node.DOCUMENT_FRAGMENT_NODE;
             default -> null;
         };
     }
@@ -123,12 +153,13 @@ final class JsElement implements ProxyObject {
         return toText(args[index]);
     }
 
-    private static JsElement expectElement(Value[] args, int index) {
+    static JsNodeLike expectNode(Value[] args, int index, boolean nullable) {
+        if (index < args.length && args[index].isNull() && nullable) return null;
         if (index < args.length && args[index].isProxyObject()
-                && args[index].asProxyObject() instanceof JsElement jsElement) {
-            return jsElement;
+                && args[index].asProxyObject() instanceof JsNodeLike node) {
+            return node;
         }
-        throw new IllegalArgumentException("Es wird ein DOM-Element erwartet");
+        throw new IllegalArgumentException("Es wird ein DOM-Knoten erwartet");
     }
 
     private static String toText(Value value) {

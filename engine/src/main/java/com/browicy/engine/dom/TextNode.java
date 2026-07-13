@@ -15,6 +15,21 @@ public final class TextNode extends Node {
         return data;
     }
 
+    @Override public short getNodeType() { return TEXT_NODE; }
+    @Override public String getNodeName() { return "#text"; }
+    @Override public String getNodeValue() { return data; }
+    @Override public void setNodeValue(String value) { setData(value); }
+
+    @Override
+    public String getTextContent() {
+        return data;
+    }
+
+    @Override
+    public void setTextContent(String text) {
+        setData(text);
+    }
+
     public void setData(String data) {
         this.data = data == null ? "" : data;
     }

@@ -4,6 +4,8 @@ import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Node;
 import com.browicy.engine.dom.TextNode;
+import com.browicy.engine.dom.CommentNode;
+import com.browicy.engine.dom.DocumentType;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -54,9 +56,8 @@ public final class HtmlParser {
                         openNodes.peek().appendChild(new TextNode(token.data()));
                     }
                 }
-                case COMMENT, DOCTYPE -> {
-                    // Kommentare und Doctype landen (noch) nicht im DOM
-                }
+                case COMMENT -> openNodes.peek().appendChild(new CommentNode(token.data()));
+                case DOCTYPE -> openNodes.peek().appendChild(new DocumentType(token.data()));
             }
         }
         return document;

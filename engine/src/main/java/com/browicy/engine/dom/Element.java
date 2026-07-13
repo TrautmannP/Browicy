@@ -28,6 +28,9 @@ public final class Element extends Node {
         return tagName;
     }
 
+    @Override public short getNodeType() { return ELEMENT_NODE; }
+    @Override public String getNodeName() { return tagName.toUpperCase(java.util.Locale.ROOT); }
+
     public Map<String, String> getAttributes() {
         return Collections.unmodifiableMap(attributes);
     }
