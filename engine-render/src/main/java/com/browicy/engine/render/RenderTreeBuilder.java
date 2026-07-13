@@ -10,7 +10,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/** Converts DOM nodes and computed declarations into an immutable render tree. */
 public final class RenderTreeBuilder {
 
     private static final float DEFAULT_FONT_SIZE = 16f;
@@ -34,11 +33,15 @@ public final class RenderTreeBuilder {
                 false,
                 DEFAULT_COLOR,
                 null,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
                 BoxEdges.ZERO,
+                HorizontalAutoMargins.NONE,
                 BoxEdges.ZERO,
                 BoxEdges.ZERO,
                 BoxColors.CURRENT_COLOR,
-                BoxBorders.NONE);
+                BoxBorders.NONE,
+                RenderStyle.TextAlign.LEFT);
         if (rootElement == null) {
             return new RenderTree(new RenderBox(null, initial, List.of()));
         }
@@ -64,6 +67,10 @@ public final class RenderTreeBuilder {
         return new RenderInlineBox(element, style, children);
     }
 
+    private RenderInlineBlock buildInlineBlock(Element element, RenderStyle style) {
+        return new RenderInlineBlock(buildBox(element, style));
+    }
+
     private void collectChildren(Node parent, RenderStyle parentStyle, List<RenderNode> output) {
         for (Node child : parent.getChildren()) {
             if (child instanceof TextNode text) {
@@ -84,6 +91,8 @@ public final class RenderTreeBuilder {
                 output.add(new RenderLineBreak(style));
             } else if (style.display() == RenderStyle.Display.BLOCK) {
                 output.add(buildBox(element, style));
+            } else if (style.display() == RenderStyle.Display.INLINE_BLOCK) {
+                output.add(buildInlineBlock(element, style));
             } else {
                 output.add(buildInlineBox(element, style));
             }
@@ -130,11 +139,15 @@ public final class RenderTreeBuilder {
                 inherited.italic(),
                 inherited.color(),
                 null,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
                 BoxEdges.ZERO,
+                HorizontalAutoMargins.NONE,
                 BoxEdges.ZERO,
                 BoxEdges.ZERO,
                 BoxColors.CURRENT_COLOR,
-                BoxBorders.NONE);
+                BoxBorders.NONE,
+                inherited.textAlign());
     }
 
     private static RenderStyle resolveStyle(Element element, RenderStyle parent) {
@@ -147,15 +160,20 @@ public final class RenderTreeBuilder {
         boolean italic = defaultItalic(tag, parent.italic());
         CssColor color = parent.color();
         CssColor background = null;
+        RenderLength width = RenderLength.AUTO;
+        RenderLength height = RenderLength.AUTO;
         BoxEdges margin = defaultMargin(tag);
+        HorizontalAutoMargins autoMargins = HorizontalAutoMargins.NONE;
         BoxEdges padding = BoxEdges.ZERO;
         BoxEdges borderWidth = BoxEdges.ZERO;
         BoxColors borderColor = BoxColors.CURRENT_COLOR;
         BoxBorders borderStyle = BoxBorders.NONE;
+        RenderStyle.TextAlign textAlign = parent.textAlign();
 
         if (declarations.containsKey("display")) {
             display = switch (declarations.get("display")) {
                 case "block" -> RenderStyle.Display.BLOCK;
+                case "inline-block" -> RenderStyle.Display.INLINE_BLOCK;
                 case "none" -> RenderStyle.Display.NONE;
                 default -> RenderStyle.Display.INLINE;
             };
@@ -169,6 +187,15 @@ public final class RenderTreeBuilder {
         if (declarations.containsKey("font-style")) {
             italic = !"normal".equals(declarations.get("font-style"));
         }
+        width = resolveDimension(declarations.get("width"), fontSize);
+        height = resolveDimension(declarations.get("height"), fontSize);
+        if (declarations.containsKey("text-align")) {
+            textAlign = switch (declarations.get("text-align")) {
+                case "center" -> RenderStyle.TextAlign.CENTER;
+                case "right" -> RenderStyle.TextAlign.RIGHT;
+                default -> RenderStyle.TextAlign.LEFT;
+            };
+        }
         CssColor declaredColor = CssColor.parse(declarations.get("color"));
         if (declaredColor != null) {
             color = declaredColor;
@@ -179,6 +206,9 @@ public final class RenderTreeBuilder {
         }
 
         margin = resolveEdges(declarations, "margin", fontSize, margin);
+        autoMargins = new HorizontalAutoMargins(
+                "auto".equals(declarations.get("margin-left")),
+                "auto".equals(declarations.get("margin-right")));
         padding = nonNegative(resolveEdges(declarations, "padding", fontSize, padding));
         borderWidth = nonNegative(resolveEdges(declarations, "border", fontSize, borderWidth, "-width"));
         borderColor = resolveBorderColors(declarations, color);
@@ -186,7 +216,8 @@ public final class RenderTreeBuilder {
         borderWidth = effectiveBorderWidths(borderWidth, borderStyle);
 
         return new RenderStyle(display, fontSize, fontWeight, italic, color, background,
-                margin, padding, borderWidth, borderColor, borderStyle);
+                width, height, margin, autoMargins, padding, borderWidth, borderColor,
+                borderStyle, textAlign);
     }
 
     private static RenderStyle.Display defaultDisplay(String tag) {
@@ -300,6 +331,26 @@ public final class RenderTreeBuilder {
         }
     }
 
+    private static RenderLength resolveDimension(String value, float emBase) {
+        if (value == null || "auto".equals(value)) {
+            return RenderLength.AUTO;
+        }
+        if ("0".equals(value)) {
+            return new RenderLength(0, RenderLength.Unit.PX);
+        }
+        try {
+            if (value.endsWith("%")) {
+                return new RenderLength(Float.parseFloat(value.substring(0, value.length() - 1)),
+                        RenderLength.Unit.PERCENT);
+            }
+            float number = Float.parseFloat(value.substring(0, value.length() - 2));
+            return new RenderLength(value.endsWith("em") ? number * emBase : number,
+                    RenderLength.Unit.PX);
+        } catch (RuntimeException ignored) {
+            return RenderLength.AUTO;
+        }
+    }
+
     private static BoxEdges nonNegative(BoxEdges edges) {
         return new BoxEdges(
                 Math.max(0, edges.top()),
@@ -310,7 +361,8 @@ public final class RenderTreeBuilder {
 
     private static RenderStyle copyWithDisplay(RenderStyle style, RenderStyle.Display display) {
         return new RenderStyle(display, style.fontSizePx(), style.fontWeight(), style.italic(),
-                style.color(), style.backgroundColor(), style.margin(), style.padding(),
-                style.borderWidth(), style.borderColor(), style.borderStyle());
+                style.color(), style.backgroundColor(), style.width(), style.height(),
+                style.margin(), style.autoMargins(), style.padding(), style.borderWidth(),
+                style.borderColor(), style.borderStyle(), style.textAlign());
     }
 }

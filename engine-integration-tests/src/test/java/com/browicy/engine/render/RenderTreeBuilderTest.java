@@ -88,6 +88,23 @@ public class RenderTreeBuilderTest {
         assertEquals("after", textRunsRecursively(after).getFirst().text());
     }
 
+    @Test
+    public void resolvesDimensionsAutoMarginsAlignmentAndInlineBlockNodes() {
+        RenderBox container = boxChildren(build("""
+                <body><div style="text-align:right"><span style="display:inline-block;
+                  width: 5em; height: 25%; margin-left:auto">content</span></div></body>
+                """).root()).getFirst();
+
+        assertEquals(RenderStyle.TextAlign.RIGHT, container.style().textAlign());
+        RenderInlineBlock inlineBlock = (RenderInlineBlock) container.children().getFirst();
+        RenderStyle style = inlineBlock.box().style();
+        assertEquals(RenderStyle.Display.INLINE_BLOCK, style.display());
+        assertEquals(new RenderLength(80, RenderLength.Unit.PX), style.width());
+        assertEquals(new RenderLength(25, RenderLength.Unit.PERCENT), style.height());
+        assertTrue(style.autoMargins().left());
+        assertEquals(RenderStyle.TextAlign.RIGHT, style.textAlign());
+    }
+
     private static RenderTree build(String html) {
         Document document = new HtmlParser().parse(html);
         return new RenderTreeBuilder().build(document);
@@ -106,6 +123,8 @@ public class RenderTreeBuilderTest {
             children = box.children();
         } else if (node instanceof RenderInlineBox inlineBox) {
             children = inlineBox.children();
+        } else if (node instanceof RenderInlineBlock inlineBlock) {
+            children = inlineBlock.box().children();
         } else {
             return List.of();
         }

@@ -129,6 +129,33 @@ public class CssParserTest {
         assertFalse(parser.supportsProperty("position"));
     }
 
+    @Test
+    public void parsesDimensionsAutoMarginsAlignmentAndInlineBlock() {
+        var declarations = new CssParser().parseDeclarations("""
+                width: 12em; height: 50%; margin: 1px auto 2px;
+                text-align: center; display: inline-block
+                """);
+
+        assertEquals("12em", declarations.get("width"));
+        assertEquals("50%", declarations.get("height"));
+        assertEquals("auto", declarations.get("margin-left"));
+        assertEquals("auto", declarations.get("margin-right"));
+        assertEquals("center", declarations.get("text-align"));
+        assertEquals("inline-block", declarations.get("display"));
+    }
+
+    @Test
+    public void rejectsUnsupportedDimensionAndAlignmentValues() {
+        CssParser parser = new CssParser();
+
+        assertTrue(parser.supports("width", "120px"));
+        assertTrue(parser.supports("height", "auto"));
+        assertTrue(parser.supports("text-align", "right"));
+        assertFalse(parser.supports("width", "-1px"));
+        assertFalse(parser.supports("height", "10vh"));
+        assertFalse(parser.supports("text-align", "justify"));
+    }
+
 
     @Test
     public void invalidSelectorListDiscardsTheWholeCssRule() {

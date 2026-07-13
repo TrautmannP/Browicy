@@ -303,6 +303,96 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void appliesFixedAndPercentageBlockDimensions() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="fixed" style="width:100px;height:40px"></div>
+                <div id="percent" style="width:50%"></div></body>
+                """));
+
+        List<BoxFragment> boxes = panel.layoutForTesting(400).fragments().stream()
+                .filter(BoxFragment.class::isInstance)
+                .map(BoxFragment.class::cast)
+                .filter(fragment -> fragment.box().source() != null)
+                .toList();
+        BoxFragment fixed = boxes.stream()
+                .filter(fragment -> "fixed".equals(fragment.box().source().getAttribute("id")))
+                .findFirst().orElseThrow();
+        BoxFragment percent = boxes.stream()
+                .filter(fragment -> "percent".equals(fragment.box().source().getAttribute("id")))
+                .findFirst().orElseThrow();
+
+        assertEquals(100f, fixed.width(), 0.001f);
+        assertEquals(40f, fixed.height(), 0.001f);
+        assertEquals(184f, percent.width(), 0.001f);
+    }
+
+    @Test
+    public void centersFixedWidthBlocksWithAutomaticHorizontalMargins() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div style="width:100px;margin-left:auto;margin-right:auto">X</div></body>
+                """));
+
+        BoxFragment box = panel.layoutForTesting(400).fragments().stream()
+                .filter(BoxFragment.class::isInstance)
+                .map(BoxFragment.class::cast)
+                .filter(fragment -> fragment.box().tagName().equals("div"))
+                .findFirst().orElseThrow();
+
+        assertEquals(150f, box.x(), 0.001f);
+        assertEquals(100f, box.width(), 0.001f);
+    }
+
+    @Test
+    public void alignsInlineLinesWithinTheirContainingBlock() {
+        DomViewPanel centered = new DomViewPanel(parse("""
+                <body><p style="text-align:center">centered</p></body>
+                """));
+        DomViewPanel right = new DomViewPanel(parse("""
+                <body><p style="text-align:right">right</p></body>
+                """));
+
+        LineBox centerLine = centered.layoutForTesting(400).lineBoxes().getFirst();
+        LineBox rightLine = right.layoutForTesting(400).lineBoxes().getFirst();
+
+        assertEquals(200f, centerLine.x() + centerLine.width() / 2f, 1f);
+        assertEquals(384f, rightLine.x() + rightLine.width(), 0.001f);
+    }
+
+    @Test
+    public void laysOutInlineBlocksAtomicallyAndPaintsTheirBoxes() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div><span id="one" style="display:inline-block;width:70px;height:40px;
+                  background-color:red;border:2px solid blue">one</span>
+                <span id="two" style="display:inline-block;width:80px;height:30px;
+                  background-color:yellow">two</span></div></body>
+                """));
+        panel.setSize(400, 1);
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        List<BoxFragment> inlineBlocks = layout.fragments().stream()
+                .filter(BoxFragment.class::isInstance)
+                .map(BoxFragment.class::cast)
+                .filter(fragment -> fragment.box().style().display()
+                        == com.browicy.engine.render.RenderStyle.Display.INLINE_BLOCK)
+                .toList();
+
+        assertEquals(2, inlineBlocks.size());
+        assertEquals(70f, inlineBlocks.get(0).width(), 0.001f);
+        assertEquals(40f, inlineBlocks.get(0).height(), 0.001f);
+        assertTrue(inlineBlocks.get(1).x() >= inlineBlocks.get(0).x() + 70f);
+        assertEquals(1, layout.lineBoxes().stream()
+                .filter(line -> line.height() >= 40f)
+                .count());
+
+        BufferedImage image = paint(panel);
+        BoxFragment first = inlineBlocks.getFirst();
+        assertColor(image, Math.round(first.x()), Math.round(first.y()),
+                CssColor.parse("blue"));
+        assertColor(image, Math.round(first.x()) + 3, Math.round(first.y()) + 3,
+                CssColor.parse("red"));
+    }
+
+    @Test
     public void refreshFromDocumentRebuildsRenderTreeAfterStyleChanges() {
         Document document = parse("""
                 <body><p id="message" style="color: red">Text</p></body>

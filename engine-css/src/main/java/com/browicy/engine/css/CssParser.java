@@ -15,10 +15,14 @@ public final class CssParser {
     private static final SelectorParser SELECTOR_PARSER = new SelectorParser();
     private static final Pattern RULE = Pattern.compile("([^{}]+)\\{([^{}]*)}");
     private static final Pattern COMMENTS = Pattern.compile("/\\*.*?\\*/", Pattern.DOTALL);
-    private static final Pattern LENGTH = Pattern.compile(
-            "(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em)|0)", Pattern.CASE_INSENSITIVE);
     private static final Pattern POSITIVE_LENGTH = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em)|0)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern MARGIN_LENGTH = Pattern.compile(
+            "(?:(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em)|0)|auto)",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern DIMENSION = Pattern.compile(
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|%)|0|auto)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_SIZE = Pattern.compile(
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_WEIGHT = Pattern.compile("[1-9]00");
@@ -105,7 +109,6 @@ public final class CssParser {
         return declarations;
     }
 
-    /** Returns whether this engine currently recognizes a property/value pair. */
     public boolean supports(String property, String value) {
         if (property == null || property.isBlank() || value == null || value.isBlank()) {
             return false;
@@ -113,7 +116,6 @@ public final class CssParser {
         return !parseDeclarations(property + ":" + value).isEmpty();
     }
 
-    /** Returns whether this engine recognizes at least one value for a property. */
     public boolean supportsProperty(String property) {
         if (property == null) {
             return false;
@@ -125,6 +127,8 @@ public final class CssParser {
             case "font-weight" -> supports(normalized, "normal");
             case "font-style" -> supports(normalized, "normal");
             case "display" -> supports(normalized, "block");
+            case "width", "height" -> supports(normalized, "auto");
+            case "text-align" -> supports(normalized, "left");
             case "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
                  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
                  "border", "border-width", "border-top-width", "border-right-width",
@@ -154,12 +158,19 @@ public final class CssParser {
                 }
             }
             case "display" -> {
-                if (value.equals("block") || value.equals("inline") || value.equals("none")) {
+                if (value.equals("block") || value.equals("inline")
+                        || value.equals("inline-block") || value.equals("none")) {
+                    target.put(property, value);
+                }
+            }
+            case "width", "height" -> putIfMatches(target, property, value, DIMENSION);
+            case "text-align" -> {
+                if (value.equals("left") || value.equals("center") || value.equals("right")) {
                     target.put(property, value);
                 }
             }
             case "margin", "padding" -> expandLengths(target, property, value,
-                    property.equals("margin") ? LENGTH : POSITIVE_LENGTH, "");
+                    property.equals("margin") ? MARGIN_LENGTH : POSITIVE_LENGTH, "");
             case "border-width" -> expandLengths(target, "border", value, POSITIVE_LENGTH, "-width");
             case "border-color" -> expandColors(target, value);
             case "border-style" -> expandBorderStyles(target, value);
@@ -171,7 +182,7 @@ public final class CssParser {
     private static void parseLonghand(Map<String, String> target, String property, String value) {
         for (String side : SIDES) {
             if (property.equals("margin-" + side)) {
-                putIfMatches(target, property, value, LENGTH);
+                putIfMatches(target, property, value, MARGIN_LENGTH);
                 return;
             }
             if (property.equals("padding-" + side) || property.equals("border-" + side + "-width")) {

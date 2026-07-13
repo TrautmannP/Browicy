@@ -8,13 +8,18 @@ public record RenderStyle(
         boolean italic,
         CssColor color,
         CssColor backgroundColor,
+        RenderLength width,
+        RenderLength height,
         BoxEdges margin,
+        HorizontalAutoMargins autoMargins,
         BoxEdges padding,
         BoxEdges borderWidth,
         BoxColors borderColor,
-        BoxBorders borderStyle) {
+        BoxBorders borderStyle,
+        TextAlign textAlign) {
 
-    public enum Display { BLOCK, INLINE, NONE }
+    public enum Display { BLOCK, INLINE, INLINE_BLOCK, NONE }
+    public enum TextAlign { LEFT, CENTER, RIGHT }
 
     public RenderStyle {
         if (fontSizePx <= 0) {
