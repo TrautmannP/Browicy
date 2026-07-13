@@ -71,8 +71,11 @@ final class PageResourceCoordinator {
         registerInlineStyleSheets(resources, styleSheets);
         DocumentUpdateCoordinator updates = new DocumentUpdateCoordinator(
                 document, styleSheets, styleApplicator, listener);
-        PageRuntime runtime = javaScriptEngine.createPageRuntime(document, ignored -> updates.flush());
+        PageFetchBackend fetchBackend = new PageFetchBackend(resourceLoader, document.getUrl());
+        PageRuntime runtime = javaScriptEngine.createPageRuntime(
+                document, ignored -> updates.flush(), fetchBackend);
         List<ResourceLoad> cancellableLoads = new ArrayList<>();
+        cancellableLoads.add(fetchBackend);
         ImageResourceRegistry images = new ImageResourceRegistry();
 
         try {

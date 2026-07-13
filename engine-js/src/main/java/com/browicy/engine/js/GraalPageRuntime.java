@@ -7,6 +7,8 @@ import com.browicy.engine.css.CssParser;
 import com.browicy.engine.selectors.SelectorParseException;
 import com.browicy.engine.selectors.SelectorParser;
 import java.io.OutputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -31,16 +33,19 @@ import org.graalvm.polyglot.ResourceLimits;
 import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.io.IOAccess;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 
 final class GraalPageRuntime implements PageRuntime {
 
     private static final System.Logger LOGGER = System.getLogger(GraalPageRuntime.class.getName());
     private static final AtomicLong NEXT_RUNTIME_ID = new AtomicLong();
+    static final int MAX_FETCH_REQUESTS_PER_PAGE = 256;
 
     private final Document document;
     private final long statementLimit;
     private final PageRuntimeObserver observer;
+    private final JsFetchBackend fetchBackend;
     private final LinkedBlockingDeque<Envelope<?>> tasks = new LinkedBlockingDeque<>();
     private final Deque<Envelope<?>> microtasks = new ArrayDeque<>();
     private final AtomicBoolean acceptingTasks = new AtomicBoolean(true);
@@ -61,11 +66,18 @@ final class GraalPageRuntime implements PageRuntime {
     private boolean inlineLoadHandlerInstalled;
     private boolean globalLoadHandlerFired;
     private Value windowLoadInvoker;
+    private int startedFetchRequests;
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer) {
+        this(document, statementLimit, observer, null);
+    }
+
+    GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
+                     JsFetchBackend fetchBackend) {
         this.document = Objects.requireNonNull(document, "document");
         this.statementLimit = statementLimit;
         this.observer = Objects.requireNonNull(observer, "observer");
+        this.fetchBackend = fetchBackend;
         long runtimeId = NEXT_RUNTIME_ID.incrementAndGet();
         ThreadFactory schedulerThreads = runnable -> {
             Thread thread = new Thread(runnable, "browicy-page-timer-" + runtimeId);
@@ -229,6 +241,96 @@ final class GraalPageRuntime implements PageRuntime {
             enqueueMicrotask(new PageTask.Callback(() -> executeCallback(callback, new Object[0])));
             return null;
         });
+        if (fetchBackend != null) {
+            bindings.putMember("__browicyFetch", (ProxyExecutable) this::startFetch);
+            context.eval("js", JavaScriptEngine.FETCH_BOOTSTRAP);
+        }
+    }
+
+    private Object startFetch(Value[] args) {
+        String url = args.length == 0 ? "" : asText(args[0]);
+        Value resolve = requireCallback(args, 1, "fetch");
+        Value reject = requireCallback(args, 2, "fetch");
+        URI target;
+        try {
+            target = resolveFetchUri(url);
+        } catch (IllegalArgumentException invalidUrl) {
+            executeCallback(reject, new Object[]{"fetch: " + invalidUrl.getMessage()});
+            return null;
+        }
+        if (startedFetchRequests >= MAX_FETCH_REQUESTS_PER_PAGE) {
+            executeCallback(reject, new Object[]{
+                    "fetch: Limit von " + MAX_FETCH_REQUESTS_PER_PAGE
+                            + " Netzwerkanfragen pro Seite erreicht"});
+            return null;
+        }
+        startedFetchRequests++;
+        CompletableFuture<JsFetchResponse> pending;
+        try {
+            pending = Objects.requireNonNull(
+                    fetchBackend.fetch(target), "fetchBackend lieferte null");
+        } catch (RuntimeException backendFailure) {
+            pending = CompletableFuture.failedFuture(backendFailure);
+        }
+        pending.whenComplete((response, failure) ->
+                completeFetchOnEventLoop(resolve, reject, response, failure));
+        return null;
+    }
+
+    private URI resolveFetchUri(String url) {
+        URI resolved;
+        try {
+            String documentUrl = document.getUrl();
+            URI base = documentUrl == null || documentUrl.isBlank()
+                    ? null : new URI(documentUrl);
+            resolved = base == null ? new URI(url) : base.resolve(url);
+        } catch (URISyntaxException | IllegalArgumentException invalid) {
+            throw new IllegalArgumentException("Ungültige URL: " + url);
+        }
+        String scheme = resolved.getScheme();
+        if (scheme == null
+                || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
+            throw new IllegalArgumentException("Nicht unterstützte URL: " + resolved);
+        }
+        if (resolved.getHost() == null) {
+            throw new IllegalArgumentException("URL ohne Host: " + resolved);
+        }
+        return resolved;
+    }
+
+    private void completeFetchOnEventLoop(Value resolve, Value reject,
+                                          JsFetchResponse response, Throwable failure) {
+        submit(new PageTask.Callback(() -> {
+            if (!contextUsable) {
+                return;
+            }
+            if (failure != null) {
+                executeCallback(reject, new Object[]{failureMessage(failure)});
+                return;
+            }
+            Object[] headerPairs = new Object[response.headers().size() * 2];
+            int index = 0;
+            for (JsFetchResponse.Header header : response.headers()) {
+                headerPairs[index++] = header.name();
+                headerPairs[index++] = header.value();
+            }
+            executeCallback(resolve, new Object[]{
+                    response.url(), response.status(), response.statusText(),
+                    ProxyArray.fromArray(headerPairs), response.bodyText()});
+        }), false).exceptionally(taskFailure -> {
+            logTaskFailure("Fetch-Ergebnis konnte nicht zugestellt werden", taskFailure);
+            return null;
+        });
+    }
+
+    private static String failureMessage(Throwable failure) {
+        Throwable cause = failure;
+        while ((cause instanceof java.util.concurrent.CompletionException
+                || cause instanceof java.util.concurrent.ExecutionException)
+                && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        return cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage();
     }
 
     private void installInlineLoadHandler() {

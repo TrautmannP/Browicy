@@ -4,5 +4,6 @@ public enum NetworkResourceType {
     DOCUMENT,
     STYLESHEET,
     SCRIPT,
-    IMAGE
+    IMAGE,
+    FETCH
 }

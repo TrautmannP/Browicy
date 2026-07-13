@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** Factory and compatibility facade for document-bound JavaScript runtimes. */
 public final class JavaScriptEngine {
 
     public static final long DEFAULT_STATEMENT_LIMIT = 10_000_000;
@@ -142,6 +141,133 @@ public final class JavaScriptEngine {
             UIEvent.BUBBLING_PHASE = Event.BUBBLING_PHASE;
             """;
 
+    static final String FETCH_BOOTSTRAP = """
+            (() => {
+              'use strict';
+              class Headers {
+                constructor(init) {
+                  this._entries = [];
+                  if (init == null) return;
+                  if (init instanceof Headers) {
+                    for (const entry of init._entries) this.append(entry[0], entry[1]);
+                  } else if (Array.isArray(init)) {
+                    for (const pair of init) this.append(pair[0], pair[1]);
+                  } else if (typeof init === 'object') {
+                    for (const name of Object.keys(init)) this.append(name, init[name]);
+                  } else {
+                    throw new TypeError('Ungültige Headers-Initialisierung');
+                  }
+                }
+                append(name, value) {
+                  this._entries.push([String(name).toLowerCase(), String(value).trim()]);
+                }
+                set(name, value) { this.delete(name); this.append(name, value); }
+                delete(name) {
+                  name = String(name).toLowerCase();
+                  this._entries = this._entries.filter(entry => entry[0] !== name);
+                }
+                get(name) {
+                  name = String(name).toLowerCase();
+                  const values = [];
+                  for (const entry of this._entries) if (entry[0] === name) values.push(entry[1]);
+                  return values.length === 0 ? null : values.join(', ');
+                }
+                has(name) { return this.get(name) !== null; }
+                forEach(callback, thisArg) {
+                  for (const entry of this.entries()) callback.call(thisArg, entry[1], entry[0], this);
+                }
+                *entries() {
+                  const sorted = [...this._entries].sort((a, b) =>
+                      a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+                  for (const entry of sorted) yield [entry[0], entry[1]];
+                }
+                *keys() { for (const entry of this.entries()) yield entry[0]; }
+                *values() { for (const entry of this.entries()) yield entry[1]; }
+                [Symbol.iterator]() { return this.entries(); }
+              }
+              class Response {
+                constructor(body, init) {
+                  init = init || {};
+                  this._bodyText = body == null ? '' : String(body);
+                  this._bodyUsed = false;
+                  this.status = init.status === undefined ? 200 : Number(init.status);
+                  this.statusText = init.statusText === undefined ? '' : String(init.statusText);
+                  this.headers = init.headers instanceof Headers
+                      ? init.headers : new Headers(init.headers);
+                  this.url = '';
+                  this.type = 'basic';
+                  this.redirected = false;
+                }
+                get ok() { return this.status >= 200 && this.status <= 299; }
+                get bodyUsed() { return this._bodyUsed; }
+                _consume() {
+                  if (this._bodyUsed) {
+                    return Promise.reject(new TypeError('Response-Body wurde bereits gelesen'));
+                  }
+                  this._bodyUsed = true;
+                  return Promise.resolve(this._bodyText);
+                }
+                text() { return this._consume(); }
+                json() { return this._consume().then(text => JSON.parse(text)); }
+                clone() {
+                  if (this._bodyUsed) throw new TypeError('Response-Body wurde bereits gelesen');
+                  const copy = new Response(this._bodyText, {
+                    status: this.status, statusText: this.statusText,
+                    headers: new Headers(this.headers)
+                  });
+                  copy.url = this.url;
+                  copy.redirected = this.redirected;
+                  return copy;
+                }
+              }
+              globalThis.Headers = Headers;
+              globalThis.Response = Response;
+              globalThis.fetch = function fetch(input, init) {
+                return new Promise((resolve, reject) => {
+                  let url;
+                  let method = 'GET';
+                  let hasBody = false;
+                  try {
+                    url = String(input !== null && typeof input === 'object'
+                        && input.url !== undefined ? input.url : input);
+                    if (init != null) {
+                      if (init.method != null) method = String(init.method).toUpperCase();
+                      hasBody = init.body != null;
+                    }
+                  } catch (error) {
+                    reject(new TypeError('fetch: ' + String(error && error.message || error)));
+                    return;
+                  }
+                  if (method !== 'GET') {
+                    reject(new TypeError(
+                        'fetch: Methode ' + method + ' wird noch nicht unterstützt'));
+                    return;
+                  }
+                  if (hasBody) {
+                    reject(new TypeError('fetch: Ein Request-Body wird noch nicht unterstützt'));
+                    return;
+                  }
+                  __browicyFetch(url,
+                      (finalUrl, status, statusText, headerPairs, bodyText) => {
+                        try {
+                          const headers = new Headers();
+                          for (let i = 0; i + 1 < headerPairs.length; i += 2) {
+                            headers.append(headerPairs[i], headerPairs[i + 1]);
+                          }
+                          const response = new Response(bodyText,
+                              { status: status, statusText: statusText, headers: headers });
+                          response.url = String(finalUrl);
+                          resolve(response);
+                        } catch (error) {
+                          reject(error);
+                        }
+                      },
+                      message => reject(new TypeError(String(message))));
+                });
+              };
+            })();
+            """;
+
     static final String EVENT_LISTENER_INVOKER = """
             (listener, currentTarget, event) => {
               if (typeof listener === 'function') {
@@ -183,7 +309,13 @@ public final class JavaScriptEngine {
     }
 
     public PageRuntime createPageRuntime(Document document, PageRuntimeObserver observer) {
-        return new GraalPageRuntime(document, statementLimit, observer);
+        return createPageRuntime(document, observer, null);
+    }
+
+    public PageRuntime createPageRuntime(Document document,
+                                         PageRuntimeObserver observer,
+                                         JsFetchBackend fetchBackend) {
+        return new GraalPageRuntime(document, statementLimit, observer, fetchBackend);
     }
 
     public JsExecutionResult runScripts(Document document) {

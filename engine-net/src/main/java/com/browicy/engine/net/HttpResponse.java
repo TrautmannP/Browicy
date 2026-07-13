@@ -49,6 +49,10 @@ public final class HttpResponse {
     }
 
     public Optional<Charset> charsetFromHeaders() {
+        return charsetFrom(headers);
+    }
+
+    static Optional<Charset> charsetFrom(HttpHeaders headers) {
         String contentType = headers.first("Content-Type");
         if (contentType == null) {
             return Optional.empty();

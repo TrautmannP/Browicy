@@ -10,13 +10,12 @@ one JSON report. It does not maintain a second test-only rendering path.
 inspect.cmd "https://css3test.com/?filter=css2007" target\css3test-css2007.json
 ```
 
-Baseline on 2026-07-13:
+Baseline on 2026-07-14:
 
 * css3test executes and reports **3%**.
 * 400 DOM elements and 97 list/result items are created.
 * The engine accepts 26 rules from the site's stylesheet.
-* The only recorded script error is currently the optional Carbon Ads script calling the
-  unsupported Fetch API. The css3test application itself completes.
+* No script errors are recorded.
 
 The external site and its tests can change, so treat these numbers as a regression baseline,
 not as a permanent expected value.

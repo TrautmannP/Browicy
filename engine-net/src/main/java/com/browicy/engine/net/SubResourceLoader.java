@@ -16,11 +16,13 @@ public final class SubResourceLoader implements AutoCloseable {
 
     private static final System.Logger LOGGER = System.getLogger(SubResourceLoader.class.getName());
     private static final int MAX_CONCURRENT_IMAGE_FETCHES = 8;
+    private static final int MAX_CONCURRENT_SCRIPT_FETCHES = 8;
 
     private final HttpClient client;
     private final ExecutorService executor;
     private final List<NetworkRequestObserver> observers = new CopyOnWriteArrayList<>();
     private final Semaphore imageFetchPermits = new Semaphore(MAX_CONCURRENT_IMAGE_FETCHES);
+    private final Semaphore scriptFetchPermits = new Semaphore(MAX_CONCURRENT_SCRIPT_FETCHES);
 
     public SubResourceLoader() {
         this(new HttpClient());
@@ -97,6 +99,35 @@ public final class SubResourceLoader implements AutoCloseable {
         return load;
     }
 
+    public FetchResourceLoad fetchAsync(URI uri) {
+        Objects.requireNonNull(uri, "uri");
+        validateHttpUri(uri);
+
+        long requestId = RequestIds.next();
+        CompletableFuture<FetchResource> future = new CompletableFuture<>();
+        FetchResourceLoad load = new FetchResourceLoad(
+                requestId,
+                uri,
+                future,
+                resource -> emit(new NetworkRequestEvent.Loaded(
+                        requestId, Instant.now(), resource.uri(), resource.statusCode(),
+                        resource.sizeBytes(), resource.resourceType())),
+                failure -> emit(new NetworkRequestEvent.Failed(
+                        requestId, Instant.now(), uri.toString(), failure,
+                        NetworkResourceType.FETCH)),
+                () -> emit(new NetworkRequestEvent.Cancelled(
+                        requestId, Instant.now(), uri.toString(), NetworkResourceType.FETCH)));
+        emit(new NetworkRequestEvent.Started(
+                requestId, Instant.now(), uri.toString(), NetworkResourceType.FETCH));
+
+        try {
+            executor.execute(() -> fetchScriptResource(load));
+        } catch (RuntimeException rejected) {
+            load.completeFailed(rejected);
+        }
+        return load;
+    }
+
     public BinaryResource loadImage(URI uri) throws IOException {
         try {
             return loadImageAsync(uri).await();
@@ -150,6 +181,40 @@ public final class SubResourceLoader implements AutoCloseable {
         }
     }
 
+    private void fetchScriptResource(FetchResourceLoad load) {
+        try {
+            scriptFetchPermits.acquire();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            load.completeFailed(new IOException("Laden unterbrochen: " + load.uri(), interrupted));
+            return;
+        }
+        try {
+            HttpResourceFetcher.FetchResult result = HttpResourceFetcher.fetch(
+                    client,
+                    load.uri(),
+                    acceptFor(NetworkResourceType.FETCH),
+                    load::isCancelled,
+                    (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
+                            load.id(), Instant.now(), from, to, statusCode,
+                            NetworkResourceType.FETCH)),
+                    true);
+            HttpResponse response = result.response();
+            load.completeLoaded(new FetchResource(
+                    result.uri(),
+                    response.statusCode(),
+                    response.reasonPhrase(),
+                    response.headers(),
+                    response.body()));
+        } catch (CancellationException cancellation) {
+            load.cancel();
+        } catch (Exception exception) {
+            load.completeFailed(exception);
+        } finally {
+            scriptFetchPermits.release();
+        }
+    }
+
     private void fetchImage(BinarySubResourceLoad load) {
         try {
             imageFetchPermits.acquire();
@@ -200,6 +265,7 @@ public final class SubResourceLoader implements AutoCloseable {
             case STYLESHEET -> "text/css,*/*;q=0.1";
             case SCRIPT -> "text/javascript,application/javascript,*/*;q=0.1";
             case IMAGE -> "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.1";
+            case FETCH -> "*/*";
             case DOCUMENT -> throw new IllegalArgumentException("Dokument ist keine Subresource");
         };
     }

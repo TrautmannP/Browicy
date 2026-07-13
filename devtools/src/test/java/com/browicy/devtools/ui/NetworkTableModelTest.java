@@ -72,6 +72,7 @@ public class NetworkTableModelTest {
         assertEquals("Dokument", NetworkTableModel.typeLabel(NetworkResourceType.DOCUMENT));
         assertEquals("CSS", NetworkTableModel.typeLabel(NetworkResourceType.STYLESHEET));
         assertEquals("JavaScript", NetworkTableModel.typeLabel(NetworkResourceType.SCRIPT));
+        assertEquals("Fetch", NetworkTableModel.typeLabel(NetworkResourceType.FETCH));
     }
 
 }
