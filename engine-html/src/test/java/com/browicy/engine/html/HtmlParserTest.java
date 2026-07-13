@@ -110,4 +110,107 @@ public class HtmlParserTest {
         assertNotNull(document.getBody());
         assertEquals("Fragment", document.getBody().getTextContent().strip());
     }
+
+    @Test
+    public void insertsImplicitTbodyForRowsDirectlyInsideTable() {
+        Document document = parser.parse("<table><tr><td>Eins</td></tr></table>");
+
+        Element table = document.getDocumentElement();
+        assertEquals("table", table.getTagName());
+        Element tbody = table.getChildElements().getFirst();
+        assertEquals("tbody", tbody.getTagName());
+        Element row = tbody.getChildElements().getFirst();
+        assertEquals("tr", row.getTagName());
+        assertEquals("Eins", row.getTextContent());
+    }
+
+    @Test
+    public void insertsMissingTableSectionAndRowForCells() {
+        Document document = parser.parse("<table><td>Eins<td>Zwei</table>");
+
+        Element table = document.getDocumentElement();
+        Element tbody = table.getChildElements().getFirst();
+        Element row = tbody.getChildElements().getFirst();
+        List<Element> cells = row.getChildElements();
+
+        assertEquals("tbody", tbody.getTagName());
+        assertEquals("tr", row.getTagName());
+        assertEquals(2, cells.size());
+        assertEquals("td", cells.get(0).getTagName());
+        assertEquals("Eins", cells.get(0).getTextContent());
+        assertEquals("Zwei", cells.get(1).getTextContent());
+    }
+
+    @Test
+    public void autoClosesRowsAndCellsWithOmittedEndTags() {
+        Document document = parser.parse(
+                "<table><tr><td>A<td>B<tr><th>C<th>D</table>");
+
+        Element tbody = document.getDocumentElement().getChildElements().getFirst();
+        List<Element> rows = tbody.getChildElements();
+
+        assertEquals(2, rows.size());
+        assertEquals(2, rows.get(0).getChildElements().size());
+        assertEquals("A", rows.get(0).getChildElements().get(0).getTextContent());
+        assertEquals("B", rows.get(0).getChildElements().get(1).getTextContent());
+        assertEquals(2, rows.get(1).getChildElements().size());
+        assertEquals("C", rows.get(1).getChildElements().get(0).getTextContent());
+        assertEquals("D", rows.get(1).getChildElements().get(1).getTextContent());
+    }
+
+    @Test
+    public void autoClosesParagraphForParagraphAndBlockStarts() {
+        Document document = parser.parse(
+                "<body><p>Eins<p>Zwei<div>Drei</div>Vier</body>");
+
+        Element body = document.getBody();
+        List<Element> blocks = body.getChildElements();
+
+        assertEquals(3, blocks.size());
+        assertEquals("p", blocks.get(0).getTagName());
+        assertEquals("Eins", blocks.get(0).getTextContent());
+        assertEquals("p", blocks.get(1).getTagName());
+        assertEquals("Zwei", blocks.get(1).getTextContent());
+        assertEquals("div", blocks.get(2).getTagName());
+        assertEquals("Drei", blocks.get(2).getTextContent());
+        assertEquals("EinsZweiDreiVier", body.getTextContent());
+    }
+
+    @Test
+    public void autoClosesListItemsWhenTheNextItemStarts() {
+        Document document = parser.parse("<ul><li>Eins<li>Zwei<li>Drei</ul>");
+
+        List<Element> items = document.getDocumentElement().getChildElements();
+        assertEquals(3, items.size());
+        assertEquals("Eins", items.get(0).getTextContent());
+        assertEquals("Zwei", items.get(1).getTextContent());
+        assertEquals("Drei", items.get(2).getTextContent());
+    }
+
+    @Test
+    public void listItemScopePreservesOuterItemAcrossNestedLists() {
+        Document document = parser.parse(
+                "<ul><li>Außen<ul><li>Innen</li></ul><li>Danach</ul>");
+
+        Element outerList = document.getDocumentElement();
+        List<Element> outerItems = outerList.getChildElements();
+
+        assertEquals(2, outerItems.size());
+        assertEquals("li", outerItems.get(0).getTagName());
+        assertEquals("AußenInnen", outerItems.get(0).getTextContent());
+        assertEquals(1, outerItems.get(0).getElementsByTagName("ul").size());
+        assertEquals("Danach", outerItems.get(1).getTextContent());
+    }
+
+    @Test
+    public void autoClosesDescriptionListItems() {
+        Document document = parser.parse("<dl><dt>Begriff<dd>Erklärung<dt>Nächster</dl>");
+
+        List<Element> entries = document.getDocumentElement().getChildElements();
+        assertEquals(3, entries.size());
+        assertEquals("dt", entries.get(0).getTagName());
+        assertEquals("dd", entries.get(1).getTagName());
+        assertEquals("dt", entries.get(2).getTagName());
+    }
+
 }

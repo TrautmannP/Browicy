@@ -62,7 +62,7 @@ public final class JavaScriptEngine {
               NETWORK_ERR:19, ABORT_ERR:20, URL_MISMATCH_ERR:21, QUOTA_EXCEEDED_ERR:22,
               TIMEOUT_ERR:23, INVALID_NODE_TYPE_ERR:24, DATA_CLONE_ERR:25,
                HierarchyRequestError:3, WrongDocumentError:4, InvalidCharacterError:5,
-               NotFoundError:8, InvalidStateError:11, NamespaceError:14, InvalidNodeTypeError:24
+               NotFoundError:8, InvalidStateError:11, SyntaxError:12, NamespaceError:14, InvalidNodeTypeError:24
             });
             Object.assign(DOMException.prototype, DOMException);
             globalThis.NodeFilter = Object.freeze({
