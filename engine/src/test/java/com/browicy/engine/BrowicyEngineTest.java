@@ -15,10 +15,13 @@ import java.net.ServerSocket;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -264,6 +267,100 @@ public class BrowicyEngineTest {
                     session.document().getElementById("hero")).isPresent());
             assertEquals(NetworkResourceType.IMAGE, session.images().find(
                     session.document().getElementById("hero")).orElseThrow().resourceType());
+        }
+    }
+
+    @Test
+    public void startsImagesOnlyAfterTheDocumentIsReadyForItsInitialRender() throws Exception {
+        CountDownLatch scriptStarted = new CountDownLatch(1);
+        CountDownLatch releaseScript = new CountDownLatch(1);
+        CountDownLatch imageStarted = new CountDownLatch(1);
+        server.serveHtml("/priorities", """
+                <html><body>
+                  <img src="/background.png">
+                  <script src="/blocking.js"></script>
+                  <p id="message">Sichtbarer Inhalt</p>
+                </body></html>
+                """);
+        server.on("/blocking.js", exchange -> {
+            scriptStarted.countDown();
+            try {
+                releaseScript.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            LocalTestServer.respond(exchange, 200, "application/javascript", new byte[0]);
+        });
+        server.on("/background.png", exchange -> {
+            imageStarted.countDown();
+            LocalTestServer.respond(exchange, 200, "image/png",
+                    new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47});
+        });
+
+        try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+            var sessionFuture = executor.submit(() -> engine.loadPageSession(
+                    server.url("/priorities"), PageUpdateListener.NO_OP));
+            try {
+                assertTrue("Das blockierende Skript wurde nicht angefordert",
+                        scriptStarted.await(2, TimeUnit.SECONDS));
+                assertFalse("Bilder dürfen die initiale Seitenvorbereitung nicht überholen",
+                        imageStarted.await(200, TimeUnit.MILLISECONDS));
+            } finally {
+                releaseScript.countDown();
+            }
+
+            try (PageSession session = sessionFuture.get(2, TimeUnit.SECONDS)) {
+                assertEquals("Sichtbarer Inhalt", session.document()
+                        .getElementById("message").getTextContent());
+                assertTrue("Bild-Downloads sollten nach dem initialen Render anlaufen",
+                        imageStarted.await(2, TimeUnit.SECONDS));
+                session.awaitResources();
+            }
+        }
+    }
+
+    @Test
+    public void returnsBeforeSlowImageFinishesAndRendersItIncrementally() throws Exception {
+        CountDownLatch imageStarted = new CountDownLatch(1);
+        CountDownLatch releaseImage = new CountDownLatch(1);
+        List<PageUpdate> updates = new CopyOnWriteArrayList<>();
+        server.serveHtml("/progressive-image", """
+                <html><body>
+                  <h1 id="heading">Schon sichtbar</h1>
+                  <img id="slow" src="/slow.png">
+                </body></html>
+                """);
+        server.on("/slow.png", exchange -> {
+            imageStarted.countDown();
+            try {
+                releaseImage.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            LocalTestServer.respond(exchange, 200, "image/png",
+                    new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47});
+        });
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/progressive-image"), updates::add)) {
+            assertEquals("Schon sichtbar", session.document()
+                    .getElementById("heading").getTextContent());
+            assertTrue("Bild-Download wurde nicht asynchron gestartet",
+                    imageStarted.await(2, TimeUnit.SECONDS));
+            assertFalse("Die Session darf nicht auf das Bild warten",
+                    session.resourcesLoaded().isDone());
+            assertTrue(session.images().find(
+                    session.document().getElementById("slow")).isEmpty());
+
+            releaseImage.countDown();
+            session.awaitResources();
+
+            assertTrue(session.images().find(
+                    session.document().getElementById("slow")).isPresent());
+            assertTrue(updates.stream().anyMatch(update ->
+                    update.invalidation() == InvalidationType.RENDER_TREE));
+        } finally {
+            releaseImage.countDown();
         }
     }
 

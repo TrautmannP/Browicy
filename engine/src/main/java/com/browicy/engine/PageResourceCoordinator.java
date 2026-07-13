@@ -78,8 +78,6 @@ final class PageResourceCoordinator {
         try {
             StyleLoadPlan styleLoads = startStyleLoads(
                     resources, styleSheets, updates, runtime, cancellableLoads);
-            List<CompletableFuture<Void>> imageLoads = startImageLoads(
-                    resources, images, updates, cancellableLoads);
             synchronized (document) {
                 styleApplicator.apply(document, styleSheets);
             }
@@ -94,6 +92,9 @@ final class PageResourceCoordinator {
             lifecycle.markComplete();
             runtime.awaitIdle();
             updates.enableNotifications();
+
+            List<CompletableFuture<Void>> imageLoads = startImageLoads(
+                    resources, images, updates, cancellableLoads);
 
             List<CompletableFuture<Void>> allResources = new ArrayList<>(styleLoads.allTasks());
             allResources.addAll(imageLoads);
@@ -143,8 +144,6 @@ final class PageResourceCoordinator {
             DocumentUpdateCoordinator updates,
             List<ResourceLoad> cancellableLoads) {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
-        // Budgets pro Seite: dieselbe URL wird nur einmal geladen, und eine Seite kann
-        // weder beliebig viele Requests auslösen noch unbegrenzt Bildspeicher belegen.
         Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
         AtomicLong totalImageBytes = new AtomicLong();
         for (ImageResource image : resources.images()) {
