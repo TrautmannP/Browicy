@@ -34,9 +34,12 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private static final List<String> MEMBERS = List.of(
             "title", "body", "documentElement", "URL", "nodeType", "nodeName", "nodeValue",
             "parentNode", "childNodes", "firstChild", "lastChild", "hasChildNodes",
+            "compareDocumentPosition", "isSameNode", "isEqualNode",
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
+            "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
+            "DOCUMENT_POSITION_CONTAINS", "DOCUMENT_POSITION_CONTAINED_BY", "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC",
             "currentScript", "getElementById", "getElementsByTagName", "createElement",
-            "createTextNode", "createComment", "createDocumentFragment", "createEvent",
+            "createTextNode", "createComment", "createDocumentFragment", "createRange", "createEvent",
             "createNodeIterator", "createTreeWalker", "write",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT);
 
@@ -47,6 +50,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private final List<ListenerRegistration> listenerRegistrations = new ArrayList<>();
     private Element currentScript;
     private Value eventListenerInvoker;
+    private Value domOperationWrapper;
 
     JsDocument(Document document, Consumer<String> errorSink) {
         this.document = document;
@@ -85,6 +89,17 @@ final class JsDocument implements ProxyObject, JsNodeLike {
 
     void setEventListenerInvoker(Value eventListenerInvoker) {
         this.eventListenerInvoker = eventListenerInvoker;
+    }
+
+    void setDomOperationWrapper(Value domOperationWrapper) {
+        this.domOperationWrapper = domOperationWrapper;
+    }
+
+    Object domOperation(ProxyExecutable operation) {
+        if (domOperationWrapper == null) {
+            return operation;
+        }
+        return domOperationWrapper.execute(operation);
     }
 
     void addEventListener(Node target, String type, Value callback, boolean capture) {
@@ -138,12 +153,28 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "firstChild" -> wrap(document.getFirstChild());
             case "lastChild" -> wrap(document.getLastChild());
             case "hasChildNodes" -> (ProxyExecutable) args -> document.hasChildNodes();
+            case "compareDocumentPosition" -> (ProxyExecutable) args ->
+                    document.compareDocumentPosition(expectNode(args, 0));
+            case "isSameNode" -> (ProxyExecutable) args -> {
+                JsNodeLike other = JsElement.expectNode(args, 0, true);
+                return other != null && document.isSameNode(other.unwrapNode());
+            };
+            case "isEqualNode" -> (ProxyExecutable) args -> {
+                JsNodeLike other = JsElement.expectNode(args, 0, true);
+                return other != null && document.isEqualNode(other.unwrapNode());
+            };
             case "ELEMENT_NODE" -> Node.ELEMENT_NODE;
             case "TEXT_NODE" -> Node.TEXT_NODE;
             case "COMMENT_NODE" -> Node.COMMENT_NODE;
             case "DOCUMENT_NODE" -> Node.DOCUMENT_NODE;
             case "DOCUMENT_TYPE_NODE" -> Node.DOCUMENT_TYPE_NODE;
             case "DOCUMENT_FRAGMENT_NODE" -> Node.DOCUMENT_FRAGMENT_NODE;
+            case "DOCUMENT_POSITION_DISCONNECTED" -> Node.DOCUMENT_POSITION_DISCONNECTED;
+            case "DOCUMENT_POSITION_PRECEDING" -> Node.DOCUMENT_POSITION_PRECEDING;
+            case "DOCUMENT_POSITION_FOLLOWING" -> Node.DOCUMENT_POSITION_FOLLOWING;
+            case "DOCUMENT_POSITION_CONTAINS" -> Node.DOCUMENT_POSITION_CONTAINS;
+            case "DOCUMENT_POSITION_CONTAINED_BY" -> Node.DOCUMENT_POSITION_CONTAINED_BY;
+            case "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC" -> Node.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC;
             case "currentScript" -> wrap(currentScript);
             case "getElementById" -> (ProxyExecutable) args ->
                     wrap(document.getElementById(asString(args, 0)));
@@ -156,6 +187,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "createTextNode" -> (ProxyExecutable) args -> wrap(document.createTextNode(asString(args, 0)));
             case "createComment" -> (ProxyExecutable) args -> wrap(document.createComment(asString(args, 0)));
             case "createDocumentFragment" -> (ProxyExecutable) args -> wrap(document.createDocumentFragment());
+            case "createRange" -> (ProxyExecutable) args -> new JsRange(document.createRange(), this);
             case "createEvent" -> (ProxyExecutable) args -> wrap(createEvent(asString(args, 0)));
             case "createNodeIterator" -> (ProxyExecutable) args -> new JsNodeIterator(this,
                     expectNode(args, 0), whatToShow(args, 1), filter(args, 2));

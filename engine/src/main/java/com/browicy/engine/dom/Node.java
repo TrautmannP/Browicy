@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Basisklasse aller DOM-Knoten. Hält die Baumstruktur (Eltern/Kinder),
@@ -14,6 +15,8 @@ import java.util.Objects;
  */
 public abstract class Node implements EventTarget {
 
+    private static final AtomicLong NEXT_NODE_ORDER = new AtomicLong();
+
     public static final short ELEMENT_NODE = 1;
     public static final short TEXT_NODE = 3;
     public static final short COMMENT_NODE = 8;
@@ -21,6 +24,14 @@ public abstract class Node implements EventTarget {
     public static final short DOCUMENT_TYPE_NODE = 10;
     public static final short DOCUMENT_FRAGMENT_NODE = 11;
 
+    public static final short DOCUMENT_POSITION_DISCONNECTED = 0x01;
+    public static final short DOCUMENT_POSITION_PRECEDING = 0x02;
+    public static final short DOCUMENT_POSITION_FOLLOWING = 0x04;
+    public static final short DOCUMENT_POSITION_CONTAINS = 0x08;
+    public static final short DOCUMENT_POSITION_CONTAINED_BY = 0x10;
+    public static final short DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC = 0x20;
+
+    private final long nodeOrder = NEXT_NODE_ORDER.getAndIncrement();
     private Node parent;
     private final List<Node> children = new ArrayList<>();
     private final Map<String, List<RegisteredEventListener>> eventListeners = new HashMap<>();
@@ -76,32 +87,119 @@ public abstract class Node implements EventTarget {
         return false;
     }
 
+    /**
+     * Vergleicht die Position von {@code other} relativ zu diesem Knoten gemäß
+     * DOM Level 3 Core. Bei getrennten Bäumen wird zusätzlich ein stabiler,
+     * implementierungsspezifischer Richtungs-Bit gesetzt.
+     */
+    public short compareDocumentPosition(Node other) {
+        Objects.requireNonNull(other, "other");
+        if (this == other) {
+            return 0;
+        }
+
+        Node thisRoot = rootOf(this);
+        Node otherRoot = rootOf(other);
+        if (thisRoot != otherRoot) {
+            short direction = nodeOrder < other.nodeOrder
+                    ? DOCUMENT_POSITION_FOLLOWING
+                    : DOCUMENT_POSITION_PRECEDING;
+            return (short) (DOCUMENT_POSITION_DISCONNECTED
+                    | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC
+                    | direction);
+        }
+
+        if (contains(other)) {
+            return (short) (DOCUMENT_POSITION_FOLLOWING | DOCUMENT_POSITION_CONTAINED_BY);
+        }
+        if (other.contains(this)) {
+            return (short) (DOCUMENT_POSITION_PRECEDING | DOCUMENT_POSITION_CONTAINS);
+        }
+
+        List<Node> thisPath = pathFromRoot(this);
+        List<Node> otherPath = pathFromRoot(other);
+        int index = 0;
+        int commonLength = Math.min(thisPath.size(), otherPath.size());
+        while (index < commonLength && thisPath.get(index) == otherPath.get(index)) {
+            index++;
+        }
+        Node commonParent = thisPath.get(index - 1);
+        Node thisBranch = thisPath.get(index);
+        Node otherBranch = otherPath.get(index);
+        return commonParent.children.indexOf(thisBranch) < commonParent.children.indexOf(otherBranch)
+                ? DOCUMENT_POSITION_FOLLOWING
+                : DOCUMENT_POSITION_PRECEDING;
+    }
+
+    /** Referenzidentität entsprechend DOM {@code isSameNode()}. */
+    public boolean isSameNode(Node other) {
+        return this == other;
+    }
+
+    /**
+     * Tiefer struktureller Vergleich entsprechend DOM {@code isEqualNode()}.
+     * Elternbeziehungen und Event-Listener sind dabei bewusst nicht Teil der Gleichheit.
+     */
+    public boolean isEqualNode(Node other) {
+        if (other == null || getNodeType() != other.getNodeType()
+                || !Objects.equals(getNodeName(), other.getNodeName())
+                || !Objects.equals(getNodeValue(), other.getNodeValue())) {
+            return false;
+        }
+        if (this instanceof Element element) {
+            if (!(other instanceof Element otherElement)
+                    || !element.getAttributes().equals(otherElement.getAttributes())) {
+                return false;
+            }
+        }
+        if (children.size() != other.children.size()) {
+            return false;
+        }
+        for (int index = 0; index < children.size(); index++) {
+            if (!children.get(index).isEqualNode(other.children.get(index))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public void appendChild(Node child) {
         insertBefore(child, null);
     }
 
     public void insertBefore(Node child, Node reference) {
+        insertBeforeInternal(child, reference, true);
+    }
+
+    /** Interner Einfügepfad für {@link TextNode#splitText(int)}. */
+    void insertBeforeWithoutRangeAdjustment(Node child, Node reference) {
+        insertBeforeInternal(child, reference, false);
+    }
+
+    private void insertBeforeInternal(Node child, Node reference, boolean updateRanges) {
+        Objects.requireNonNull(child, "child");
         if (this instanceof TextNode || this instanceof CommentNode) {
-            throw new IllegalArgumentException("Dieser Knotentyp kann keine Kinder enthalten");
+            throw DomException.hierarchyRequest("Dieser Knotentyp kann keine Kinder enthalten");
         }
         if (child instanceof Document) {
-            throw new IllegalArgumentException("Ein Document kann nicht eingefügt werden");
+            throw DomException.hierarchyRequest("Ein Document kann nicht eingefügt werden");
         }
         if (child instanceof DocumentFragment fragment) {
             for (Node fragmentChild : List.copyOf(fragment.getChildren())) {
-                insertBefore(fragmentChild, reference);
+                insertBeforeInternal(fragmentChild, reference, updateRanges);
             }
             return;
         }
         for (Node ancestor = this; ancestor != null; ancestor = ancestor.parent) {
             if (ancestor == child) {
-                throw new IllegalArgumentException("Node kann nicht in einen eigenen Nachfahren eingefügt werden");
+                throw DomException.hierarchyRequest("Node kann nicht in einen eigenen Nachfahren eingefügt werden");
             }
         }
         int index = reference == null ? children.size() : children.indexOf(reference);
         if (index < 0) {
-            throw new IllegalArgumentException("Referenz-Node ist kein Kind dieses Knotens");
+            throw DomException.notFound("Referenz-Node ist kein Kind dieses Knotens");
         }
+        validateChildInsertion(child);
         if (child.parent != null) {
             if (child.parent == this && children.indexOf(child) < index) {
                 index--;
@@ -110,12 +208,18 @@ public abstract class Node implements EventTarget {
         }
         child.parent = this;
         children.add(index, child);
+        if (updateRanges) {
+            Range.nodeInserted(this, index, 1);
+        }
     }
 
     public void removeChild(Node child) {
-        if (!children.remove(child)) {
-            throw new IllegalArgumentException("Node ist kein Kind dieses Knotens");
+        int index = children.indexOf(child);
+        if (index < 0) {
+            throw DomException.notFound("Node ist kein Kind dieses Knotens");
         }
+        Range.nodeRemoved(this, index, child);
+        children.remove(index);
         child.parent = null;
     }
 
@@ -124,15 +228,18 @@ public abstract class Node implements EventTarget {
         removeChild(oldChild);
     }
 
+    protected void validateChildInsertion(Node child) {
+        // Die meisten Knoten dürfen alle grundsätzlich einfügbaren Knotentypen enthalten.
+    }
+
     /**
      * Entfernt alle Kindknoten und löst deren Eltern-Verweis
      * (z.B. für {@code element.textContent = "..."} aus JavaScript).
      */
     public void clearChildren() {
-        for (Node child : children) {
-            child.parent = null;
+        for (Node child : List.copyOf(children)) {
+            removeChild(child);
         }
-        children.clear();
     }
 
     /**
@@ -248,6 +355,27 @@ public abstract class Node implements EventTarget {
                 break;
             }
         }
+    }
+
+    static Node rootOf(Node node) {
+        Node root = node;
+        while (root.parent != null) {
+            root = root.parent;
+        }
+        return root;
+    }
+
+    static int indexInParent(Node node) {
+        return node.parent == null ? -1 : node.parent.children.indexOf(node);
+    }
+
+    private static List<Node> pathFromRoot(Node node) {
+        List<Node> path = new ArrayList<>();
+        for (Node current = node; current != null; current = current.parent) {
+            path.add(current);
+        }
+        Collections.reverse(path);
+        return path;
     }
 
     private static String requireEventType(String type) {

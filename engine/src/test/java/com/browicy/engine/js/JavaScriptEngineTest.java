@@ -329,6 +329,95 @@ public class JavaScriptEngineTest {
         assertEquals(List.of("log: MAIN,A,C", "log: A MAIN"), result.consoleMessages());
     }
 
+    // --- DOM Range und Node-Vergleiche -----------------------------------
+
+    @Test
+    public void rangesExtractInsertAndTrackLiveMutationsFromJavaScript() {
+        Document document = parse("""
+                <html><body><div id="root"><span>12345</span><b>ABCDE</b><i>tail</i></div><script>
+                  var root = document.getElementById('root');
+                  var text = root.firstChild.firstChild;
+                  var bold = root.childNodes[1];
+                  var range = document.createRange();
+                  console.log(range.collapsed, range.startContainer === document, range.startOffset);
+                  range.setStart(text, 2);
+                  range.setEnd(text, 3);
+                  range.insertNode(bold.firstChild);
+                  console.log(root.textContent, range.toString());
+                  range.selectNode(root.lastChild);
+                  var extracted = range.extractContents();
+                  console.log(extracted.firstChild.nodeName, root.childNodes.length, range.collapsed);
+                  range.selectNodeContents(root);
+                  root.insertBefore(document.createElement('u'), root.firstChild);
+                  console.log(range.startOffset, range.endOffset);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                "log: true true 0",
+                "log: 12ABCDE345tail ABCDE3",
+                "log: I 2 true",
+                "log: 0 3"), result.consoleMessages());
+    }
+
+    @Test
+    public void nodeComparisonMethodsAndConstantsAreExposedToJavaScript() {
+        Document document = parse("""
+                <html><body><div id="root"><a></a><b></b></div><script>
+                  var root = document.getElementById('root');
+                  var a = root.firstChild;
+                  var b = root.lastChild;
+                  var clone = document.createElement('a');
+                  console.log(a.compareDocumentPosition(b) === Node.DOCUMENT_POSITION_FOLLOWING);
+                  console.log(root.compareDocumentPosition(a) ===
+                    (root.DOCUMENT_POSITION_FOLLOWING | root.DOCUMENT_POSITION_CONTAINED_BY));
+                  console.log(a.isSameNode(a), a.isSameNode(clone), a.isEqualNode(clone));
+                  clone.setAttribute('x', '1');
+                  console.log(a.isEqualNode(clone));
+                  console.log(new Range().collapsed, Range.START_TO_START);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: true", "log: true", "log: true false true", "log: false",
+                        "log: true 0"), result.consoleMessages());
+    }
+
+    @Test
+    public void rangeFailuresAreExposedAsDomExceptions() {
+        Document document = parse("""
+                <html><body><script>
+                  var range = document.createRange();
+                  try {
+                    range.setEndBefore(document);
+                  } catch (error) {
+                    console.log(error.name, error.code, error.INVALID_NODE_TYPE_ERR,
+                      error instanceof DOMException);
+                  }
+                  range.selectNode(document.firstChild);
+                  try {
+                    range.surroundContents(document.createElement('a'));
+                  } catch (error) {
+                    console.log(error.name, error.code, error.HIERARCHY_REQUEST_ERR,
+                      error instanceof DOMException);
+                  }
+                </script></body></html>
+                """);
+        document.insertBefore(document.createComment("range target"), document.getDocumentElement());
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                "log: InvalidNodeTypeError 24 24 true",
+                "log: HierarchyRequestError 3 3 true"), result.consoleMessages());
+    }
+
     // --- DOM Events -------------------------------------------------------
 
     @Test

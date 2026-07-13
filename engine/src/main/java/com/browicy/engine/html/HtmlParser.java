@@ -52,7 +52,8 @@ public final class HtmlParser {
                 }
                 case END_TAG -> closeElement(openNodes, token.name());
                 case TEXT -> {
-                    if (!token.data().isEmpty()) {
+                    if (!token.data().isEmpty()
+                            && !(openNodes.peek() instanceof Document && token.data().isBlank())) {
                         openNodes.peek().appendChild(new TextNode(token.data()));
                     }
                 }

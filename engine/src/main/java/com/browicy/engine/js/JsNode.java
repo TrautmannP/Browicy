@@ -12,8 +12,11 @@ final class JsNode implements ProxyObject, JsNodeLike {
             "data", "nodeName", "nodeType", "nodeValue", "parentNode", "childNodes", "firstChild", "lastChild",
             "previousSibling", "nextSibling", "textContent", "appendChild", "insertBefore",
             "replaceChild", "removeChild", "hasChildNodes", "contains",
+            "compareDocumentPosition", "isSameNode", "isEqualNode",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
-            "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE");
+            "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
+            "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
+            "DOCUMENT_POSITION_CONTAINS", "DOCUMENT_POSITION_CONTAINED_BY", "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC");
 
     private final Node node;
     private final JsDocument document;
@@ -67,6 +70,16 @@ final class JsNode implements ProxyObject, JsNodeLike {
                 JsNodeLike other = JsElement.expectNode(args, 0, true);
                 return other != null && node.contains(other.unwrapNode());
             };
+            case "compareDocumentPosition" -> (org.graalvm.polyglot.proxy.ProxyExecutable) args ->
+                    node.compareDocumentPosition(JsElement.expectNode(args, 0, false).unwrapNode());
+            case "isSameNode" -> (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
+                JsNodeLike other = JsElement.expectNode(args, 0, true);
+                return other != null && node.isSameNode(other.unwrapNode());
+            };
+            case "isEqualNode" -> (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
+                JsNodeLike other = JsElement.expectNode(args, 0, true);
+                return other != null && node.isEqualNode(other.unwrapNode());
+            };
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(node, document);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(node, document);
             case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(node);
@@ -76,6 +89,12 @@ final class JsNode implements ProxyObject, JsNodeLike {
             case "DOCUMENT_NODE" -> Node.DOCUMENT_NODE;
             case "DOCUMENT_TYPE_NODE" -> Node.DOCUMENT_TYPE_NODE;
             case "DOCUMENT_FRAGMENT_NODE" -> Node.DOCUMENT_FRAGMENT_NODE;
+            case "DOCUMENT_POSITION_DISCONNECTED" -> Node.DOCUMENT_POSITION_DISCONNECTED;
+            case "DOCUMENT_POSITION_PRECEDING" -> Node.DOCUMENT_POSITION_PRECEDING;
+            case "DOCUMENT_POSITION_FOLLOWING" -> Node.DOCUMENT_POSITION_FOLLOWING;
+            case "DOCUMENT_POSITION_CONTAINS" -> Node.DOCUMENT_POSITION_CONTAINS;
+            case "DOCUMENT_POSITION_CONTAINED_BY" -> Node.DOCUMENT_POSITION_CONTAINED_BY;
+            case "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC" -> Node.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC;
             default -> null;
         };
     }

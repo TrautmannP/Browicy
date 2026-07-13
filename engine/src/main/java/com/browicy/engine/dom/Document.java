@@ -29,6 +29,22 @@ public final class Document extends Node {
     public TextNode createTextNode(String data) { return new TextNode(data); }
     public CommentNode createComment(String data) { return new CommentNode(data); }
     public DocumentFragment createDocumentFragment() { return new DocumentFragment(); }
+    public Range createRange() { return new Range(this); }
+
+    @Override
+    protected void validateChildInsertion(Node child) {
+        if (child instanceof TextNode) {
+            throw DomException.hierarchyRequest("Ein Document darf keinen Textknoten als direktes Kind enthalten");
+        }
+        if (child instanceof Element && child.getParent() != this
+                && getChildren().stream().anyMatch(Element.class::isInstance)) {
+            throw DomException.hierarchyRequest("Ein Document darf nur ein Dokumentelement enthalten");
+        }
+        if (child instanceof DocumentType && child.getParent() != this
+                && getChildren().stream().anyMatch(DocumentType.class::isInstance)) {
+            throw DomException.hierarchyRequest("Ein Document darf nur einen DocumentType enthalten");
+        }
+    }
 
     public Element getDocumentElement() {
         return findFirst("html");

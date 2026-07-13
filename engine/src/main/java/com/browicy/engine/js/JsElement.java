@@ -25,9 +25,12 @@ final class JsElement implements ProxyObject, JsNodeLike {
             "tagName", "nodeName", "nodeType", "nodeValue", "id", "className", "type", "textContent", "children", "childNodes",
             "parentNode", "firstChild", "lastChild", "previousSibling", "nextSibling",
             "getAttribute", "setAttribute", "removeAttribute", "hasAttribute",
-            "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains", "click",
+            "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
+            "compareDocumentPosition", "isSameNode", "isEqualNode", "click",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
-            "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE");
+            "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
+            "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
+            "DOCUMENT_POSITION_CONTAINS", "DOCUMENT_POSITION_CONTAINED_BY", "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC");
 
     private final Element element;
     private final JsDocument document;
@@ -103,6 +106,16 @@ final class JsElement implements ProxyObject, JsNodeLike {
                 JsNodeLike other = expectNode(args, 0, true);
                 return other != null && element.contains(other.unwrapNode());
             };
+            case "compareDocumentPosition" -> (ProxyExecutable) args ->
+                    element.compareDocumentPosition(expectNode(args, 0, false).unwrapNode());
+            case "isSameNode" -> (ProxyExecutable) args -> {
+                JsNodeLike other = expectNode(args, 0, true);
+                return other != null && element.isSameNode(other.unwrapNode());
+            };
+            case "isEqualNode" -> (ProxyExecutable) args -> {
+                JsNodeLike other = expectNode(args, 0, true);
+                return other != null && element.isEqualNode(other.unwrapNode());
+            };
             case "click" -> JsEventTarget.click(element);
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(element, document);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(element, document);
@@ -113,6 +126,12 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "DOCUMENT_NODE" -> com.browicy.engine.dom.Node.DOCUMENT_NODE;
             case "DOCUMENT_TYPE_NODE" -> com.browicy.engine.dom.Node.DOCUMENT_TYPE_NODE;
             case "DOCUMENT_FRAGMENT_NODE" -> com.browicy.engine.dom.Node.DOCUMENT_FRAGMENT_NODE;
+            case "DOCUMENT_POSITION_DISCONNECTED" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_DISCONNECTED;
+            case "DOCUMENT_POSITION_PRECEDING" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_PRECEDING;
+            case "DOCUMENT_POSITION_FOLLOWING" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_FOLLOWING;
+            case "DOCUMENT_POSITION_CONTAINS" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_CONTAINS;
+            case "DOCUMENT_POSITION_CONTAINED_BY" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_CONTAINED_BY;
+            case "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC;
             default -> null;
         };
     }
