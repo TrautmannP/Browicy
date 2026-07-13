@@ -151,7 +151,7 @@ public class StyleApplicatorTest {
         assertEquals("1px", heading.getComputedStyles().get("border-left-width"));
         assertEquals("solid", heading.getComputedStyles().get("border-top-style"));
         assertEquals("green", heading.getComputedStyles().get("border-right-color"));
-        assertFalse(heading.getComputedStyles().containsKey("position"));
+        assertEquals("absolute", heading.getComputedStyles().get("position"));
     }
 
     @Test

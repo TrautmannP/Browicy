@@ -228,6 +228,14 @@ final class GraalPageRuntime implements PageRuntime {
             return separator > 0 && cssParser.supports(
                     condition.substring(0, separator), condition.substring(separator + 1));
         });
+        bindings.putMember("__browicyGetComputedStyle", (ProxyExecutable) args -> {
+            if (args.length == 0 || !args[0].isProxyObject()
+                    || !(args[0].asProxyObject() instanceof JsElement element)) {
+                throw new IllegalArgumentException(
+                        "getComputedStyle: argument 1 must be an Element");
+            }
+            return new JsComputedStyleDeclaration(element.unwrap());
+        });
         context.eval("js", JavaScriptEngine.BROWSER_BOOTSTRAP);
         windowLoadInvoker = context.eval("js", "(callback, event) => callback.call(window, event)");
         jsDocument.setDomOperationWrapper(context.eval("js", JavaScriptEngine.DOM_OPERATION_WRAPPER));

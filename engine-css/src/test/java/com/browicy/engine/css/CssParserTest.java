@@ -81,7 +81,7 @@ public class CssParserTest {
     @Test
     public void ignoresUnknownPropertiesInvalidValuesAndMalformedRules() {
         List<CssRule> rules = new CssParser().parse("""
-                h1 { position: absolute; color: definitely-not-a-color; font-size: huge; }
+                h1 { position: fixed; color: definitely-not-a-color; font-size: huge; }
                 p { color: red; }
                 broken rule
                 """);
@@ -126,7 +126,9 @@ public class CssParserTest {
         assertTrue(parser.supportsProperty("background-color"));
         assertTrue(parser.supports("display", "block"));
         assertFalse(parser.supports("display", "grid"));
-        assertFalse(parser.supportsProperty("position"));
+        assertTrue(parser.supportsProperty("position"));
+        assertTrue(parser.supports("position", "absolute"));
+        assertFalse(parser.supports("position", "fixed"));
     }
 
     @Test
@@ -142,6 +144,19 @@ public class CssParserTest {
         assertEquals("auto", declarations.get("margin-right"));
         assertEquals("center", declarations.get("text-align"));
         assertEquals("inline-block", declarations.get("display"));
+    }
+
+    @Test
+    public void parsesPositionAndSignedOffsets() {
+        var declarations = new CssParser().parseDeclarations("""
+                position: absolute; top: -5px; right: 10%; bottom: auto; left: 2em
+                """);
+
+        assertEquals("absolute", declarations.get("position"));
+        assertEquals("-5px", declarations.get("top"));
+        assertEquals("10%", declarations.get("right"));
+        assertEquals("auto", declarations.get("bottom"));
+        assertEquals("2em", declarations.get("left"));
     }
 
     @Test

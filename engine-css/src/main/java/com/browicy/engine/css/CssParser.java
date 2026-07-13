@@ -26,6 +26,9 @@ public final class CssParser {
     private static final Pattern MAX_DIMENSION = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|%)|0|none)",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern POSITION_OFFSET = Pattern.compile(
+            "(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|%)|0|auto)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_SIZE = Pattern.compile(
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_WEIGHT = Pattern.compile("[1-9]00");
@@ -130,6 +133,8 @@ public final class CssParser {
             case "font-weight" -> supports(normalized, "normal");
             case "font-style" -> supports(normalized, "normal");
             case "display" -> supports(normalized, "block");
+            case "position" -> supports(normalized, "static");
+            case "top", "right", "bottom", "left" -> supports(normalized, "auto");
             case "width", "height", "min-width", "min-height" -> supports(normalized, "auto");
             case "max-width", "max-height" -> supports(normalized, "none");
             case "text-align" -> supports(normalized, "left");
@@ -169,6 +174,14 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
+            case "position" -> {
+                if (value.equals("static") || value.equals("relative")
+                        || value.equals("absolute")) {
+                    target.put(property, value);
+                }
+            }
+            case "top", "right", "bottom", "left" ->
+                    putIfMatches(target, property, value, POSITION_OFFSET);
             case "width", "height", "min-width", "min-height" ->
                     putIfMatches(target, property, value, DIMENSION);
             case "max-width", "max-height" ->

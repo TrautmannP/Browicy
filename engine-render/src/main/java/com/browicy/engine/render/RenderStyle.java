@@ -2,6 +2,11 @@ package com.browicy.engine.render;
 
 public record RenderStyle(
         Display display,
+        Position position,
+        RenderOffset top,
+        RenderOffset right,
+        RenderOffset bottom,
+        RenderOffset left,
         float fontSizePx,
         int fontWeight,
         boolean italic,
@@ -24,6 +29,7 @@ public record RenderStyle(
         VerticalAlign verticalAlign) {
 
     public enum Display { BLOCK, INLINE, INLINE_BLOCK, NONE }
+    public enum Position { STATIC, RELATIVE, ABSOLUTE }
     public enum TextAlign { LEFT, CENTER, RIGHT }
     public enum Overflow { VISIBLE, HIDDEN, AUTO, SCROLL }
     public enum VerticalAlign { BASELINE, TOP, MIDDLE, BOTTOM }

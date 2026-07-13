@@ -501,6 +501,88 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void absoluteBlocksArePositionedAndRemovedFromNormalFlow() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="container" style="position: relative; width: 200px; height: 100px">
+                  <div id="before" style="height: 20px"></div>
+                  <div id="overlay" style="position: absolute; left: 20px; top: 10px; width: 30px; height: 70px"></div>
+                  <div id="after" style="height: 20px"></div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment container = boxById(layout, "container");
+        BoxFragment before = boxById(layout, "before");
+        BoxFragment overlay = boxById(layout, "overlay");
+        BoxFragment after = boxById(layout, "after");
+
+        assertEquals(container.x() + 20, overlay.x(), 0.001f);
+        assertEquals(container.y() + 10, overlay.y(), 0.001f);
+        assertEquals(before.y() + before.height(), after.y(), 0.001f);
+    }
+
+    @Test
+    public void relativeBlocksMoveVisuallyButKeepTheirFlowPosition() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="container" style="width: 200px">
+                  <div id="shifted" style="position: relative; left: 11px; top: 7px; height: 20px"></div>
+                  <div id="after" style="height: 20px"></div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment container = boxById(layout, "container");
+        BoxFragment shifted = boxById(layout, "shifted");
+        BoxFragment after = boxById(layout, "after");
+
+        assertEquals(container.x() + 11, shifted.x(), 0.001f);
+        assertEquals(container.y() + 7, shifted.y(), 0.001f);
+        assertEquals(container.y() + 20, after.y(), 0.001f);
+    }
+
+    @Test
+    public void relativeInlineBoxesMoveWithoutChangingTheLineFlow() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><p><span id="shifted" style="position: relative; left: 10px; top: 5px">A</span><span id="after">B</span></p></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        InlineBoxFragment shifted = inlineBoxById(layout, "shifted");
+        InlineBoxFragment after = inlineBoxById(layout, "after");
+        LineBox line = layout.lineBoxes().getFirst();
+
+        assertEquals(line.x() + 10, shifted.x(), 0.001f);
+        assertEquals(line.y() + 5, shifted.y(), 0.001f);
+        assertEquals(line.y(), after.y(), 0.001f);
+    }
+
+    @Test
+    public void absoluteBlocksUseTheNearestPositionedAncestorThroughStaticBoxes() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="outer" style="position: relative; width: 200px; height: 100px">
+                  <div id="static-wrapper" style="padding: 30px">
+                    <div id="overlay" style="position: absolute; right: 10px; bottom: 5px; width: 20px; height: 10px"></div>
+                  </div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment outer = boxById(layout, "outer");
+        BoxFragment overlay = boxById(layout, "overlay");
+
+        assertEquals(outer.x() + outer.width() - 10 - overlay.width(), overlay.x(), 0.001f);
+        assertEquals(outer.y() + outer.height() - 5 - overlay.height(), overlay.y(), 0.001f);
+    }
+
+    private static InlineBoxFragment inlineBoxById(LayoutResult layout, String id) {
+        return layout.fragments().stream()
+                .filter(InlineBoxFragment.class::isInstance)
+                .map(InlineBoxFragment.class::cast)
+                .filter(fragment -> id.equals(fragment.box().source().getAttribute("id")))
+                .findFirst().orElseThrow();
+    }
+
+    @Test
     public void refreshFromDocumentRebuildsRenderTreeAfterStyleChanges() {
         Document document = parse("""
                 <body><p id="message" style="color: red">Text</p></body>

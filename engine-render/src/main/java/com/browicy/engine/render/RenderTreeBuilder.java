@@ -42,6 +42,8 @@ public final class RenderTreeBuilder {
         }
         RenderStyle initial = new RenderStyle(
                 RenderStyle.Display.BLOCK,
+                RenderStyle.Position.STATIC,
+                RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO,
                 DEFAULT_FONT_SIZE,
                 400,
                 false,
@@ -107,6 +109,12 @@ public final class RenderTreeBuilder {
             if (style.display() == RenderStyle.Display.NONE) {
                 continue;
             }
+            if (style.position() == RenderStyle.Position.ABSOLUTE
+                    && style.display() != RenderStyle.Display.BLOCK
+                    && !"br".equals(element.getTagName())
+                    && !"img".equals(element.getTagName())) {
+                style = copyWithDisplay(style, RenderStyle.Display.BLOCK);
+            }
             if ("br".equals(element.getTagName())) {
                 output.add(new RenderLineBreak(style));
             } else if ("img".equals(element.getTagName())) {
@@ -170,6 +178,8 @@ public final class RenderTreeBuilder {
     private static RenderStyle anonymousBlockStyle(RenderStyle inherited) {
         return new RenderStyle(
                 RenderStyle.Display.BLOCK,
+                RenderStyle.Position.STATIC,
+                RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO,
                 inherited.fontSizePx(),
                 inherited.fontWeight(),
                 inherited.italic(),
@@ -197,6 +207,11 @@ public final class RenderTreeBuilder {
         Map<String, String> declarations = element.getComputedStyles();
 
         RenderStyle.Display display = defaultDisplay(tag);
+        RenderStyle.Position position = RenderStyle.Position.STATIC;
+        RenderOffset top = RenderOffset.AUTO;
+        RenderOffset right = RenderOffset.AUTO;
+        RenderOffset bottom = RenderOffset.AUTO;
+        RenderOffset left = RenderOffset.AUTO;
         float fontSize = defaultFontSize(tag, parent.fontSizePx());
         int fontWeight = defaultFontWeight(tag, parent.fontWeight());
         boolean italic = defaultItalic(tag, parent.italic());
@@ -226,6 +241,11 @@ public final class RenderTreeBuilder {
                 default -> RenderStyle.Display.INLINE;
             };
         }
+        position = switch (declarations.getOrDefault("position", "static")) {
+            case "relative" -> RenderStyle.Position.RELATIVE;
+            case "absolute" -> RenderStyle.Position.ABSOLUTE;
+            default -> RenderStyle.Position.STATIC;
+        };
         if (declarations.containsKey("font-size")) {
             fontSize = resolveLength(declarations.get("font-size"), parent.fontSizePx(), fontSize);
         }
@@ -241,6 +261,10 @@ public final class RenderTreeBuilder {
         maxWidth = resolveDimension(declarations.get("max-width"), fontSize);
         minHeight = resolveDimension(declarations.get("min-height"), fontSize);
         maxHeight = resolveDimension(declarations.get("max-height"), fontSize);
+        top = resolveOffset(declarations.get("top"), fontSize);
+        right = resolveOffset(declarations.get("right"), fontSize);
+        bottom = resolveOffset(declarations.get("bottom"), fontSize);
+        left = resolveOffset(declarations.get("left"), fontSize);
         if (declarations.containsKey("text-align")) {
             textAlign = switch (declarations.get("text-align")) {
                 case "center" -> RenderStyle.TextAlign.CENTER;
@@ -279,7 +303,8 @@ public final class RenderTreeBuilder {
         borderStyle = resolveBorderStyles(declarations);
         borderWidth = effectiveBorderWidths(borderWidth, borderStyle);
 
-        return new RenderStyle(display, fontSize, fontWeight, italic, color, background,
+        return new RenderStyle(display, position, top, right, bottom, left,
+                fontSize, fontWeight, italic, color, background,
                 width, height, minWidth, maxWidth, minHeight, maxHeight, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, textAlign,
                 overflow, verticalAlign);
@@ -416,6 +441,22 @@ public final class RenderTreeBuilder {
         }
     }
 
+    private static RenderOffset resolveOffset(String value, float emBase) {
+        if (value == null || "auto".equals(value)) return RenderOffset.AUTO;
+        if ("0".equals(value)) return new RenderOffset(0, RenderOffset.Unit.PX);
+        try {
+            if (value.endsWith("%")) {
+                return new RenderOffset(Float.parseFloat(value.substring(0, value.length() - 1)),
+                        RenderOffset.Unit.PERCENT);
+            }
+            float number = Float.parseFloat(value.substring(0, value.length() - 2));
+            return new RenderOffset(value.endsWith("em") ? number * emBase : number,
+                    RenderOffset.Unit.PX);
+        } catch (RuntimeException ignored) {
+            return RenderOffset.AUTO;
+        }
+    }
+
     private static BoxEdges nonNegative(BoxEdges edges) {
         return new BoxEdges(
                 Math.max(0, edges.top()),
@@ -425,7 +466,8 @@ public final class RenderTreeBuilder {
     }
 
     private static RenderStyle copyWithDisplay(RenderStyle style, RenderStyle.Display display) {
-        return new RenderStyle(display, style.fontSizePx(), style.fontWeight(), style.italic(),
+        return new RenderStyle(display, style.position(), style.top(), style.right(),
+                style.bottom(), style.left(), style.fontSizePx(), style.fontWeight(), style.italic(),
                 style.color(), style.backgroundColor(), style.width(), style.height(),
                 style.minWidth(), style.maxWidth(), style.minHeight(), style.maxHeight(),
                 style.margin(), style.autoMargins(), style.padding(), style.borderWidth(),

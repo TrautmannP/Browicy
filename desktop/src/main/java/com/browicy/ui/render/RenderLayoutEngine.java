@@ -40,14 +40,19 @@ public final class RenderLayoutEngine {
     public LayoutResult layout(RenderTree tree, int viewportWidth, Insets insets, Graphics2D graphics) {
         float availableWidth = Math.max(1, viewportWidth - insets.left - insets.right);
         List<LineBox> lineBoxes = new ArrayList<>();
+        PositionedContext initialContainingBlock = new PositionedContext();
         BlockLayout root = layoutBlock(
                 tree.root(), insets.left, insets.top, availableWidth, null, false,
-                graphics, lineBoxes);
+                graphics, lineBoxes, initialContainingBlock);
+        initialContainingBlock.setGeometry(
+                insets.left, insets.top, availableWidth, root.outerHeight());
+        List<PaintFragment> fragments = new ArrayList<>(root.fragments());
+        fragments.addAll(layoutAbsoluteRequests(initialContainingBlock, graphics, lineBoxes));
         float height = insets.top + root.outerHeight() + insets.bottom;
         return new LayoutResult(
                 viewportWidth,
                 Math.max(insets.top + insets.bottom, height),
-                root.fragments(),
+                fragments,
                 lineBoxes);
     }
 
@@ -58,8 +63,12 @@ public final class RenderLayoutEngine {
                                     Float containingHeight,
                                     boolean shrinkToFitAuto,
                                     Graphics2D graphics,
-                                    List<LineBox> lineBoxes) {
+                                    List<LineBox> lineBoxes,
+                                    PositionedContext positionedContext) {
+        int firstLine = lineBoxes.size();
         RenderStyle style = box.style();
+        PositionedContext childPositionedContext = style.position() == RenderStyle.Position.STATIC
+                ? positionedContext : new PositionedContext();
         BoxEdges margin = style.margin();
         BoxEdges padding = style.padding();
         BoxEdges border = style.borderWidth();
@@ -106,9 +115,14 @@ public final class RenderLayoutEngine {
                 currentY += flushInline(inlineBuffer, contentX, currentY, contentWidth,
                         childContainingHeight, style.textAlign(), graphics, childFragments,
                         lineBoxes);
+                if (childBox.style().position() == RenderStyle.Position.ABSOLUTE) {
+                    childPositionedContext.requests.add(
+                            new AbsoluteRequest(childBox, contentX, currentY));
+                    continue;
+                }
                 BlockLayout childLayout = layoutBlock(
                         childBox, contentX, currentY, contentWidth, childContainingHeight,
-                        false, graphics, lineBoxes);
+                        false, graphics, lineBoxes, childPositionedContext);
                 childFragments.addAll(childLayout.fragments());
                 currentY += childLayout.outerHeight();
             } else {
@@ -129,6 +143,15 @@ public final class RenderLayoutEngine {
                 + padding.bottom() + border.bottom();
         float outerHeight = Math.max(0, margin.top() + borderBoxHeight + margin.bottom());
 
+        if (childPositionedContext != positionedContext) {
+            childPositionedContext.setGeometry(
+                    borderX + border.left(), borderY + border.top(),
+                    Math.max(0, borderBoxWidth - border.horizontal()),
+                    Math.max(0, borderBoxHeight - border.vertical()));
+            childFragments.addAll(
+                    layoutAbsoluteRequests(childPositionedContext, graphics, lineBoxes));
+        }
+
         if (style.overflow() != RenderStyle.Overflow.VISIBLE) {
             ClipRect clip = new ClipRect(
                     borderX + border.left(), borderY + border.top(),
@@ -140,7 +163,111 @@ public final class RenderLayoutEngine {
         List<PaintFragment> fragments = new ArrayList<>(childFragments.size() + 1);
         fragments.add(new BoxFragment(box, borderX, borderY, borderBoxWidth, borderBoxHeight));
         fragments.addAll(childFragments);
+        if (style.position() == RenderStyle.Position.RELATIVE) {
+            float dx = relativeHorizontalOffset(style, availableWidth);
+            float dy = relativeVerticalOffset(style, containingHeight);
+            fragments.replaceAll(fragment -> translate(fragment, dx, dy));
+            translateLines(lineBoxes, firstLine, dx, dy);
+        }
         return new BlockLayout(outerHeight, List.copyOf(fragments));
+    }
+
+    private List<PaintFragment> layoutAbsoluteRequests(PositionedContext context,
+                                                        Graphics2D graphics,
+                                                        List<LineBox> lineBoxes) {
+        List<PaintFragment> result = new ArrayList<>();
+        for (AbsoluteRequest request : context.requests) {
+            RenderStyle style = request.box().style();
+            float left = style.left().isAuto() ? 0 : style.left().resolve(context.width);
+            float right = style.right().isAuto() ? 0 : style.right().resolve(context.width);
+            boolean stretchAutoWidth = style.width().isAuto()
+                    && !style.left().isAuto() && !style.right().isAuto();
+            float availableWidth = stretchAutoWidth
+                    ? Math.max(0, context.width - left - right)
+                    : context.width;
+            int firstLine = lineBoxes.size();
+            BlockLayout layout = layoutBlock(
+                    request.box(), context.x, context.y, availableWidth, context.height,
+                    style.width().isAuto() && !stretchAutoWidth,
+                    graphics, lineBoxes, context);
+            BoxFragment root = (BoxFragment) layout.fragments().getFirst();
+            float desiredX;
+            if (!style.left().isAuto()) {
+                desiredX = context.x + left + style.margin().left();
+            } else if (!style.right().isAuto()) {
+                desiredX = context.x + context.width - right
+                        - style.margin().right() - root.width();
+            } else {
+                desiredX = request.staticX() + style.margin().left();
+            }
+
+            float desiredY;
+            if (!style.top().isAuto()) {
+                desiredY = context.y + style.top().resolve(context.height) + style.margin().top();
+            } else if (!style.bottom().isAuto()) {
+                desiredY = context.y + context.height - style.bottom().resolve(context.height)
+                        - style.margin().bottom() - root.height();
+            } else {
+                desiredY = request.staticY() + style.margin().top();
+            }
+            float dx = desiredX - root.x();
+            float dy = desiredY - root.y();
+            layout.fragments().stream().map(fragment -> translate(fragment, dx, dy))
+                    .forEach(result::add);
+            translateLines(lineBoxes, firstLine, dx, dy);
+        }
+        return result;
+    }
+
+    private static float relativeHorizontalOffset(RenderStyle style, float containingWidth) {
+        if (!style.left().isAuto()) return style.left().resolve(containingWidth);
+        if (!style.right().isAuto()) return -style.right().resolve(containingWidth);
+        return 0;
+    }
+
+    private static float relativeVerticalOffset(RenderStyle style, Float containingHeight) {
+        float base = containingHeight == null ? 0 : containingHeight;
+        if (!style.top().isAuto()) return style.top().resolve(base);
+        if (!style.bottom().isAuto()) return -style.bottom().resolve(base);
+        return 0;
+    }
+
+    private static void translateLines(List<LineBox> lines, int first, float dx, float dy) {
+        if (dx == 0 && dy == 0) return;
+        for (int index = first; index < lines.size(); index++) {
+            LineBox line = lines.get(index);
+            List<InlineFragment> fragments = line.fragments().stream()
+                    .map(fragment -> (InlineFragment) translate(fragment, dx, dy))
+                    .toList();
+            lines.set(index, new LineBox(line.x() + dx, line.y() + dy, line.width(),
+                    line.height(), line.baseline() + dy, fragments));
+        }
+    }
+
+    private static PaintFragment translate(PaintFragment fragment, float dx, float dy) {
+        if (fragment instanceof BoxFragment box) {
+            return new BoxFragment(box.box(), box.x() + dx, box.y() + dy,
+                    box.width(), box.height(), translate(box.clip(), dx, dy));
+        }
+        if (fragment instanceof InlineBoxFragment box) {
+            return new InlineBoxFragment(box.box(), box.x() + dx, box.y() + dy,
+                    box.width(), box.height(), box.firstFragment(), box.lastFragment(),
+                    translate(box.clip(), dx, dy));
+        }
+        if (fragment instanceof ImageFragment image) {
+            return new ImageFragment(image.image(), image.bitmap(), image.x() + dx,
+                    image.y() + dy, image.width(), image.height(),
+                    translate(image.clip(), dx, dy));
+        }
+        TextFragment text = (TextFragment) fragment;
+        return new TextFragment(text.text(), text.x() + dx, text.width(),
+                text.baseline() + dy, text.top() + dy, text.height(), text.font(),
+                text.color(), translate(text.clip(), dx, dy));
+    }
+
+    private static ClipRect translate(ClipRect clip, float dx, float dy) {
+        return clip == null ? null
+                : new ClipRect(clip.x() + dx, clip.y() + dy, clip.width(), clip.height());
     }
 
     private static float constrain(float value, Float minimum, Float maximum) {
@@ -480,6 +607,24 @@ public final class RenderLayoutEngine {
     private record BlockLayout(float outerHeight, List<PaintFragment> fragments) {
     }
 
+    private record AbsoluteRequest(RenderBox box, float staticX, float staticY) {
+    }
+
+    private static final class PositionedContext {
+        private final List<AbsoluteRequest> requests = new ArrayList<>();
+        private float x;
+        private float y;
+        private float width;
+        private float height;
+
+        void setGeometry(float x, float y, float width, float height) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+        }
+    }
+
     private record IntrinsicWidths(float preferred, float minimum) {
     }
 
@@ -542,7 +687,7 @@ public final class RenderLayoutEngine {
             this.graphics = graphics;
             this.target = target;
             this.lineTarget = lineTarget;
-            this.line = new LineBuilder(graphics, activeBoxes);
+            this.line = new LineBuilder(graphics, activeBoxes, width, containingHeight);
         }
 
         void layout(List<RenderNode> nodes) {
@@ -613,9 +758,15 @@ public final class RenderLayoutEngine {
 
         private void addAtomicBlock(RenderInlineBlock inlineBlock) {
             List<LineBox> atomicLines = new ArrayList<>();
+            PositionedContext atomicContainingBlock = new PositionedContext();
             BlockLayout block = layoutBlock(
                     inlineBlock.box(), 0, 0, width, containingHeight, true,
-                    graphics, atomicLines);
+                    graphics, atomicLines, atomicContainingBlock);
+            atomicContainingBlock.setGeometry(0, 0, width, block.outerHeight());
+            List<PaintFragment> atomicFragments = new ArrayList<>(block.fragments());
+            atomicFragments.addAll(
+                    layoutAbsoluteRequests(atomicContainingBlock, graphics, atomicLines));
+            block = new BlockLayout(block.outerHeight(), List.copyOf(atomicFragments));
             BoxFragment root = (BoxFragment) block.fragments().getFirst();
             float atomicWidth = inlineBlock.box().style().margin().left()
                     + root.width() + inlineBlock.box().style().margin().right();
@@ -764,7 +915,7 @@ public final class RenderLayoutEngine {
                 if (force && fallbackStyle != null) {
                     line.addStrut(fontFor(fallbackStyle));
                 } else {
-                    line = new LineBuilder(graphics, activeBoxes);
+                    line = new LineBuilder(graphics, activeBoxes, width, containingHeight);
                     return;
                 }
             }
@@ -781,7 +932,7 @@ public final class RenderLayoutEngine {
             target.addAll(lineBox.fragments());
             target.addAll(finished.atomicFragments());
             y += lineBox.height();
-            line = new LineBuilder(graphics, activeBoxes);
+            line = new LineBuilder(graphics, activeBoxes, width, containingHeight);
         }
 
         private static Font fontFor(RenderStyle style) {
@@ -938,14 +1089,21 @@ public final class RenderLayoutEngine {
 
     private static final class LineBuilder {
         private final Graphics2D graphics;
+        private final float containingWidth;
+        private final Float containingHeight;
         private final List<LineItem> roots = new ArrayList<>();
         private final List<BoxItem> active = new ArrayList<>();
         private float width;
         private boolean placedContent;
         private boolean structuralContent;
 
-        LineBuilder(Graphics2D graphics, List<RenderInlineBox> continuingBoxes) {
+        LineBuilder(Graphics2D graphics,
+                    List<RenderInlineBox> continuingBoxes,
+                    float containingWidth,
+                    Float containingHeight) {
             this.graphics = graphics;
+            this.containingWidth = containingWidth;
+            this.containingHeight = containingHeight;
             for (RenderInlineBox box : continuingBoxes) {
                 openBox(box, false);
             }
@@ -1049,13 +1207,13 @@ public final class RenderLayoutEngine {
             float height = ascent + descent;
 
             List<InlineFragment> fragments = new ArrayList<>();
-            collectBoxFragments(roots, fragments, lineX, baseline);
-            collectTextFragments(roots, fragments, lineX, baseline);
-            collectImageFragments(roots, fragments, lineX, lineY, height, baseline);
+            collectBoxFragments(roots, fragments, lineX, baseline, 0, 0);
+            collectTextFragments(roots, fragments, lineX, baseline, 0, 0);
+            collectImageFragments(roots, fragments, lineX, lineY, height, baseline, 0, 0);
             List<PaintFragment> atomicFragments = new ArrayList<>();
             List<LineBox> atomicLines = new ArrayList<>();
             collectAtomicFragments(
-                    roots, atomicFragments, atomicLines, lineX, lineY, height, baseline);
+                    roots, atomicFragments, atomicLines, lineX, lineY, height, baseline, 0, 0);
             return new FinishedLine(
                     new LineBox(lineX, lineY, width, height, baseline, fragments),
                     atomicFragments,
@@ -1070,52 +1228,62 @@ public final class RenderLayoutEngine {
             }
         }
 
-        private static void collectBoxFragments(List<LineItem> items,
+        private void collectBoxFragments(List<LineItem> items,
                                                 List<InlineFragment> fragments,
                                                 float lineX,
-                                                float baseline) {
+                                                float baseline,
+                                                float inheritedDx,
+                                                float inheritedDy) {
             for (LineItem item : items) {
                 if (item instanceof BoxItem box) {
+                    float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
+                    float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
                     fragments.add(new InlineBoxFragment(
                             box.box,
-                            lineX + box.x,
-                            baseline - box.ascent,
+                            lineX + box.x + dx,
+                            baseline - box.ascent + dy,
                             box.width,
                             box.ascent + box.descent,
                             box.firstFragment,
                             box.lastFragment));
-                    collectBoxFragments(box.children, fragments, lineX, baseline);
+                    collectBoxFragments(box.children, fragments, lineX, baseline, dx, dy);
                 }
             }
         }
 
-        private static void collectTextFragments(List<LineItem> items,
+        private void collectTextFragments(List<LineItem> items,
                                                  List<InlineFragment> fragments,
                                                  float lineX,
-                                                 float baseline) {
+                                                 float baseline,
+                                                 float inheritedDx,
+                                                 float inheritedDy) {
             for (LineItem item : items) {
                 if (item instanceof TextItem text) {
                     fragments.add(new TextFragment(
                             text.text,
-                            lineX + text.x,
+                            lineX + text.x + inheritedDx,
                             text.width,
-                            baseline,
-                            baseline - text.metrics.getAscent(),
+                            baseline + inheritedDy,
+                            baseline - text.metrics.getAscent() + inheritedDy,
                             text.metrics.getHeight(),
                             text.font,
                             text.color));
                 } else if (item instanceof BoxItem box) {
-                    collectTextFragments(box.children, fragments, lineX, baseline);
+                    float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
+                    float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
+                    collectTextFragments(box.children, fragments, lineX, baseline, dx, dy);
                 }
             }
         }
 
-        private static void collectImageFragments(List<LineItem> items,
+        private void collectImageFragments(List<LineItem> items,
                                                   List<InlineFragment> fragments,
                                                   float lineX,
                                                   float lineY,
                                                   float lineHeight,
-                                                  float baseline) {
+                                                  float baseline,
+                                                  float inheritedDx,
+                                                  float inheritedDy) {
             for (LineItem item : items) {
                 if (item instanceof ImageItem image) {
                     float top = switch (image.verticalAlign()) {
@@ -1124,26 +1292,30 @@ public final class RenderLayoutEngine {
                         case BASELINE, MIDDLE -> baseline - image.ascent();
                     };
                     fragments.add(new ImageFragment(image.image(), image.layout().bitmap(),
-                            lineX + image.x(), top,
+                            lineX + image.x() + inheritedDx, top + inheritedDy,
                             image.layout().width(), image.layout().height()));
                 } else if (item instanceof BoxItem box) {
+                    float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
+                    float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
                     collectImageFragments(box.children, fragments, lineX, lineY,
-                            lineHeight, baseline);
+                            lineHeight, baseline, dx, dy);
                 }
             }
         }
 
-        private static void collectAtomicFragments(List<LineItem> items,
+        private void collectAtomicFragments(List<LineItem> items,
                                                    List<PaintFragment> fragments,
                                                    List<LineBox> lines,
                                                    float lineX,
                                                    float lineY,
                                                    float lineHeight,
-                                                   float baseline) {
+                                                   float baseline,
+                                                   float inheritedDx,
+                                                   float inheritedDy) {
             for (LineItem item : items) {
                 if (item instanceof AtomicItem atomic) {
-                    float dx = lineX + atomic.x();
-                    float dy = switch (atomic.verticalAlign()) {
+                    float dx = lineX + atomic.x() + inheritedDx;
+                    float dy = inheritedDy + switch (atomic.verticalAlign()) {
                         case TOP -> lineY;
                         case BOTTOM -> lineY + lineHeight - atomic.height();
                         case BASELINE, MIDDLE -> baseline - atomic.ascent();
@@ -1155,10 +1327,22 @@ public final class RenderLayoutEngine {
                         lines.add(translate(line, dx, dy));
                     }
                 } else if (item instanceof BoxItem box) {
+                    float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
+                    float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
                     collectAtomicFragments(box.children, fragments, lines, lineX, lineY,
-                            lineHeight, baseline);
+                            lineHeight, baseline, dx, dy);
                 }
             }
+        }
+
+        private static float inlineOffsetX(RenderStyle style, float containingWidth) {
+            return style.position() == RenderStyle.Position.RELATIVE
+                    ? relativeHorizontalOffset(style, containingWidth) : 0;
+        }
+
+        private static float inlineOffsetY(RenderStyle style, Float containingHeight) {
+            return style.position() == RenderStyle.Position.RELATIVE
+                    ? relativeVerticalOffset(style, containingHeight) : 0;
         }
 
         private static PaintFragment translate(PaintFragment fragment, float dx, float dy) {

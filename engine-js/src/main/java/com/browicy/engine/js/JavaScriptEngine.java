@@ -58,6 +58,7 @@ public final class JavaScriptEngine {
               for (const listener of [...(__windowListeners.get(String(type)) || [])]) listener.call(window, event);
             };
             globalThis.CSS = Object.freeze({ supports: (...args) => __browicyCssSupports(...args) });
+            globalThis.getComputedStyle = element => __browicyGetComputedStyle(element);
             const __locationHref = String(document.URL || 'about:blank');
             const __queryStart = __locationHref.indexOf('?');
             globalThis.location = Object.freeze({

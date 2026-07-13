@@ -1,6 +1,8 @@
 package com.browicy.engine.js;
 
+import com.browicy.engine.css.StyleApplicator;
 import com.browicy.engine.dom.Document;
+import com.browicy.engine.dom.Element;
 import com.browicy.engine.html.HtmlParser;
 import org.junit.Test;
 
@@ -13,6 +15,32 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public class JavaScriptEngineTest {
+
+    @Test
+    public void exposesComputedStylesAsAReadOnlyCssStyleDeclaration() {
+        Document document = parse("""
+                <html><head><style>#target { color: red; font-size: 18px }</style></head>
+                <body><div id="target"></div><script>
+                  var target = document.getElementById('target');
+                  var style = window.getComputedStyle(target);
+                  console.log(style.color, style.fontSize, style.getPropertyValue('font-size'));
+                  console.log(style.length, style.item(0), style[1], style.parentRule === null);
+                  style.color = 'blue';
+                  console.log(style.color, target.style.color);
+                </script></body></html>
+                """);
+        new StyleApplicator().apply(document);
+        Element target = document.getElementById("target");
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                "log: red 18px 18px",
+                "log: 2 color font-size true",
+                "log: red "), result.consoleMessages());
+        assertEquals("red", target.getComputedStyles().get("color"));
+    }
 
     private final HtmlParser parser = new HtmlParser();
     private final JavaScriptEngine engine = new JavaScriptEngine();
