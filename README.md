@@ -73,3 +73,13 @@ Noch nicht unterstützt: externe Skripte (`<script src=…>`), Events, Timer
 ```bat
 mvn-graal.cmd test
 ```
+
+Die 100 Acid3-Untertests liegen in einem separaten Opt-in-Modul, da noch nicht
+unterstuetzte Browser-APIs dort erwartungsgemaess zu fehlschlagenden Tests fuehren:
+
+```bat
+mvn-graal.cmd -Pacid3 -pl acid3-tests -am test
+```
+
+Details zur JUnit-Abbildung und zur eingebundenen Original-Testseite stehen in
+[`acid3-tests/README.md`](./acid3-tests/README.md).

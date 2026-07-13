@@ -17,6 +17,15 @@
         <module>desktop</module>
     </modules>
 
+    <profiles>
+        <profile>
+            <id>acid3</id>
+            <modules>
+                <module>acid3-tests</module>
+            </modules>
+        </profile>
+    </profiles>
+
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
