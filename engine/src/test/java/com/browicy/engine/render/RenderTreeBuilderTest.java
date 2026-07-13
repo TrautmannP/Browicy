@@ -21,10 +21,14 @@ public class RenderTreeBuilderTest {
 
         RenderBox section = boxChildren(tree.root()).getFirst();
         RenderBox paragraph = boxChildren(section).getFirst();
-        List<RenderTextRun> runs = textRuns(paragraph);
+        RenderInlineBox span = inlineChildren(paragraph).getFirst();
+        RenderInlineBox strong = inlineChildren(span).getFirst();
+        List<RenderTextRun> runs = textRunsRecursively(paragraph);
 
         assertEquals("section", section.tagName());
         assertEquals("p", paragraph.tagName());
+        assertEquals("span", span.tagName());
+        assertEquals("strong", strong.tagName());
         assertEquals(4, runs.size());
         assertEquals(20f, runs.get(0).style().fontSizePx(), 0.001f);
         assertEquals(CssColor.parse("blue"), runs.get(0).style().color());
@@ -57,12 +61,31 @@ public class RenderTreeBuilderTest {
                 <body><p>visible <span style="display:none">hidden</span> text</p></body>
                 """).root()).getFirst();
 
-        String renderedText = textRuns(paragraph).stream()
+        String renderedText = textRunsRecursively(paragraph).stream()
                 .map(RenderTextRun::text)
                 .reduce("", String::concat);
         assertTrue(renderedText.contains("visible"));
         assertTrue(renderedText.contains("text"));
         assertFalse(renderedText.contains("hidden"));
+    }
+
+
+    @Test
+    public void createsAnonymousBlocksAroundInlineRunsMixedWithBlocks() {
+        RenderBox container = boxChildren(build("""
+                <body><div>before<p>paragraph</p>after</div></body>
+                """).root()).getFirst();
+
+        assertEquals(3, container.children().size());
+        RenderBox before = (RenderBox) container.children().get(0);
+        RenderBox paragraph = (RenderBox) container.children().get(1);
+        RenderBox after = (RenderBox) container.children().get(2);
+
+        assertEquals("#anonymous", before.tagName());
+        assertEquals("p", paragraph.tagName());
+        assertEquals("#anonymous", after.tagName());
+        assertEquals("before", textRunsRecursively(before).getFirst().text());
+        assertEquals("after", textRunsRecursively(after).getFirst().text());
     }
 
     private static RenderTree build(String html) {
@@ -77,10 +100,35 @@ public class RenderTreeBuilderTest {
                 .toList();
     }
 
-    private static List<RenderTextRun> textRuns(RenderBox box) {
-        return box.children().stream()
-                .filter(RenderTextRun.class::isInstance)
-                .map(RenderTextRun.class::cast)
+    private static List<RenderInlineBox> inlineChildren(RenderNode node) {
+        List<RenderNode> children;
+        if (node instanceof RenderBox box) {
+            children = box.children();
+        } else if (node instanceof RenderInlineBox inlineBox) {
+            children = inlineBox.children();
+        } else {
+            return List.of();
+        }
+        return children.stream()
+                .filter(RenderInlineBox.class::isInstance)
+                .map(RenderInlineBox.class::cast)
+                .toList();
+    }
+
+    private static List<RenderTextRun> textRunsRecursively(RenderNode node) {
+        if (node instanceof RenderTextRun run) {
+            return List.of(run);
+        }
+        List<RenderNode> children;
+        if (node instanceof RenderBox box) {
+            children = box.children();
+        } else if (node instanceof RenderInlineBox inlineBox) {
+            children = inlineBox.children();
+        } else {
+            return List.of();
+        }
+        return children.stream()
+                .flatMap(child -> textRunsRecursively(child).stream())
                 .toList();
     }
 }

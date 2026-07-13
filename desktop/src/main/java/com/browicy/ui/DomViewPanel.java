@@ -9,6 +9,7 @@ import com.browicy.engine.render.RenderTree;
 import com.browicy.engine.render.RenderTreeBuilder;
 import com.browicy.ui.render.RenderLayoutEngine;
 import com.browicy.ui.render.RenderLayoutEngine.BoxFragment;
+import com.browicy.ui.render.RenderLayoutEngine.InlineBoxFragment;
 import com.browicy.ui.render.RenderLayoutEngine.LayoutResult;
 import com.browicy.ui.render.RenderLayoutEngine.PaintFragment;
 import com.browicy.ui.render.RenderLayoutEngine.TextFragment;
@@ -83,6 +84,8 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                 }
                 if (fragment instanceof BoxFragment box) {
                     paintBox(g2d, box);
+                } else if (fragment instanceof InlineBoxFragment inlineBox) {
+                    paintInlineBox(g2d, inlineBox);
                 } else if (fragment instanceof TextFragment text) {
                     g2d.setFont(text.font());
                     g2d.setColor(toAwtColor(text.color()));
@@ -105,33 +108,49 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     }
 
     private static void paintBox(Graphics2D graphics, BoxFragment fragment) {
-        RenderStyle style = fragment.box().style();
+        paintStyledBox(graphics, fragment.box().style(),
+                fragment.x(), fragment.y(), fragment.width(), fragment.height(), true, true);
+    }
+
+    private static void paintInlineBox(Graphics2D graphics, InlineBoxFragment fragment) {
+        paintStyledBox(graphics, fragment.box().style(),
+                fragment.x(), fragment.y(), fragment.width(), fragment.height(),
+                fragment.firstFragment(), fragment.lastFragment());
+    }
+
+    private static void paintStyledBox(Graphics2D graphics,
+                                       RenderStyle style,
+                                       float x,
+                                       float y,
+                                       float width,
+                                       float height,
+                                       boolean paintLeft,
+                                       boolean paintRight) {
         CssColor background = style.backgroundColor();
         if (background != null && !background.isTransparent()) {
             graphics.setColor(toAwtColor(background));
-            graphics.fill(new Rectangle2D.Float(
-                    fragment.x(), fragment.y(), fragment.width(), fragment.height()));
+            graphics.fill(new Rectangle2D.Float(x, y, width, height));
         }
 
         BoxEdges widths = style.borderWidth();
         BoxBorders borders = style.borderStyle();
-        float right = fragment.x() + fragment.width();
-        float bottom = fragment.y() + fragment.height();
+        float right = x + width;
+        float bottom = y + height;
         if (borders.top() && widths.top() > 0) {
             fillBorder(graphics, style.borderColor().top(), style.color(),
-                    fragment.x(), fragment.y(), fragment.width(), widths.top());
+                    x, y, width, widths.top());
         }
-        if (borders.right() && widths.right() > 0) {
+        if (paintRight && borders.right() && widths.right() > 0) {
             fillBorder(graphics, style.borderColor().right(), style.color(),
-                    right - widths.right(), fragment.y(), widths.right(), fragment.height());
+                    right - widths.right(), y, widths.right(), height);
         }
         if (borders.bottom() && widths.bottom() > 0) {
             fillBorder(graphics, style.borderColor().bottom(), style.color(),
-                    fragment.x(), bottom - widths.bottom(), fragment.width(), widths.bottom());
+                    x, bottom - widths.bottom(), width, widths.bottom());
         }
-        if (borders.left() && widths.left() > 0) {
+        if (paintLeft && borders.left() && widths.left() > 0) {
             fillBorder(graphics, style.borderColor().left(), style.color(),
-                    fragment.x(), fragment.y(), widths.left(), fragment.height());
+                    x, y, widths.left(), height);
         }
     }
 

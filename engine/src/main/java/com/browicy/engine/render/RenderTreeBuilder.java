@@ -55,7 +55,13 @@ public final class RenderTreeBuilder {
     private RenderBox buildBox(Element element, RenderStyle style) {
         List<RenderNode> children = new ArrayList<>();
         collectChildren(element, style, children);
-        return new RenderBox(element, style, children);
+        return new RenderBox(element, style, wrapMixedInlineContent(children, style));
+    }
+
+    private RenderInlineBox buildInlineBox(Element element, RenderStyle style) {
+        List<RenderNode> children = new ArrayList<>();
+        collectChildren(element, style, children);
+        return new RenderInlineBox(element, style, children);
     }
 
     private void collectChildren(Node parent, RenderStyle parentStyle, List<RenderNode> output) {
@@ -79,9 +85,56 @@ public final class RenderTreeBuilder {
             } else if (style.display() == RenderStyle.Display.BLOCK) {
                 output.add(buildBox(element, style));
             } else {
-                collectChildren(element, style, output);
+                output.add(buildInlineBox(element, style));
             }
         }
+    }
+
+    private static List<RenderNode> wrapMixedInlineContent(List<RenderNode> children,
+                                                            RenderStyle parentStyle) {
+        boolean containsBlock = children.stream().anyMatch(RenderBox.class::isInstance);
+        boolean containsInline = children.stream().anyMatch(child -> !(child instanceof RenderBox));
+        if (!containsBlock || !containsInline) {
+            return List.copyOf(children);
+        }
+
+        List<RenderNode> normalized = new ArrayList<>();
+        List<RenderNode> inlineRun = new ArrayList<>();
+        for (RenderNode child : children) {
+            if (child instanceof RenderBox) {
+                flushAnonymousBlock(inlineRun, parentStyle, normalized);
+                normalized.add(child);
+            } else {
+                inlineRun.add(child);
+            }
+        }
+        flushAnonymousBlock(inlineRun, parentStyle, normalized);
+        return List.copyOf(normalized);
+    }
+
+    private static void flushAnonymousBlock(List<RenderNode> inlineRun,
+                                            RenderStyle parentStyle,
+                                            List<RenderNode> output) {
+        if (inlineRun.isEmpty()) {
+            return;
+        }
+        output.add(new RenderBox(null, anonymousBlockStyle(parentStyle), List.copyOf(inlineRun)));
+        inlineRun.clear();
+    }
+
+    private static RenderStyle anonymousBlockStyle(RenderStyle inherited) {
+        return new RenderStyle(
+                RenderStyle.Display.BLOCK,
+                inherited.fontSizePx(),
+                inherited.fontWeight(),
+                inherited.italic(),
+                inherited.color(),
+                null,
+                BoxEdges.ZERO,
+                BoxEdges.ZERO,
+                BoxEdges.ZERO,
+                BoxColors.CURRENT_COLOR,
+                BoxBorders.NONE);
     }
 
     private static RenderStyle resolveStyle(Element element, RenderStyle parent) {
