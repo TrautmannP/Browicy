@@ -12,14 +12,33 @@ import static org.junit.Assert.assertFalse;
 public class CssParserTest {
 
     @Test
-    public void parsesSupportedDeclarations() {
-        List<CssRule> rules = new CssParser().parse(
-                "h1 { color: #ff0000; font-size: 24px; }");
+    public void parsesSupportedDeclarationsAndExpandsBoxShorthands() {
+        List<CssRule> rules = new CssParser().parse("""
+                h1 {
+                  color: #ff0000;
+                  background-color: white;
+                  font-size: 24px;
+                  margin: 1px 2px 3px 4px;
+                  padding: 5px 6px;
+                  border: 2px solid blue;
+                }
+                """);
 
         assertEquals(1, rules.size());
-        assertEquals("h1", rules.get(0).selector());
-        assertEquals("#ff0000", rules.get(0).declarations().get("color"));
-        assertEquals("24px", rules.get(0).declarations().get("font-size"));
+        assertEquals("h1", rules.getFirst().selector());
+        var declarations = rules.getFirst().declarations();
+        assertEquals("#ff0000", declarations.get("color"));
+        assertEquals("white", declarations.get("background-color"));
+        assertEquals("24px", declarations.get("font-size"));
+        assertEquals("1px", declarations.get("margin-top"));
+        assertEquals("2px", declarations.get("margin-right"));
+        assertEquals("3px", declarations.get("margin-bottom"));
+        assertEquals("4px", declarations.get("margin-left"));
+        assertEquals("5px", declarations.get("padding-top"));
+        assertEquals("6px", declarations.get("padding-right"));
+        assertEquals("2px", declarations.get("border-left-width"));
+        assertEquals("solid", declarations.get("border-bottom-style"));
+        assertEquals("blue", declarations.get("border-top-color"));
     }
 
     @Test
@@ -40,14 +59,14 @@ public class CssParserTest {
     @Test
     public void ignoresUnknownPropertiesInvalidValuesAndMalformedRules() {
         List<CssRule> rules = new CssParser().parse("""
-                h1 { border: 1px solid; color: definitely-not-a-color; font-size: huge; }
+                h1 { position: absolute; color: definitely-not-a-color; font-size: huge; }
                 p { color: red; }
                 broken rule
                 """);
 
         assertEquals(1, rules.size());
-        assertEquals("p", rules.get(0).selector());
-        assertFalse(rules.get(0).declarations().containsKey("border"));
+        assertEquals("p", rules.getFirst().selector());
+        assertFalse(rules.getFirst().declarations().containsKey("position"));
     }
 
     @Test

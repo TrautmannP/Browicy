@@ -10,3 +10,4 @@ local.properties
 .DS_Store
 
 repomix*
+desktop/dependency-reduced-pom.xml

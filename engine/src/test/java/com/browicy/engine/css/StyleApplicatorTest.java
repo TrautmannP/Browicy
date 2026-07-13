@@ -35,14 +35,17 @@ public class StyleApplicatorTest {
     }
 
     @Test
-    public void inlineStyleOverridesStylesheetAndIgnoresUnsupportedDeclarations() {
+    public void inlineStyleOverridesStylesheetAndExpandsBorder() {
         Element heading = parseHeading(
                 "h1 { color: red; font-size: 18px; }",
-                "color: blue; border: 1px solid; font-size: 2em");
+                "color: blue; position: absolute; border: 1px solid green; font-size: 2em");
 
         assertEquals("blue", heading.getComputedStyles().get("color"));
         assertEquals("2em", heading.getComputedStyles().get("font-size"));
-        assertFalse(heading.getComputedStyles().containsKey("border"));
+        assertEquals("1px", heading.getComputedStyles().get("border-left-width"));
+        assertEquals("solid", heading.getComputedStyles().get("border-top-style"));
+        assertEquals("green", heading.getComputedStyles().get("border-right-color"));
+        assertFalse(heading.getComputedStyles().containsKey("position"));
     }
 
     @Test
