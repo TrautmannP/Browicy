@@ -13,7 +13,7 @@ final class JsNode implements ProxyObject, JsNodeLike {
             "data", "name", "publicId", "systemId", "nodeName", "nodeType", "nodeValue", "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild",
             "previousSibling", "nextSibling", "textContent", "appendChild", "insertBefore",
             "replaceChild", "removeChild", "hasChildNodes", "contains",
-            "compareDocumentPosition", "isSameNode", "isEqualNode",
+            "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
             "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
@@ -85,6 +85,8 @@ final class JsNode implements ProxyObject, JsNodeLike {
                 JsNodeLike other = JsElement.expectNode(args, 0, true);
                 return other != null && node.isEqualNode(other.unwrapNode());
             };
+            case "cloneNode" -> (org.graalvm.polyglot.proxy.ProxyExecutable) args -> document.wrap(
+                    node.cloneNode(args.length > 0 && args[0].asBoolean()));
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(node, document);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(node, document);
             case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(node);

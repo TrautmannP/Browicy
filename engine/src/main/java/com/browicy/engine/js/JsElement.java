@@ -25,7 +25,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
             "tagName", "nodeName", "nodeType", "nodeValue", "namespaceURI", "prefix", "localName",
-            "id", "className", "name", "type", "value", "checked", "selected", "defaultSelected",
+            "id", "className", "name", "type", "value", "checked", "defaultChecked", "selected", "defaultSelected",
             "textContent", "children", "childNodes", "length", "elements", "form", "options", "selectedIndex",
             "caption", "tHead", "tFoot", "tBodies", "rows", "cells", "rowIndex", "sectionRowIndex", "cellIndex",
             "parentNode", "ownerDocument", "firstChild", "lastChild", "previousSibling", "nextSibling",
@@ -33,7 +33,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             "createCaption", "deleteCaption", "createTHead", "deleteTHead", "createTFoot", "deleteTFoot",
             "insertRow", "deleteRow", "insertCell", "deleteCell", "add", "remove",
             "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
-            "compareDocumentPosition", "isSameNode", "isEqualNode", "click",
+            "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode", "click",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
             "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
@@ -70,7 +70,8 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "name" -> orEmpty(element.getAttribute("name"));
             case "type" -> inputType();
             case "value" -> value();
-            case "checked" -> element.hasAttribute("checked");
+            case "checked" -> element.isCheckedState();
+            case "defaultChecked" -> element.hasAttribute("checked");
             case "selected" -> element.hasAttribute("selected");
             case "defaultSelected" -> element.hasAttribute("selected");
             case "textContent" -> element.getTextContent();
@@ -159,6 +160,8 @@ final class JsElement implements ProxyObject, JsNodeLike {
                 JsNodeLike other = expectNode(args, 0, true);
                 return other != null && element.isEqualNode(other.unwrapNode());
             };
+            case "cloneNode" -> (ProxyExecutable) args -> document.wrap(element.cloneNode(
+                    args.length > 0 && args[0].asBoolean()));
             case "click" -> JsEventTarget.click(element);
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(element, document);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(element, document);
@@ -187,8 +190,9 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "className" -> element.setAttribute("class", toText(value));
             case "name" -> element.setAttribute("name", toText(value));
             case "type" -> element.setAttribute("type", toText(value).toLowerCase(Locale.ROOT));
-            case "value" -> element.setAttribute("value", toText(value));
-            case "checked" -> booleanAttribute("checked", value.asBoolean());
+            case "value" -> element.setValueState(toText(value));
+            case "checked" -> setChecked(value.asBoolean());
+            case "defaultChecked" -> booleanAttribute("checked", value.asBoolean());
             case "selected", "defaultSelected" -> booleanAttribute("selected", value.asBoolean());
             case "selectedIndex" -> setSelectedIndex(value.asInt());
             default -> throw new UnsupportedOperationException(
@@ -206,8 +210,41 @@ final class JsElement implements ProxyObject, JsNodeLike {
         return type.toLowerCase(Locale.ROOT);
     }
     private String value() {
-        String value = element.getAttribute("value");
+        String value = element.getValueState();
         return value == null ? ("option".equals(tag()) ? element.getTextContent() : "") : value;
+    }
+    private void setChecked(boolean checked) {
+        element.setCheckedState(checked);
+        if (!checked || !"radio".equals(inputType())) return;
+        Element form = formOwner();
+        String name = element.getAttribute("name");
+        if (name == null || name.isEmpty()) return;
+        com.browicy.engine.dom.Node root = form == null ? element.getOwnerDocument() : form;
+        if (root == null) return;
+        for (Element candidate : descendants(root)) {
+            if (candidate != element && "input".equals(candidate.getTagName())
+                    && "radio".equalsIgnoreCase(orEmpty(candidate.getAttribute("type")))
+                    && name.equals(candidate.getAttribute("name"))
+                    && sameFormOwner(candidate, form)) {
+                candidate.setCheckedState(false);
+            }
+        }
+    }
+    private static List<Element> descendants(com.browicy.engine.dom.Node root) {
+        List<Element> result = new ArrayList<>();
+        collectDescendants(root, result);
+        return result;
+    }
+    private static void collectDescendants(com.browicy.engine.dom.Node root, List<Element> result) {
+        for (com.browicy.engine.dom.Node child : root.getChildren()) if (child instanceof Element e) {
+            result.add(e); collectDescendants(e, result);
+        }
+    }
+    private static boolean sameFormOwner(Element candidate, Element expected) {
+        for (com.browicy.engine.dom.Node node = candidate.getParent(); node != null; node = node.getParent()) {
+            if (node instanceof Element e && "form".equals(e.getTagName())) return e == expected;
+        }
+        return expected == null;
     }
     private void booleanAttribute(String name, boolean enabled) {
         if (enabled) element.setAttribute(name, name); else element.removeAttribute(name);

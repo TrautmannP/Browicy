@@ -141,6 +141,32 @@ public class JavaScriptEngineTest {
         assertEquals(List.of("log: 1 3 true", "log: 2 1 1 0", "log: 1 0"), result.consoleMessages());
     }
 
+    @Test
+    public void clonesInputStateAndEnforcesRadioGroups() {
+        Document document = parse("""
+                <html><body><form id="form"><script>
+                  var form = document.getElementById('form');
+                  var first = document.createElement('input');
+                  first.type = 'radio'; first.name = 'group'; first.setAttribute('value', 'default');
+                  first.value = 'live'; first.checked = true; form.appendChild(first);
+                  var second = first.cloneNode(true); form.appendChild(second); second.checked = true;
+                  var third = document.createElement('input');
+                  third.type = 'radio'; third.name = 'other'; form.appendChild(third); third.checked = true;
+                  console.log(first.value, first.getAttribute('value'), first.checked, second.checked, third.checked);
+                  second.setAttribute('checked', 'checked');
+                  console.log(second.defaultChecked, second.checked);
+                  var deep = form.cloneNode(true);
+                  console.log(deep.parentNode === null, deep.elements.length, deep.elements[0].value);
+                </script></form></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: live default false true true", "log: true true", "log: true 3 live"),
+                result.consoleMessages());
+    }
+
     // --- Skript-Semantik --------------------------------------------------
 
     @Test

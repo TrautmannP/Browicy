@@ -18,6 +18,8 @@ public final class Element extends Node {
     private final String prefix;
     private final String localName;
     private final Map<String, String> attributes;
+    private String valueState;
+    private Boolean checkedState;
 
     public Element(String tagName) {
         this(tagName, Map.of());
@@ -75,6 +77,29 @@ public final class Element extends Node {
 
     public void removeAttribute(String name) {
         attributes.remove(name.toLowerCase(Locale.ROOT));
+    }
+
+    public String getValueState() {
+        return valueState == null ? getAttribute("value") : valueState;
+    }
+
+    public void setValueState(String value) {
+        valueState = value == null ? "" : value;
+    }
+
+    public boolean isCheckedState() {
+        return checkedState == null ? hasAttribute("checked") : checkedState;
+    }
+
+    public void setCheckedState(boolean checked) {
+        checkedState = checked;
+    }
+
+    Element copyShallow() {
+        Element copy = new Element(namespaceUri, tagName, attributes);
+        copy.valueState = valueState;
+        copy.checkedState = checkedState;
+        return copy;
     }
 
     /**

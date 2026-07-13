@@ -168,6 +168,24 @@ public abstract class Node implements EventTarget {
         return true;
     }
 
+    /** Creates a detached copy. Event listeners and parent relationships are not copied. */
+    public Node cloneNode(boolean deep) {
+        Node clone = switch (this) {
+            case Element element -> element.copyShallow();
+            case TextNode text -> new TextNode(text.getData());
+            case CommentNode comment -> new CommentNode(comment.getData());
+            case DocumentFragment ignored -> new DocumentFragment();
+            case DocumentType type -> new DocumentType(type.getName(), type.getPublicId(), type.getSystemId());
+            case Document document -> new Document(document.getUrl());
+            default -> throw new IllegalStateException("Unbekannter Knotentyp: " + getClass());
+        };
+        clone.setOwnerDocument(this instanceof Document ? null : ownerDocument);
+        if (deep) {
+            for (Node child : children) clone.appendChild(child.cloneNode(true));
+        }
+        return clone;
+    }
+
     public void appendChild(Node child) {
         insertBefore(child, null);
     }
