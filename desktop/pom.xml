@@ -27,6 +27,19 @@
         </dependency>
         <dependency>
             <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-dom</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-html</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-render</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.browicy</groupId>
             <artifactId>browicy-devtools</artifactId>
         </dependency>
         <dependency>

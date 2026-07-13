@@ -4,13 +4,37 @@ Ein Browser mit eigener Engine — reines Java (21+), gebaut mit Maven und Graal
 
 ## Module
 
-* **[engine](./engine)** — die Browicy-Browser-Engine: HTML-Tokenizer, Parser, DOM,
-  eigener HTTP-Client sowie JavaScript-Ausführung. HTML/DOM/Netzwerk sind eigenständig
-  implementiert; für JavaScript wird [GraalJS](https://www.graalvm.org/javascript/)
-  über die GraalVM-Polyglot-API eingebettet (einzige externe Abhängigkeit).
-* **[desktop](./desktop)** — das Browser-Fenster (Swing): rahmenloses Fenster mit eigener
-  Titelleiste, Tabs, Adressleiste und DOM-Renderer. Reines Java ohne UI-Fremdbibliotheken,
-  damit später eine Kompilierung mit GraalVM native-image möglich ist.
+Die Engine ist in fachlich getrennte Maven-Module zerlegt. Das hält Abhängigkeiten
+sichtbar und verhindert, dass HTML-, CSS-, JavaScript-, Netzwerk- und Rendering-Code
+mit wachsender Feature-Menge wieder zu einem Monolithen zusammenwachsen.
+
+* **[engine-dom](./engine-dom)** — DOM-Knoten, Events, Range und gemeinsame DOM-Verträge.
+* **[engine-css](./engine-css)** — CSS-Parser, Selektoren, Kaskade, Spezifität und CSS-Werte.
+* **[engine-html](./engine-html)** — HTML-Entities, Tokenizer und Tree-Construction; wendet
+  nach dem Parsen die CSS-Kaskade auf das erzeugte DOM an.
+* **[engine-js](./engine-js)** — GraalJS-Laufzeit und JavaScript-Bindings für das DOM.
+* **[engine-net](./engine-net)** — HTTP-Client, Page-Loader und Netzwerkbeobachtung.
+* **[engine-render](./engine-render)** — Render-Tree, Render-Styles sowie Block-/Inline-Boxen.
+* **[engine](./engine)** — kompatible `browicy-engine`-Fassade, die die Teilmodule bündelt
+  und mit `BrowicyEngine` den vollständigen Ladeablauf orchestriert.
+* **[engine-integration-tests](./engine-integration-tests)** — modulübergreifende
+  Integrationstests ohne zyklische Test-Abhängigkeiten zwischen den Produktivmodulen.
+* **[devtools](./devtools)** — Entwicklerwerkzeuge; hängt nur vom Netzwerkmodul ab.
+* **[desktop](./desktop)** — Swing-Oberfläche und Graphics2D-Renderer.
+
+Die Abhängigkeitsrichtung ist bewusst einseitig:
+
+```text
+engine-dom <- engine-render <- engine-css <- engine-html <- engine-js
+     ^                          ^
+     +--------------------------+
+
+engine-net ------------------------------------------> engine (Fassade)
+engine-dom/render/css/html/js -----------------------> engine (Fassade)
+```
+
+Neue Features sollten im kleinsten passenden Modul landen. Das Fassade-Modul dient
+der Komposition und Rückwärtskompatibilität, nicht als Ablage für fachliche Klassen.
 
 ## Bauen und Starten
 

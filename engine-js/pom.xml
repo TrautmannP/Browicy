@@ -10,25 +10,28 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>browicy-acid3-tests</artifactId>
-    <name>browicy-acid3-tests</name>
-    <description>Opt-in JUnit harness for the Acid3 browser conformance tests.</description>
+    <artifactId>browicy-engine-js</artifactId>
+    <name>browicy-engine-js</name>
+    <description>GraalJS-Laufzeit und JavaScript-Bindings für das Browicy-DOM.</description>
 
     <dependencies>
         <dependency>
             <groupId>com.browicy</groupId>
             <artifactId>browicy-engine-dom</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.browicy</groupId>
             <artifactId>browicy-engine-html</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.browicy</groupId>
-            <artifactId>browicy-engine-js</artifactId>
-            <scope>test</scope>
+            <groupId>org.graalvm.polyglot</groupId>
+            <artifactId>polyglot</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.graalvm.polyglot</groupId>
+            <artifactId>js-community</artifactId>
+            <type>pom</type>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>junit</groupId>

@@ -10,14 +10,18 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>browicy-devtools</artifactId>
-    <name>browicy-devtools</name>
-    <description>Entwicklerwerkzeuge des Browicy-Browsers: Netzwerk-Monitor als einbettbares Swing-Panel.</description>
+    <artifactId>browicy-engine-html</artifactId>
+    <name>browicy-engine-html</name>
+    <description>HTML-Entities, Tokenizer und DOM-Tree-Construction.</description>
 
     <dependencies>
         <dependency>
             <groupId>com.browicy</groupId>
-            <artifactId>browicy-engine-net</artifactId>
+            <artifactId>browicy-engine-dom</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-css</artifactId>
         </dependency>
         <dependency>
             <groupId>junit</groupId>

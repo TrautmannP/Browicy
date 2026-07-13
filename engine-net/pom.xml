@@ -10,19 +10,31 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>browicy-devtools</artifactId>
-    <name>browicy-devtools</name>
-    <description>Entwicklerwerkzeuge des Browicy-Browsers: Netzwerk-Monitor als einbettbares Swing-Panel.</description>
+    <artifactId>browicy-engine-net</artifactId>
+    <name>browicy-engine-net</name>
+    <description>HTTP-Client, Page-Loading und Netzwerkbeobachtung.</description>
 
     <dependencies>
-        <dependency>
-            <groupId>com.browicy</groupId>
-            <artifactId>browicy-engine-net</artifactId>
-        </dependency>
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

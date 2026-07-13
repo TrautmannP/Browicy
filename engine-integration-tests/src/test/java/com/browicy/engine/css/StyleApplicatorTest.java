@@ -14,6 +14,21 @@ import static org.junit.Assert.assertTrue;
 public class StyleApplicatorTest {
 
     @Test
+    public void appliesRulesFromHeadStyleElements() {
+        Document document = new HtmlParser().parse("""
+                <html><head><style>
+                  h1 { color: #ff0000; font-size: 1.5em; }
+                  p { color: blue; }
+                </style></head><body><h1>Titel</h1><p>Text</p></body></html>
+                """);
+
+        Element body = document.getBody();
+        assertEquals("#ff0000", body.findFirst("h1").getComputedStyles().get("color"));
+        assertEquals("1.5em", body.findFirst("h1").getComputedStyles().get("font-size"));
+        assertEquals("blue", body.findFirst("p").getComputedStyles().get("color"));
+    }
+
+    @Test
     public void laterRuleWinsAtEqualSpecificity() {
         Element heading = parseHeading("""
                 h1 { color: red; font-size: 18px; }

@@ -12,19 +12,39 @@
 
     <artifactId>browicy-engine</artifactId>
     <name>browicy-engine</name>
-    <description>Browser-Engine: HTML-Tokenizer, Parser und DOM.</description>
+    <description>Kompatible Browicy-Engine-Fassade und Aggregat der spezialisierten Engine-Module.</description>
 
     <dependencies>
-        <!-- GraalJS: JavaScript-Engine über die GraalVM-Polyglot-API -->
         <dependency>
-            <groupId>org.graalvm.polyglot</groupId>
-            <artifactId>polyglot</artifactId>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-dom</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.graalvm.polyglot</groupId>
-            <artifactId>js-community</artifactId>
-            <type>pom</type>
-            <scope>runtime</scope>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-css</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-html</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-js</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-net</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-net</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-render</artifactId>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
@@ -39,8 +59,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <!-- Truffle (GraalJS) braucht Native-Access und Unsafe; ohne diese
-                         Flags gibt das JDK beim Teststart Warnungen aus. -->
                     <argLine>--enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow</argLine>
                 </configuration>
             </plugin>

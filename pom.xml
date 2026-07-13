@@ -13,7 +13,14 @@
     <description>Browicy – ein Browser mit eigener Engine, reines Java.</description>
 
     <modules>
+        <module>engine-dom</module>
+        <module>engine-render</module>
+        <module>engine-css</module>
+        <module>engine-html</module>
+        <module>engine-js</module>
+        <module>engine-net</module>
         <module>engine</module>
+        <module>engine-integration-tests</module>
         <module>devtools</module>
         <module>desktop</module>
     </modules>
@@ -54,6 +61,36 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.browicy</groupId>
+                <artifactId>browicy-engine-dom</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.browicy</groupId>
+                <artifactId>browicy-engine-css</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.browicy</groupId>
+                <artifactId>browicy-engine-html</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.browicy</groupId>
+                <artifactId>browicy-engine-js</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.browicy</groupId>
+                <artifactId>browicy-engine-net</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.browicy</groupId>
+                <artifactId>browicy-engine-render</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.browicy</groupId>
                 <artifactId>browicy-engine</artifactId>
