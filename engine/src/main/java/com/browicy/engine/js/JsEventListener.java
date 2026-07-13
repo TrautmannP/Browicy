@@ -1,19 +1,17 @@
 package com.browicy.engine.js;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+
 import com.browicy.engine.dom.Event;
 import com.browicy.engine.dom.EventListener;
 import org.graalvm.polyglot.Value;
 
-/** Bindet eine GraalJS-Funktion bzw. ein handleEvent-Objekt an das Java-DOM. */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class JsEventListener implements EventListener {
 
     private final Value callback;
     private final JsDocument document;
-
-    JsEventListener(Value callback, JsDocument document) {
-        this.callback = callback;
-        this.document = document;
-    }
 
     @Override
     public void handleEvent(Event event) {

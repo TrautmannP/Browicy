@@ -1,5 +1,7 @@
 package com.browicy.acid3;
 
+import lombok.RequiredArgsConstructor;
+
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.html.HtmlParser;
 import com.browicy.engine.js.JavaScriptEngine;
@@ -20,6 +22,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 @RunWith(Parameterized.class)
+@RequiredArgsConstructor
 public class Acid3Test {
 
     private static final int TEST_COUNT = 100;
@@ -36,10 +39,6 @@ public class Acid3Test {
     }
 
     private final int index;
-
-    public Acid3Test(int index) {
-        this.index = index;
-    }
 
     @Test
     public void acid3Subtest() {

@@ -1,5 +1,8 @@
 package com.browicy.engine.js;
 
+import lombok.AccessLevel;
+import lombok.Setter;
+
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Event;
@@ -20,15 +23,6 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
-/**
- * JavaScript-Sicht auf das {@link Document}: das globale {@code document}-Objekt.
- *
- * <p>Unterstützt neben DOM-Core- und Traversal-Funktionen auch das
- * DOM-Level-2-EventTarget-Modell und {@code document.createEvent()}.</p>
- *
- * <p>Knoten- und Event-Wrapper werden pro Dokument gecacht, damit Identität
- * wie im Browser funktioniert ({@code document.body === document.body}).</p>
- */
 final class JsDocument implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
@@ -50,8 +44,11 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private final Map<Document, JsDocument> documentWrappers;
     private final Map<Event, JsEvent> eventWrappers = new IdentityHashMap<>();
     private final List<ListenerRegistration> listenerRegistrations = new ArrayList<>();
+    @Setter(AccessLevel.PACKAGE)
     private Element currentScript;
+    @Setter(AccessLevel.PACKAGE)
     private Value eventListenerInvoker;
+    @Setter(AccessLevel.PACKAGE)
     private Value domOperationWrapper;
     private JsDomImplementation implementation;
 
@@ -69,7 +66,6 @@ final class JsDocument implements ProxyObject, JsNodeLike {
 
     @Override public Document unwrapNode() { return document; }
 
-    /** Liefert den (gecachten) JavaScript-Wrapper für ein DOM-Element. */
     JsElement wrap(Element element) {
         if (element == null) {
             return null;
@@ -115,14 +111,6 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             return null;
         }
         return eventWrappers.computeIfAbsent(event, value -> new JsEvent(value, this));
-    }
-
-    void setEventListenerInvoker(Value eventListenerInvoker) {
-        this.eventListenerInvoker = eventListenerInvoker;
-    }
-
-    void setDomOperationWrapper(Value domOperationWrapper) {
-        this.domOperationWrapper = domOperationWrapper;
     }
 
     Object domOperation(ProxyExecutable operation) {
@@ -284,10 +272,6 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         return index >= args.length || args[index].isNull() ? null : args[index];
     }
 
-    void setCurrentScript(Element currentScript) {
-        this.currentScript = currentScript;
-    }
-
     private void write(String html) {
         Node parent = currentScript == null ? document.getBody() : currentScript.getParent();
         if (parent == null) {
@@ -318,11 +302,6 @@ final class JsDocument implements ProxyObject, JsNodeLike {
                 "Eigenschaft nicht unterstützt oder schreibgeschützt: " + key);
     }
 
-    /**
-     * Setzt den Dokumenttitel. Fehlt das {@code <title>}-Element, wird es
-     * im {@code <head>} angelegt; ohne {@code <head>} passiert nichts
-     * (Fragment ohne Grundgerüst).
-     */
     private void setTitle(String text) {
         Element title = firstByTag("title");
         if (title == null) {

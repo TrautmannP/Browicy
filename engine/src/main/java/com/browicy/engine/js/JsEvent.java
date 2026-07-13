@@ -1,5 +1,8 @@
 package com.browicy.engine.js;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+
 import com.browicy.engine.dom.Event;
 import com.browicy.engine.dom.UiEvent;
 import org.graalvm.polyglot.Value;
@@ -8,7 +11,7 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.List;
 
-/** JavaScript-Sicht auf DOM-Events und UIEvents. */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class JsEvent implements ProxyObject {
 
     private static final List<String> MEMBERS = List.of(
@@ -20,11 +23,6 @@ final class JsEvent implements ProxyObject {
 
     private final Event event;
     private final JsDocument document;
-
-    JsEvent(Event event, JsDocument document) {
-        this.event = event;
-        this.document = document;
-    }
 
     Event unwrap() {
         return event;

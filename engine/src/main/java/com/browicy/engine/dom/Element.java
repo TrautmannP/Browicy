@@ -1,5 +1,7 @@
 package com.browicy.engine.dom;
 
+import lombok.Getter;
+
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -7,15 +9,15 @@ import java.util.Map;
 import java.util.Locale;
 import java.util.stream.Collectors;
 
-/**
- * Ein HTML-Element, z. B. {@code <p>} oder {@code <h1>}, mit Tag-Namen und Attributen.
- * Tag-Namen werden normalisiert in Kleinbuchstaben gehalten.
- */
 public final class Element extends Node {
 
+    @Getter
     private final String tagName;
+    @Getter
     private final String namespaceUri;
+    @Getter
     private final String prefix;
+    @Getter
     private final String localName;
     private final Map<String, String> attributes;
     private final Map<String, String> computedStyles = new LinkedHashMap<>();
@@ -42,14 +44,6 @@ public final class Element extends Node {
         this.localName = separator < 0 ? qualifiedName : qualifiedName.substring(separator + 1);
         this.attributes = new LinkedHashMap<>(attributes);
     }
-
-    public String getTagName() {
-        return tagName;
-    }
-
-    public String getNamespaceUri() { return namespaceUri; }
-    public String getPrefix() { return prefix; }
-    public String getLocalName() { return localName; }
 
     @Override public short getNodeType() { return ELEMENT_NODE; }
     @Override public String getNodeName() {
@@ -80,15 +74,10 @@ public final class Element extends Node {
         return attributes.containsKey(name.toLowerCase());
     }
 
-    /** Liefert die ID dieses Elements oder {@code null}, wenn keine gesetzt ist. */
     public String getId() {
         return getAttribute("id");
     }
 
-    /**
-     * Liefert die durch HTML-Leerraum getrennten Klassen als unveränderliche
-     * Token-Liste. Eine fehlende oder leere class-Angabe ergibt eine leere Liste.
-     */
     public List<String> getClassNames() {
         String classAttribute = getAttribute("class");
         if (classAttribute == null || classAttribute.isBlank()) {
@@ -101,10 +90,6 @@ public final class Element extends Node {
         return className != null && getClassNames().contains(className);
     }
 
-    /**
-     * Setzt bzw. überschreibt ein Attribut. Attributnamen werden wie beim
-     * Parsen in Kleinbuchstaben normalisiert.
-     */
     public void setAttribute(String name, String value) {
         attributes.put(name.toLowerCase(), value == null ? "" : value);
     }
@@ -137,9 +122,6 @@ public final class Element extends Node {
         return copy;
     }
 
-    /**
-     * Liefert alle direkten Kind-Elemente (ohne Textknoten).
-     */
     public List<Element> getChildElements() {
         return getChildren().stream()
                 .filter(Element.class::isInstance)
@@ -147,10 +129,6 @@ public final class Element extends Node {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Sucht in Dokumentreihenfolge das erste Element mit dem angegebenen Tag-Namen
-     * in diesem Teilbaum (inklusive dieses Elements selbst).
-     */
     public Element findFirst(String tag) {
         String wanted = tag.toLowerCase(Locale.ROOT);
         if (tagName.equals(wanted)) {
@@ -167,7 +145,6 @@ public final class Element extends Node {
         return null;
     }
 
-    /** Returns descendants in tree order, excluding this element. */
     public List<Element> getElementsByTagName(String tag) {
         String wanted = tag.toLowerCase(Locale.ROOT);
         List<Element> result = new java.util.ArrayList<>();

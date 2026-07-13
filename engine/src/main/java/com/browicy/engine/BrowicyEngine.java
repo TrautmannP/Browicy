@@ -1,5 +1,7 @@
 package com.browicy.engine;
 
+import lombok.RequiredArgsConstructor;
+
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.html.HtmlParser;
 import com.browicy.engine.js.JavaScriptEngine;
@@ -9,6 +11,7 @@ import com.browicy.engine.net.PageLoader;
 
 import java.net.URI;
 
+@RequiredArgsConstructor
 public final class BrowicyEngine {
 
     private static final String HELLO_WORLD_HTML = """
@@ -31,10 +34,6 @@ public final class BrowicyEngine {
 
     public BrowicyEngine() {
         this(new PageLoader());
-    }
-
-    public BrowicyEngine(PageLoader pageLoader) {
-        this.pageLoader = pageLoader;
     }
 
     public void addNetworkObserver(PageLoadObserver observer) {

@@ -1,5 +1,8 @@
 package com.browicy.engine.js;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+
 import com.browicy.engine.dom.Node;
 import com.browicy.engine.dom.DocumentType;
 import com.browicy.engine.dom.TextNode;
@@ -8,6 +11,7 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.List;
 
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class JsNode implements ProxyObject, JsNodeLike {
     private static final List<String> MEMBERS = List.of(
             "data", "name", "publicId", "systemId", "nodeName", "nodeType", "nodeValue", "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild",
@@ -21,11 +25,6 @@ final class JsNode implements ProxyObject, JsNodeLike {
 
     private final Node node;
     private final JsDocument document;
-
-    JsNode(Node node, JsDocument document) {
-        this.node = node;
-        this.document = document;
-    }
 
     @Override public Node unwrapNode() { return node; }
 

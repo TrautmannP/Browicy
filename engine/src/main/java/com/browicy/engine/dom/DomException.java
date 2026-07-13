@@ -1,6 +1,8 @@
 package com.browicy.engine.dom;
 
-/** DOM-Fehler mit dem von älteren Web-APIs verwendeten numerischen Code. */
+import lombok.Getter;
+
+@Getter
 public final class DomException extends RuntimeException {
 
     public static final int HIERARCHY_REQUEST_ERR = 3;
@@ -19,9 +21,6 @@ public final class DomException extends RuntimeException {
         this.domName = domName;
         this.code = code;
     }
-
-    public String getDomName() { return domName; }
-    public int getCode() { return code; }
 
     public static DomException hierarchyRequest(String message) {
         return new DomException("HierarchyRequestError", HIERARCHY_REQUEST_ERR, message);

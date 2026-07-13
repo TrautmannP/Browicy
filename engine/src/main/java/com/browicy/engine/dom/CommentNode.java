@@ -1,13 +1,14 @@
 package com.browicy.engine.dom;
 
+import lombok.Getter;
+
 public final class CommentNode extends Node {
+    @Getter
     private String data;
 
     public CommentNode(String data) {
         this.data = data == null ? "" : data;
     }
-
-    public String getData() { return data; }
 
     public void setData(String data) {
         String normalized = data == null ? "" : data;

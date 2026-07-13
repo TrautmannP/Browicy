@@ -1,5 +1,8 @@
 package com.browicy.engine.js;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+
 import com.browicy.engine.dom.Node;
 import com.browicy.engine.dom.Range;
 import org.graalvm.polyglot.Value;
@@ -8,7 +11,7 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.List;
 
-/** JavaScript-Proxy für eine live aktualisierte DOM-Range. */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class JsRange implements ProxyObject {
 
     private static final List<String> MEMBERS = List.of(
@@ -23,11 +26,6 @@ final class JsRange implements ProxyObject {
 
     private final Range range;
     private final JsDocument document;
-
-    JsRange(Range range, JsDocument document) {
-        this.range = range;
-        this.document = document;
-    }
 
     Range unwrap() {
         return range;

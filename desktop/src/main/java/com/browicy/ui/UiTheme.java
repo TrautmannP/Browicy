@@ -1,16 +1,13 @@
 package com.browicy.ui;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 import java.awt.Color;
 import java.awt.Font;
 
-/**
- * Zentrale Farben und Schriften der Browser-UI. Angelehnt an das helle
- * Material-3-Schema der früheren Compose-Oberfläche.
- */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class UiTheme {
-
-    private UiTheme() {
-    }
 
     public static final Color BACKGROUND = Color.WHITE;
     public static final Color SURFACE = new Color(0xF7F5FA);
@@ -26,7 +23,6 @@ public final class UiTheme {
     public static final Font TITLE = new Font(Font.SANS_SERIF, Font.BOLD, 13);
     public static final Font TAB = new Font(Font.SANS_SERIF, Font.PLAIN, 13);
 
-    /** Schrift für eine Überschriften-/Textstufe, analog zu styleFor() der Compose-UI. */
     public static Font fontFor(String tagName) {
         return switch (tagName) {
             case "h1" -> new Font(Font.SANS_SERIF, Font.BOLD, 32);

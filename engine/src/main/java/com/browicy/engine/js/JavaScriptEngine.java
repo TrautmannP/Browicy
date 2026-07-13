@@ -1,5 +1,7 @@
 package com.browicy.engine.js;
 
+import lombok.RequiredArgsConstructor;
+
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Event;
@@ -18,26 +20,9 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 
-/**
- * JavaScript-Unterstützung der Browicy-Engine auf Basis von GraalJS
- * (GraalVM Polyglot API). Statt eine eigene JS-Engine zu bauen, wird die
- * vollständige ECMAScript-Implementierung von GraalVM eingebettet; Browicy
- * steuert nur bei, was ein Browser darüber hinaus braucht: die Anbindung
- * des DOM ({@code document}), der DOM-Events und der Konsole ({@code console}).
- *
- * <p><b>Sandbox:</b> Skripte laufen ohne Host-Zugriff (kein Java-Zugriff,
- * kein Dateisystem, keine Prozesse/Threads) und mit einem Statement-Limit
- * gegen Endlosschleifen. Das DOM ist ausschließlich über
- * {@link org.graalvm.polyglot.proxy.Proxy}-Objekte erreichbar.</p>
- *
- * <p><b>Prototyp-Grenzen:</b> Nur Inline-Skripte werden ausgeführt
- * (externe {@code <script src=…>} werden übersprungen), Timer werden als
- * einfache FIFO-Microtask-Näherung abgearbeitet und pro Seite wird noch ein
- * frischer, nach der Ausführung geschlossener Kontext verwendet.</p>
- */
+@RequiredArgsConstructor
 public final class JavaScriptEngine {
 
-    /** Großzügiges Limit; echte Seiten-Skripte bleiben weit darunter. */
     public static final long DEFAULT_STATEMENT_LIMIT = 10_000_000;
 
     private static final String BROWSER_BOOTSTRAP = """
@@ -125,22 +110,11 @@ public final class JavaScriptEngine {
         this(DEFAULT_STATEMENT_LIMIT);
     }
 
-    /** Für Tests: Engine mit eigenem Statement-Limit gegen Endlosschleifen. */
-    public JavaScriptEngine(long statementLimit) {
-        this.statementLimit = statementLimit;
-    }
-
-    /**
-     * Führt alle Inline-Skripte des Dokuments in Dokumentreihenfolge aus.
-     * Die Skripte teilen sich wie im Browser einen globalen Zustand; ein
-     * Fehler in einem Skript bricht die folgenden nicht ab. DOM-Änderungen
-     * wirken direkt auf das übergebene Dokument.
-     */
     public JsExecutionResult runScripts(Document document) {
         List<Script> scripts = new ArrayList<>();
         for (Element script : document.getElementsByTagName("script")) {
             if (script.hasAttribute("src")) {
-                continue; // Externe Skripte lädt der Prototyp noch nicht
+                continue;
             }
             String code = script.getTextContent();
             if (!code.isBlank()) {
@@ -157,10 +131,6 @@ public final class JavaScriptEngine {
         return execute(document, scripts);
     }
 
-    /**
-     * Führt ein einzelnes Skript gegen das Dokument aus (z.B. für eine
-     * spätere Entwickler-Konsole).
-     */
     public JsExecutionResult execute(Document document, String script) {
         return execute(document, List.of(new Script(script, null)));
     }
@@ -210,7 +180,7 @@ public final class JavaScriptEngine {
                         errors.add(message(exception));
                         if (exception.isCancelled() || exception.isResourceExhausted()) {
                             contextUsable = false;
-                            break; // Kontext ist nach Limit-Überschreitung nicht mehr nutzbar
+                            break;
                         }
                     }
                 }
@@ -221,8 +191,6 @@ public final class JavaScriptEngine {
                     runTimers(timers, errors);
                 }
             } finally {
-                // GraalJS-Values sind nach Context.close() ungültig. Listener dieses
-                // kurzlebigen Ausführungskontexts werden deshalb sauber aus dem DOM gelöst.
                 jsDocument.clearEventListeners();
             }
         } catch (RuntimeException exception) {
@@ -291,7 +259,6 @@ public final class JavaScriptEngine {
                 .resourceLimits(ResourceLimits.newBuilder()
                         .statementLimit(statementLimit, null)
                         .build())
-                // Kein Hinweis-Spam, wenn ohne Graal-JIT (z.B. auf normalem JDK) gelaufen wird
                 .option("engine.WarnInterpreterOnly", "false")
                 .out(OutputStream.nullOutputStream())
                 .err(OutputStream.nullOutputStream())

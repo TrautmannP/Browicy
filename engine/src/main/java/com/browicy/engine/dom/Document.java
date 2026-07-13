@@ -1,12 +1,13 @@
 package com.browicy.engine.dom;
 
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Wurzel eines geparsten HTML-Dokuments. Bietet bequemen Zugriff auf
- * {@code <html>}, {@code <head>}, {@code <body>} und den Titel.
- */
+@Getter
+@RequiredArgsConstructor
 public final class Document extends Node {
 
     private static final String XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace";
@@ -14,17 +15,6 @@ public final class Document extends Node {
     private static final String XML_NAME = "[A-Za-z_][A-Za-z0-9._-]*";
 
     private final String url;
-
-    public Document(String url) {
-        this.url = url;
-    }
-
-    /**
-     * Die URL, unter der das Dokument geladen wurde (informativ, z. B. für die Adressleiste).
-     */
-    public String getUrl() {
-        return url;
-    }
 
     @Override public short getNodeType() { return DOCUMENT_NODE; }
     @Override public String getNodeName() { return "#document"; }
@@ -84,11 +74,6 @@ public final class Document extends Node {
         return null;
     }
 
-    /**
-     * Liefert das {@code <body>}-Element. Fehlt es (Fragment ohne Grundgerüst),
-     * wird ersatzweise {@code <html>} bzw. das erste Wurzelelement geliefert,
-     * damit Aufrufer immer rendern können.
-     */
     public Element getBody() {
         Element body = findFirst("body");
         if (body != null) {
@@ -106,18 +91,11 @@ public final class Document extends Node {
         return null;
     }
 
-    /**
-     * Inhalt des {@code <title>}-Elements, oder ein leerer String, wenn keiner vorhanden ist.
-     */
     public String getTitle() {
         Element title = findFirst("title");
         return title == null ? "" : title.getTextContent().strip();
     }
 
-    /**
-     * Sucht in Dokumentreihenfolge das erste Element mit dem angegebenen
-     * {@code id}-Attribut, oder {@code null}.
-     */
     public Element getElementById(String id) {
         if (id == null) {
             return null;
@@ -130,14 +108,10 @@ public final class Document extends Node {
         return null;
     }
 
-    /**
-     * Liefert alle Elemente mit dem angegebenen Tag-Namen in Dokumentreihenfolge.
-     */
     public List<Element> getElementsByTagName(String tag) {
         return collectElements(tag.toLowerCase());
     }
 
-    /** Sammelt Elemente in Dokumentreihenfolge; {@code tag == null} sammelt alle. */
     private List<Element> collectElements(String tag) {
         List<Element> result = new ArrayList<>();
         collect(this, tag, result);

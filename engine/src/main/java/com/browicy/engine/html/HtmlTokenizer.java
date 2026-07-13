@@ -1,26 +1,17 @@
 package com.browicy.engine.html;
 
+import lombok.RequiredArgsConstructor;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Zerlegt HTML-Quelltext in eine Folge von {@link HtmlToken}.
- *
- * <p>Bewusst vereinfachte Umsetzung des Tokenizer-Schritts der HTML-Spezifikation:
- * unterstützt Start-/End-Tags mit Attributen (quotiert und unquotiert),
- * Kommentare, Doctype, Text mit Entity-Dekodierung sowie Rawtext-Elemente
- * ({@code <script>}, {@code <style>}), deren Inhalt nicht als Markup gelesen wird.</p>
- */
+@RequiredArgsConstructor
 public final class HtmlTokenizer {
 
     private final String input;
     private int pos;
-
-    public HtmlTokenizer(String input) {
-        this.input = input;
-    }
 
     public List<HtmlToken> tokenize() {
         List<HtmlToken> tokens = new ArrayList<>();
@@ -29,7 +20,6 @@ public final class HtmlTokenizer {
                 HtmlToken token = readMarkup();
                 if (token != null) {
                     tokens.add(token);
-                    // Inhalt von Rawtext-Elementen bis zum passenden End-Tag als Text lesen
                     if (token.type() == HtmlToken.Type.START_TAG
                             && !token.selfClosing()
                             && isRawText(token.name())) {
@@ -48,7 +38,6 @@ public final class HtmlTokenizer {
     }
 
     private HtmlToken readMarkup() {
-        // pos steht auf '<'
         if (lookingAt("<!--")) {
             return readComment();
         }
@@ -61,13 +50,12 @@ public final class HtmlTokenizer {
         if (pos + 1 < input.length() && Character.isLetter(input.charAt(pos + 1))) {
             return readStartTag();
         }
-        // Einzelnes '<' ohne Tag dahinter: als Text behandeln
         pos++;
         return HtmlToken.text("<");
     }
 
     private HtmlToken readComment() {
-        pos += 4; // "<!--"
+        pos += 4;
         int end = input.indexOf("-->", pos);
         if (end < 0) {
             end = input.length();
@@ -78,7 +66,7 @@ public final class HtmlTokenizer {
     }
 
     private HtmlToken readDoctype() {
-        pos += 2; // "<!"
+        pos += 2;
         int end = input.indexOf('>', pos);
         if (end < 0) {
             end = input.length();
@@ -89,14 +77,14 @@ public final class HtmlTokenizer {
     }
 
     private HtmlToken readEndTag() {
-        pos += 2; // "</"
+        pos += 2;
         String name = readTagName();
         skipUntilAfter('>');
         return HtmlToken.endTag(name);
     }
 
     private HtmlToken readStartTag() {
-        pos++; // '<'
+        pos++;
         String name = readTagName();
         Map<String, String> attributes = new LinkedHashMap<>();
         boolean selfClosing = false;
@@ -131,7 +119,7 @@ public final class HtmlTokenizer {
             pos++;
         }
         if (pos == start) {
-            pos++; // unerwartetes Zeichen überspringen, um Endlosschleifen zu vermeiden
+            pos++;
             return;
         }
         String name = input.substring(start, pos).toLowerCase();

@@ -1,5 +1,7 @@
 package com.browicy.engine.dom;
 
+import lombok.Getter;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -8,11 +10,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Basisklasse aller DOM-Knoten. Hält die Baumstruktur (Eltern/Kinder),
- * konkrete Knotentypen sind {@link Element}, {@link TextNode} und {@link Document}.
- * Jeder Knoten ist zugleich ein {@link EventTarget}.
- */
 public abstract class Node implements EventTarget {
 
     private static final AtomicLong NEXT_NODE_ORDER = new AtomicLong();
@@ -32,21 +29,15 @@ public abstract class Node implements EventTarget {
     public static final short DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC = 0x20;
 
     private final long nodeOrder = NEXT_NODE_ORDER.getAndIncrement();
+    @Getter
     private Node parent;
+    @Getter
     private Document ownerDocument;
     private final List<Node> children = new ArrayList<>();
     private final Map<String, List<RegisteredEventListener>> eventListeners = new HashMap<>();
 
-    public Node getParent() {
-        return parent;
-    }
-
     public List<Node> getChildren() {
         return Collections.unmodifiableList(children);
-    }
-
-    public Document getOwnerDocument() {
-        return ownerDocument;
     }
 
     public abstract short getNodeType();
@@ -58,7 +49,6 @@ public abstract class Node implements EventTarget {
     }
 
     public void setNodeValue(String value) {
-        // Element, Document und DocumentFragment haben per DOM-Spezifikation keinen nodeValue.
     }
 
     public Node getFirstChild() {
@@ -92,11 +82,6 @@ public abstract class Node implements EventTarget {
         return false;
     }
 
-    /**
-     * Vergleicht die Position von {@code other} relativ zu diesem Knoten gemäß
-     * DOM Level 3 Core. Bei getrennten Bäumen wird zusätzlich ein stabiler,
-     * implementierungsspezifischer Richtungs-Bit gesetzt.
-     */
     public short compareDocumentPosition(Node other) {
         Objects.requireNonNull(other, "other");
         if (this == other) {
@@ -136,15 +121,10 @@ public abstract class Node implements EventTarget {
                 : DOCUMENT_POSITION_PRECEDING;
     }
 
-    /** Referenzidentität entsprechend DOM {@code isSameNode()}. */
     public boolean isSameNode(Node other) {
         return this == other;
     }
 
-    /**
-     * Tiefer struktureller Vergleich entsprechend DOM {@code isEqualNode()}.
-     * Elternbeziehungen und Event-Listener sind dabei bewusst nicht Teil der Gleichheit.
-     */
     public boolean isEqualNode(Node other) {
         if (other == null || getNodeType() != other.getNodeType()
                 || !Objects.equals(getNodeName(), other.getNodeName())
@@ -168,7 +148,6 @@ public abstract class Node implements EventTarget {
         return true;
     }
 
-    /** Creates a detached copy. Event listeners and parent relationships are not copied. */
     public Node cloneNode(boolean deep) {
         Node clone = switch (this) {
             case Element element -> element.copyShallow();
@@ -194,7 +173,6 @@ public abstract class Node implements EventTarget {
         insertBeforeInternal(child, reference, true);
     }
 
-    /** Interner Einfügepfad für {@link TextNode#splitText(int)}. */
     void insertBeforeWithoutRangeAdjustment(Node child, Node reference) {
         insertBeforeInternal(child, reference, false);
     }
@@ -254,30 +232,19 @@ public abstract class Node implements EventTarget {
     }
 
     protected void validateChildInsertion(Node child) {
-        // Die meisten Knoten dürfen alle grundsätzlich einfügbaren Knotentypen enthalten.
     }
 
-    /**
-     * Entfernt alle Kindknoten und löst deren Eltern-Verweis
-     * (z.B. für {@code element.textContent = "..."} aus JavaScript).
-     */
     public void clearChildren() {
         for (Node child : List.copyOf(children)) {
             removeChild(child);
         }
     }
 
-    /**
-     * Ersetzt den gesamten Inhalt dieses Teilbaums durch einen einzelnen Textknoten.
-     */
     public void setTextContent(String text) {
         clearChildren();
         appendChild(new TextNode(text == null ? "" : text));
     }
 
-    /**
-     * Liefert den gesamten Textinhalt dieses Teilbaums (Textknoten in Dokumentreihenfolge).
-     */
     public String getTextContent() {
         StringBuilder sb = new StringBuilder();
         collectText(this, sb);
@@ -355,10 +322,6 @@ public abstract class Node implements EventTarget {
         return !event.isDefaultPrevented();
     }
 
-    /**
-     * {@code captureFilter == null} bedeutet Target-Phase: dort werden
-     * Capturing- und Bubbling-Listener in Registrierungsreihenfolge aufgerufen.
-     */
     private void invokeEventListeners(Event event, short phase, Boolean captureFilter) {
         List<RegisteredEventListener> current = eventListeners.get(event.getType());
         if (current == null || current.isEmpty()) {
@@ -366,8 +329,6 @@ public abstract class Node implements EventTarget {
         }
         event.enter(this, phase);
         for (RegisteredEventListener registered : List.copyOf(current)) {
-            // Ein während des Dispatches entfernter Listener darf nicht mehr laufen;
-            // ein neu hinzugefügter Listener ist nicht Teil des Snapshots.
             List<RegisteredEventListener> live = eventListeners.get(event.getType());
             if (live == null || !live.contains(registered)) {
                 continue;
@@ -427,7 +388,6 @@ public abstract class Node implements EventTarget {
             child.setOwnerDocument(document);
         }
     }
-
 
     private static final class RegisteredEventListener {
         private final EventListener listener;

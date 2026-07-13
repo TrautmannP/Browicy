@@ -1,16 +1,13 @@
 package com.browicy;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 import com.browicy.ui.BrowserFrame;
 import javax.swing.SwingUtilities;
 
-/**
- * Einstiegspunkt des Browicy-Desktop-Browsers (reines Java/Swing,
- * damit später eine GraalVM-native-image-Kompilierung möglich ist).
- */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Main {
-
-    private Main() {
-    }
 
     public static void main(String[] args) {
         System.setProperty("awt.useSystemAAFontSettings", "on");

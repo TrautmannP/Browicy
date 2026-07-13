@@ -1,12 +1,11 @@
 package com.browicy.engine.html;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 import java.util.Map;
 
-/**
- * Dekodiert die gebräuchlichsten HTML-Entities. Bewusst kein vollständiges
- * Named-Character-Reference-Verzeichnis der Spezifikation — für den Anfang
- * genügen die häufigsten benannten sowie numerische Referenzen.
- */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class HtmlEntities {
 
     private static final Map<String, String> NAMED = Map.ofEntries(
@@ -50,9 +49,6 @@ final class HtmlEntities {
             Map.entry("Uuml", "Ü"),
             Map.entry("nbsp", " ")
     );
-
-    private HtmlEntities() {
-    }
 
     static String decode(String input) {
         int amp = input.indexOf('&');
@@ -98,7 +94,6 @@ final class HtmlEntities {
                 return new String(Character.toChars(codePoint));
             }
         } catch (NumberFormatException ignored) {
-            // ungültige Referenz: unverändert lassen
         }
         return null;
     }

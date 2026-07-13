@@ -1,5 +1,7 @@
 package com.browicy.engine.net;
 
+import lombok.RequiredArgsConstructor;
+
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.Charset;
@@ -16,6 +18,7 @@ import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+@RequiredArgsConstructor
 public final class PageLoader implements AutoCloseable {
 
     public record Page(URI uri, int statusCode, String html) {
@@ -45,11 +48,6 @@ public final class PageLoader implements AutoCloseable {
         this(client, Executors.newVirtualThreadPerTaskExecutor());
     }
 
-    public PageLoader(HttpClient client, ExecutorService executor) {
-        this.client = client;
-        this.executor = executor;
-    }
-
     public static URI normalize(String input) {
         String trimmed = input == null ? "" : input.strip();
         if (trimmed.isEmpty()) {
@@ -73,8 +71,6 @@ public final class PageLoader implements AutoCloseable {
     public PageLoad loadAsync(String url) {
         long loadId = nextLoadId.getAndIncrement();
         PageLoad load = new PageLoad(loadId, url);
-        // Als erster Listener registriert: Beobachter erfahren den Endzustand
-        // genau einmal, auch wenn cancel() mit dem Abschluss konkurriert.
         load.onDone(this::emitTerminalEvent);
         emit(new PageLoadEvent.Started(loadId, Instant.now(), url));
         try {
@@ -82,13 +78,11 @@ public final class PageLoader implements AutoCloseable {
                 try {
                     load.completeLoaded(load(loadId, url, load::isCancelled));
                 } catch (CancellationException alreadyCancelled) {
-                    // Zustand wurde bereits durch cancel() gesetzt
                 } catch (Exception e) {
                     load.completeFailed(e);
                 }
             });
         } catch (RuntimeException rejected) {
-            // z.B. Executor bereits geschlossen — der Vorgang darf nicht in LOADING hängen
             load.completeFailed(rejected);
         }
         return load;
@@ -158,7 +152,6 @@ public final class PageLoader implements AutoCloseable {
     }
 
     private static Optional<Charset> sniffMetaCharset(byte[] body) {
-        // ASCII-kompatible Vorschau reicht, um <meta charset=...> zu finden
         String prefix = new String(body, 0, Math.min(body.length, CHARSET_SNIFF_BYTES),
                 StandardCharsets.ISO_8859_1);
         Matcher matcher = META_CHARSET.matcher(prefix);

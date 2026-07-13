@@ -1,5 +1,8 @@
 package com.browicy.engine.js;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+
 import com.browicy.engine.dom.Element;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
@@ -11,16 +14,7 @@ import java.util.ArrayList;
 import java.util.Locale;
 import java.util.stream.Collectors;
 
-/**
- * JavaScript-Sicht auf ein {@link Element} des Browicy-DOM. Implementiert
- * als {@link ProxyObject}, d.h. ohne Java-Reflection — der Polyglot-Kontext
- * kann dadurch vollständig ohne Host-Zugriff laufen.
- *
- * <p>Unterstützt einen minimalen, browserüblichen Ausschnitt:
- * {@code tagName}, {@code id}, {@code textContent} (lesen und schreiben),
- * {@code children}, {@code getAttribute}, {@code setAttribute},
- * {@code hasAttribute} und {@code appendChild}.</p>
- */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class JsElement implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
@@ -42,12 +36,6 @@ final class JsElement implements ProxyObject, JsNodeLike {
     private final Element element;
     private final JsDocument document;
 
-    JsElement(Element element, JsDocument document) {
-        this.element = element;
-        this.document = document;
-    }
-
-    /** Das zugrunde liegende DOM-Element (für {@code appendChild} u.ä.). */
     Element unwrap() {
         return element;
     }
@@ -57,7 +45,6 @@ final class JsElement implements ProxyObject, JsNodeLike {
     @Override
     public Object getMember(String key) {
         return switch (key) {
-            // Wie im Browser-DOM: Tag-Namen von HTML-Elementen sind GROSS geschrieben
             case "tagName" -> element.getNodeName();
             case "nodeName" -> element.getNodeName();
             case "nodeType" -> element.getNodeType();

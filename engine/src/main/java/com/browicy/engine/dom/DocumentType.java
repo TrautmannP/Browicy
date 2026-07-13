@@ -1,5 +1,8 @@
 package com.browicy.engine.dom;
 
+import lombok.Getter;
+
+@Getter
 public final class DocumentType extends Node {
     private final String name;
     private final String publicId;
@@ -19,9 +22,6 @@ public final class DocumentType extends Node {
         this.systemId = systemId == null ? "" : systemId;
     }
 
-    public String getName() { return name; }
-    public String getPublicId() { return publicId; }
-    public String getSystemId() { return systemId; }
     @Override public short getNodeType() { return DOCUMENT_TYPE_NODE; }
     @Override public String getNodeName() { return name; }
 }

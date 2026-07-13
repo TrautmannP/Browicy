@@ -1,5 +1,8 @@
 package com.browicy.engine.js;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+
 import com.browicy.engine.dom.Element;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyObject;
@@ -8,15 +11,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 
-/** A live DOM HTMLCollection backed by a query evaluated on every access. */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class JsHtmlCollection implements ProxyObject {
     private final Supplier<List<Element>> query;
     private final JsDocument document;
-
-    JsHtmlCollection(Supplier<List<Element>> query, JsDocument document) {
-        this.query = query;
-        this.document = document;
-    }
 
     @Override
     public Object getMember(String key) {

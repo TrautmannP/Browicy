@@ -1,20 +1,12 @@
 package com.browicy.engine.dom;
 
-/**
- * DOM-UIEvent mit View- und Detail-Informationen.
- */
+import lombok.Getter;
+
+@Getter
 public final class UiEvent extends Event {
 
     private Object view;
     private int detail;
-
-    public Object getView() {
-        return view;
-    }
-
-    public int getDetail() {
-        return detail;
-    }
 
     @Override
     public void initEvent(String type, boolean bubbles, boolean cancelable) {

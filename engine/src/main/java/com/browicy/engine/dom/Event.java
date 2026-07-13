@@ -1,9 +1,11 @@
 package com.browicy.engine.dom;
 
-/**
- * DOM-Ereignis mit den Zuständen, die für Capturing, Target- und
- * Bubbling-Phase benötigt werden.
- */
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+@Getter
+@NoArgsConstructor
 public class Event {
 
     public static final short NONE = 0;
@@ -20,58 +22,19 @@ public class Event {
     private Node currentTarget;
     private short eventPhase = NONE;
     private boolean defaultPrevented;
+    @Getter(AccessLevel.PACKAGE)
     private boolean propagationStopped;
+    @Getter(AccessLevel.PACKAGE)
     private boolean immediatePropagationStopped;
     private boolean dispatching;
+    @Getter(AccessLevel.NONE)
     private boolean initialized;
 
-    public Event() {
-    }
 
     public Event(String type, boolean bubbles, boolean cancelable) {
         initEvent(type, bubbles, cancelable);
     }
 
-    public String getType() {
-        return type;
-    }
-
-    public Node getTarget() {
-        return target;
-    }
-
-    public Node getCurrentTarget() {
-        return currentTarget;
-    }
-
-    public short getEventPhase() {
-        return eventPhase;
-    }
-
-    public boolean isBubbles() {
-        return bubbles;
-    }
-
-    public boolean isCancelable() {
-        return cancelable;
-    }
-
-    public long getTimeStamp() {
-        return timeStamp;
-    }
-
-    public boolean isDefaultPrevented() {
-        return defaultPrevented;
-    }
-
-    public boolean isDispatching() {
-        return dispatching;
-    }
-
-    /**
-     * Initialisiert bzw. reinitialisiert das Ereignis. Während eines laufenden
-     * Dispatches ist die Operation entsprechend DOM Level 2 wirkungslos.
-     */
     public void initEvent(String type, boolean bubbles, boolean cancelable) {
         if (dispatching) {
             return;
@@ -101,14 +64,6 @@ public class Event {
         if (cancelable) {
             defaultPrevented = true;
         }
-    }
-
-    boolean isPropagationStopped() {
-        return propagationStopped;
-    }
-
-    boolean isImmediatePropagationStopped() {
-        return immediatePropagationStopped;
     }
 
     void beginDispatch(Node target) {

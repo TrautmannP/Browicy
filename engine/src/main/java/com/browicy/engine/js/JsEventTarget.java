@@ -1,19 +1,19 @@
 package com.browicy.engine.js;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 import com.browicy.engine.dom.Event;
 import com.browicy.engine.dom.Node;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 
-/** Gemeinsame JavaScript-Anbindung der EventTarget-Methoden aller DOM-Knoten. */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class JsEventTarget {
 
     static final String ADD_EVENT_LISTENER = "addEventListener";
     static final String REMOVE_EVENT_LISTENER = "removeEventListener";
     static final String DISPATCH_EVENT = "dispatchEvent";
-
-    private JsEventTarget() {
-    }
 
     static ProxyExecutable addEventListener(Node target, JsDocument document) {
         return args -> {

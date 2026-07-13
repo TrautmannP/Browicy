@@ -1,17 +1,16 @@
 package com.browicy.model;
 
+import lombok.Getter;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Zustand des Browsers: Tabs und Auswahl. Änderungen werden über
- * registrierte Listener gemeldet, damit die UI sich aktualisieren kann.
- */
 public final class BrowserState {
 
     private final List<BrowserTab> tabs = new ArrayList<>();
     private final List<Runnable> listeners = new ArrayList<>();
+    @Getter
     private String selectedTabId;
 
     public BrowserState() {
@@ -32,10 +31,6 @@ public final class BrowserState {
 
     public List<BrowserTab> getTabs() {
         return Collections.unmodifiableList(tabs);
-    }
-
-    public String getSelectedTabId() {
-        return selectedTabId;
     }
 
     public BrowserTab getSelectedTab() {

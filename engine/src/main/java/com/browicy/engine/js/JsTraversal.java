@@ -1,8 +1,12 @@
 package com.browicy.engine.js;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+
 import com.browicy.engine.dom.Node;
 import org.graalvm.polyglot.Value;
 
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 abstract class JsTraversal {
     static final int FILTER_ACCEPT = 1;
     static final int FILTER_REJECT = 2;
@@ -12,13 +16,6 @@ abstract class JsTraversal {
     final Node root;
     final long whatToShow;
     final Value filter;
-
-    JsTraversal(JsDocument document, Node root, long whatToShow, Value filter) {
-        this.document = document;
-        this.root = root;
-        this.whatToShow = whatToShow;
-        this.filter = filter;
-    }
 
     final int accept(Node node) {
         long bit = 1L << (node.getNodeType() - 1);

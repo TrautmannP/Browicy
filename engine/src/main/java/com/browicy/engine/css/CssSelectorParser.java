@@ -1,14 +1,14 @@
 package com.browicy.engine.css;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/** Parser für einfache Selektoren ohne Kombinatoren, Attribute oder Pseudoklassen. */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class CssSelectorParser {
-
-    private CssSelectorParser() {
-    }
 
     static Optional<SimpleSelector> parse(String source) {
         if (source == null || source.isBlank()) {

@@ -1,18 +1,14 @@
 package com.browicy.engine.dom;
 
-/**
- * Ein Textknoten zwischen bzw. innerhalb von Elementen.
- */
+import lombok.Getter;
+
 public final class TextNode extends Node {
 
+    @Getter
     private String data;
 
     public TextNode(String data) {
         this.data = data == null ? "" : data;
-    }
-
-    public String getData() {
-        return data;
     }
 
     @Override public short getNodeType() { return TEXT_NODE; }
@@ -40,10 +36,6 @@ public final class TextNode extends Node {
         this.data = data == null ? "" : data;
     }
 
-    /**
-     * Teilt den Text an {@code offset}. Aktive Ranges werden entsprechend der
-     * DOM-Live-Regeln auf den neu erzeugten Folgeknoten verschoben.
-     */
     public TextNode splitText(int offset) {
         if (offset < 0 || offset > data.length()) {
             throw new IndexOutOfBoundsException("Text-Offset liegt außerhalb des Knotens");
@@ -59,10 +51,6 @@ public final class TextNode extends Node {
         return tail;
     }
 
-    /**
-     * {@code true}, wenn der Text nur aus Whitespace besteht
-     * (typischerweise Formatierung des HTML-Quelltexts).
-     */
     public boolean isBlank() {
         return data.isBlank();
     }

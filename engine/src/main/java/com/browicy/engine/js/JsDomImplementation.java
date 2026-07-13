@@ -1,5 +1,8 @@
 package com.browicy.engine.js;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+
 import com.browicy.engine.dom.DocumentType;
 import com.browicy.engine.dom.DomImplementation;
 import org.graalvm.polyglot.Value;
@@ -8,15 +11,12 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.List;
 
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class JsDomImplementation implements ProxyObject {
     private static final List<String> MEMBERS = List.of("createDocument", "createDocumentType");
 
     private final DomImplementation implementation = new DomImplementation();
     private final JsDocument owner;
-
-    JsDomImplementation(JsDocument owner) {
-        this.owner = owner;
-    }
 
     @Override
     public Object getMember(String key) {

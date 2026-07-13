@@ -1,5 +1,8 @@
 package com.browicy.engine.js;
 
+import lombok.AccessLevel;
+import lombok.Getter;
+
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyObject;
@@ -9,21 +12,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * Das {@code console}-Objekt, das den Skripten zur Verfügung gestellt wird.
- * Sammelt alle Ausgaben als Strings ein (Format {@code "level: text"}),
- * statt sie auf stdout zu schreiben — so kann die UI oder ein Test sie
- * später anzeigen bzw. prüfen.
- */
 final class JsConsole implements ProxyObject {
 
     private static final List<String> LEVELS = List.of("log", "info", "warn", "error", "debug");
 
+    @Getter(AccessLevel.PACKAGE)
     private final List<String> messages = new ArrayList<>();
-
-    List<String> getMessages() {
-        return messages;
-    }
 
     @Override
     public Object getMember(String key) {

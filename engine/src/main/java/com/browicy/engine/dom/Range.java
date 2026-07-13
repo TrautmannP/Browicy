@@ -1,5 +1,7 @@
 package com.browicy.engine.dom;
 
+import lombok.Getter;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -7,13 +9,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.WeakHashMap;
 
-/**
- * Live-DOM-Range mit Grenzpunkten aus Container und Offset.
- *
- * <p>Die Implementierung deckt die zentralen DOM-Level-2-Operationen ab und
- * passt aktive Grenzpunkte bei Einfüge-, Entfernungs- und Text-Split-Mutationen
- * automatisch an.</p>
- */
+@Getter
 public final class Range {
 
     public static final short START_TO_START = 0;
@@ -35,26 +31,6 @@ public final class Range {
         startContainer = document;
         endContainer = document;
         ACTIVE_RANGES.put(this, Boolean.TRUE);
-    }
-
-    public Document getDocument() {
-        return document;
-    }
-
-    public Node getStartContainer() {
-        return startContainer;
-    }
-
-    public int getStartOffset() {
-        return startOffset;
-    }
-
-    public Node getEndContainer() {
-        return endContainer;
-    }
-
-    public int getEndOffset() {
-        return endOffset;
     }
 
     public boolean isCollapsed() {
@@ -314,10 +290,6 @@ public final class Range {
                 leftContainer, leftOffset, rightContainer, rightOffset));
     }
 
-    /**
-     * Umschließt den Bereich mit {@code newParent}. Teilweise ausgewählte
-     * Nicht-Text-Knoten werden abgelehnt.
-     */
     public void surroundContents(Node newParent) {
         ensureActive();
         Objects.requireNonNull(newParent, "newParent");
@@ -340,7 +312,6 @@ public final class Range {
     }
 
     public void detach() {
-        // Legacy no-op per DOM Standard. A detached Range remains fully usable and live.
     }
 
     @Override
@@ -580,7 +551,6 @@ public final class Range {
     }
 
     private void ensureActive() {
-        // Kept at call sites to document operations that require a live Range.
     }
 
     private static List<Range> activeSnapshot() {
