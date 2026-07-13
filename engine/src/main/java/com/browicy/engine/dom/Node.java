@@ -22,11 +22,23 @@ public abstract class Node {
     }
 
     public void appendChild(Node child) {
+        for (Node ancestor = this; ancestor != null; ancestor = ancestor.parent) {
+            if (ancestor == child) {
+                throw new IllegalArgumentException("Node kann nicht in einen eigenen Nachfahren eingefügt werden");
+            }
+        }
         if (child.parent != null) {
-            throw new IllegalArgumentException("Node hat bereits einen Elternknoten");
+            child.parent.removeChild(child);
         }
         child.parent = this;
         children.add(child);
+    }
+
+    public void removeChild(Node child) {
+        if (!children.remove(child)) {
+            throw new IllegalArgumentException("Node ist kein Kind dieses Knotens");
+        }
+        child.parent = null;
     }
 
     /**

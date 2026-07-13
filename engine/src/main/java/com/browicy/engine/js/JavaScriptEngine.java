@@ -12,6 +12,8 @@ import org.graalvm.polyglot.io.IOAccess;
 
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -85,6 +87,13 @@ public final class JavaScriptEngine {
             Value bindings = context.getBindings("js");
             bindings.putMember("document", new JsDocument(document));
             bindings.putMember("console", console);
+            Deque<Value> timers = new ArrayDeque<>();
+            bindings.putMember("setTimeout", (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
+                if (args.length > 0 && args[0].canExecute()) {
+                    timers.addLast(args[0]);
+                }
+                return 0;
+            });
             int index = 0;
             for (String script : scripts) {
                 index++;
@@ -96,6 +105,14 @@ public final class JavaScriptEngine {
                     if (e.isCancelled() || e.isResourceExhausted()) {
                         break; // Kontext ist nach Limit-Überschreitung nicht mehr nutzbar
                     }
+                }
+            }
+            Element body = document.getBody();
+            if (body != null && body.hasAttribute("onload")) {
+                context.eval(Source.newBuilder("js", body.getAttribute("onload"), "body-onload.js")
+                        .buildLiteral());
+                while (!timers.isEmpty()) {
+                    timers.removeFirst().executeVoid();
                 }
             }
         } catch (RuntimeException e) {

@@ -22,8 +22,10 @@ import java.util.stream.Collectors;
 final class JsElement implements ProxyObject {
 
     private static final List<String> MEMBERS = List.of(
-            "tagName", "id", "textContent", "children",
-            "getAttribute", "setAttribute", "hasAttribute", "appendChild");
+            "tagName", "nodeName", "id", "className", "textContent", "children",
+            "parentNode", "firstChild", "lastChild", "previousSibling", "nextSibling",
+            "getAttribute", "setAttribute", "removeAttribute", "hasAttribute",
+            "appendChild", "removeChild");
 
     private final Element element;
     private final JsDocument document;
@@ -43,20 +45,36 @@ final class JsElement implements ProxyObject {
         return switch (key) {
             // Wie im Browser-DOM: Tag-Namen von HTML-Elementen sind GROSS geschrieben
             case "tagName" -> element.getTagName().toUpperCase();
+            case "nodeName" -> element.getTagName().toUpperCase();
             case "id" -> orEmpty(element.getAttribute("id"));
+            case "className" -> orEmpty(element.getAttribute("class"));
             case "textContent" -> element.getTextContent();
             case "children" -> ProxyArray.fromList(element.getChildElements().stream()
                     .map(child -> (Object) document.wrap(child))
                     .collect(Collectors.toList()));
+            case "parentNode" -> document.wrap(element.getParent());
+            case "firstChild" -> childAt(0);
+            case "lastChild" -> childAt(element.getChildren().size() - 1);
+            case "previousSibling" -> sibling(-1);
+            case "nextSibling" -> sibling(1);
             case "getAttribute" -> (ProxyExecutable) args -> element.getAttribute(asString(args, 0));
             case "setAttribute" -> (ProxyExecutable) args -> {
                 element.setAttribute(asString(args, 0), asString(args, 1));
+                return null;
+            };
+            case "removeAttribute" -> (ProxyExecutable) args -> {
+                element.removeAttribute(asString(args, 0));
                 return null;
             };
             case "hasAttribute" -> (ProxyExecutable) args -> element.hasAttribute(asString(args, 0));
             case "appendChild" -> (ProxyExecutable) args -> {
                 JsElement child = expectElement(args, 0);
                 element.appendChild(child.unwrap());
+                return child;
+            };
+            case "removeChild" -> (ProxyExecutable) args -> {
+                JsElement child = expectElement(args, 0);
+                element.removeChild(child.unwrap());
                 return child;
             };
             default -> null;
@@ -68,9 +86,24 @@ final class JsElement implements ProxyObject {
         switch (key) {
             case "textContent" -> element.setTextContent(toText(value));
             case "id" -> element.setAttribute("id", toText(value));
+            case "className" -> element.setAttribute("class", toText(value));
             default -> throw new UnsupportedOperationException(
                     "Eigenschaft nicht unterstützt oder schreibgeschützt: " + key);
         }
+    }
+
+    private Object childAt(int index) {
+        return index >= 0 && index < element.getChildren().size()
+                ? document.wrap(element.getChildren().get(index)) : null;
+    }
+
+    private Object sibling(int offset) {
+        if (element.getParent() == null) {
+            return null;
+        }
+        List<com.browicy.engine.dom.Node> siblings = element.getParent().getChildren();
+        int index = siblings.indexOf(element) + offset;
+        return index >= 0 && index < siblings.size() ? document.wrap(siblings.get(index)) : null;
     }
 
     @Override

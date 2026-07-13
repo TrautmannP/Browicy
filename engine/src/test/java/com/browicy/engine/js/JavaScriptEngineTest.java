@@ -193,6 +193,31 @@ public class JavaScriptEngineTest {
         assertEquals(List.of("log: Quadrate: 1,4,9 (n=3)"), result.consoleMessages());
     }
 
+    @Test
+    public void bodyOnloadAndTimersCanUpdateSiblingTextNodes() {
+        Document document = parse("""
+                <html><body onload="update()">
+                  <p><span id="score">JS</span><span class="hidden">/</span><span>?</span></p>
+                  <script>
+                    var score = 0;
+                    function update() {
+                      var span = document.getElementById('score');
+                      span.nextSibling.removeAttribute('class');
+                      span.nextSibling.nextSibling.firstChild.data = 100;
+                      score += 1;
+                      span.firstChild.data = score;
+                      if (score < 2) setTimeout(update, 0);
+                    }
+                  </script>
+                </body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals("2/100", document.getElementsByTagName("p").get(0).getTextContent());
+    }
+
     // --- Sandbox ----------------------------------------------------------
 
     @Test

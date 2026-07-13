@@ -5,7 +5,7 @@ package com.browicy.engine.dom;
  */
 public final class TextNode extends Node {
 
-    private final String data;
+    private String data;
 
     public TextNode(String data) {
         this.data = data;
@@ -13,6 +13,10 @@ public final class TextNode extends Node {
 
     public String getData() {
         return data;
+    }
+
+    public void setData(String data) {
+        this.data = data == null ? "" : data;
     }
 
     /**

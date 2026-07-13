@@ -48,6 +48,10 @@ public final class Element extends Node {
         attributes.put(name.toLowerCase(), value == null ? "" : value);
     }
 
+    public void removeAttribute(String name) {
+        attributes.remove(name.toLowerCase());
+    }
+
     /**
      * Liefert alle direkten Kind-Elemente (ohne Textknoten).
      */

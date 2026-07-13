@@ -2,6 +2,8 @@ package com.browicy.engine.js;
 
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
+import com.browicy.engine.dom.Node;
+import com.browicy.engine.dom.TextNode;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
@@ -29,7 +31,7 @@ final class JsDocument implements ProxyObject {
             "getElementById", "getElementsByTagName", "createElement");
 
     private final Document document;
-    private final Map<Element, JsElement> wrappers = new IdentityHashMap<>();
+    private final Map<Node, Object> wrappers = new IdentityHashMap<>();
 
     JsDocument(Document document) {
         this.document = document;
@@ -40,7 +42,17 @@ final class JsDocument implements ProxyObject {
         if (element == null) {
             return null;
         }
-        return wrappers.computeIfAbsent(element, el -> new JsElement(el, this));
+        return (JsElement) wrappers.computeIfAbsent(element, el -> new JsElement((Element) el, this));
+    }
+
+    Object wrap(Node node) {
+        if (node == null) {
+            return null;
+        }
+        if (node instanceof Element element) {
+            return wrap(element);
+        }
+        return wrappers.computeIfAbsent(node, value -> new JsNode(value, this));
     }
 
     @Override
