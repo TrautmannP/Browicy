@@ -20,6 +20,7 @@ public final class HttpClient {
     private static final String USER_AGENT = "Browicy/0.1";
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS = 15_000;
+    private static final int MAX_RESPONSE_DURATION_MS = 60_000;
     private static final int MAX_HEADER_COUNT = 200;
     private static final int MAX_LINE_LENGTH = 16 * 1024;
     private static final int MAX_BODY_BYTES = 32 * 1024 * 1024;
@@ -46,7 +47,8 @@ public final class HttpClient {
             OutputStream out = socket.getOutputStream();
             out.write(buildRequest(url, host, port, defaultPort, accept).getBytes(StandardCharsets.ISO_8859_1));
             out.flush();
-            return readResponse(new BufferedInputStream(socket.getInputStream()));
+            return readResponse(new BufferedInputStream(
+                    new DeadlineInputStream(socket.getInputStream(), MAX_RESPONSE_DURATION_MS)));
         }
     }
 
@@ -171,6 +173,9 @@ public final class HttpClient {
             } catch (NumberFormatException e) {
                 throw new IOException("Ungültige Chunk-Größe: " + sizeLine);
             }
+            if (size < 0) {
+                throw new IOException("Ungültige Chunk-Größe: " + sizeLine);
+            }
             if (size == 0) {
                 String line;
                 while ((line = readLine(in)) != null && !line.isEmpty()) {
@@ -192,7 +197,7 @@ public final class HttpClient {
         }
         if (encoding.equalsIgnoreCase("gzip") || encoding.equalsIgnoreCase("x-gzip")) {
             try (GZIPInputStream gzip = new GZIPInputStream(new ByteArrayInputStream(body))) {
-                return gzip.readAllBytes();
+                return readLimited(gzip, "Antwort zu groß (entpackt)");
             }
         }
         throw new IOException("Nicht unterstütztes Content-Encoding: " + encoding);
@@ -207,12 +212,16 @@ public final class HttpClient {
     }
 
     private static byte[] readUntilEof(InputStream in) throws IOException {
+        return readLimited(in, "Antwort zu groß");
+    }
+
+    private static byte[] readLimited(InputStream in, String tooLargeMessage) throws IOException {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         byte[] buffer = new byte[8192];
         int read;
         while ((read = in.read(buffer)) != -1) {
             if (body.size() + read > MAX_BODY_BYTES) {
-                throw new IOException("Antwort zu groß");
+                throw new IOException(tooLargeMessage);
             }
             body.write(buffer, 0, read);
         }
@@ -234,5 +243,40 @@ public final class HttpClient {
         }
         String text = line.toString(StandardCharsets.ISO_8859_1);
         return text.endsWith("\r") ? text.substring(0, text.length() - 1) : text;
+    }
+
+    /**
+     * Erzwingt eine Obergrenze für die Gesamtdauer einer Antwort. Das Socket-Read-Timeout
+     * greift nur pro read()-Aufruf, sodass ein Server, der dauerhaft tröpfelnd Bytes sendet,
+     * eine Verbindung sonst unbegrenzt offen halten könnte.
+     */
+    private static final class DeadlineInputStream extends InputStream {
+
+        private final InputStream delegate;
+        private final long deadlineNanos;
+
+        DeadlineInputStream(InputStream delegate, int durationMs) {
+            this.delegate = delegate;
+            this.deadlineNanos = System.nanoTime() + durationMs * 1_000_000L;
+        }
+
+        @Override
+        public int read() throws IOException {
+            checkDeadline();
+            return delegate.read();
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            checkDeadline();
+            return delegate.read(buffer, offset, length);
+        }
+
+        private void checkDeadline() throws IOException {
+            if (System.nanoTime() - deadlineNanos >= 0) {
+                throw new IOException("Zeitlimit für die Antwort überschritten ("
+                        + MAX_RESPONSE_DURATION_MS + " ms)");
+            }
+        }
     }
 }

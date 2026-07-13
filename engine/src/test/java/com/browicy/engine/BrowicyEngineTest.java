@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -243,6 +244,53 @@ public class BrowicyEngineTest {
             assertTrue(startedTypes.contains(NetworkResourceType.DOCUMENT));
             assertTrue(startedTypes.contains(NetworkResourceType.STYLESHEET));
             assertTrue(startedTypes.contains(NetworkResourceType.SCRIPT));
+        }
+    }
+
+    @Test
+    public void loadsImagesInParallelAndExposesTheirBinaryPayloadInTheSession() {
+        byte[] imageBytes = new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47};
+        server.serveHtml("/images", """
+                <html><body><img id="hero" src="/hero.png"></body></html>
+                """);
+        server.on("/hero.png", exchange -> LocalTestServer.respond(
+                exchange, 200, "image/png", imageBytes));
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/images"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+
+            assertTrue(session.images().find(
+                    session.document().getElementById("hero")).isPresent());
+            assertEquals(NetworkResourceType.IMAGE, session.images().find(
+                    session.document().getElementById("hero")).orElseThrow().resourceType());
+        }
+    }
+
+    @Test
+    public void fetchesRepeatedImageUrlsOnlyOnceButRegistersEveryElement() {
+        byte[] imageBytes = new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47};
+        AtomicInteger requests = new AtomicInteger();
+        server.serveHtml("/wiederholt", """
+                <html><body>
+                  <img id="erstes" src="/gleich.png">
+                  <img id="zweites" src="/gleich.png">
+                </body></html>
+                """);
+        server.on("/gleich.png", exchange -> {
+            requests.incrementAndGet();
+            LocalTestServer.respond(exchange, 200, "image/png", imageBytes);
+        });
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/wiederholt"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+
+            assertEquals(1, requests.get());
+            assertTrue(session.images().find(
+                    session.document().getElementById("erstes")).isPresent());
+            assertTrue(session.images().find(
+                    session.document().getElementById("zweites")).isPresent());
         }
     }
 

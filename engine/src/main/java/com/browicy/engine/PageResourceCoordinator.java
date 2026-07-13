@@ -5,27 +5,38 @@ import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.html.DocumentResourceScanner;
 import com.browicy.engine.html.DocumentResources;
+import com.browicy.engine.html.ImageResource;
 import com.browicy.engine.html.ScriptResource;
 import com.browicy.engine.html.StyleSheetResource;
 import com.browicy.engine.js.JavaScriptEngine;
 import com.browicy.engine.js.JavaScriptSource;
 import com.browicy.engine.js.PageRuntime;
 import com.browicy.engine.net.NetworkResourceType;
+import com.browicy.engine.net.BinaryResource;
+import com.browicy.engine.net.BinarySubResourceLoad;
+import com.browicy.engine.net.ResourceLoad;
 import com.browicy.engine.net.SubResourceLoad;
 import com.browicy.engine.net.SubResourceLoader;
 import com.browicy.engine.net.TextResource;
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 
 final class PageResourceCoordinator {
 
     private static final System.Logger LOGGER =
             System.getLogger(PageResourceCoordinator.class.getName());
+
+    private static final int MAX_IMAGE_LOADS_PER_PAGE = 256;
+    private static final long MAX_TOTAL_IMAGE_BYTES = 128L * 1024 * 1024;
 
     private final DocumentResourceScanner scanner;
     private final SubResourceLoader resourceLoader;
@@ -61,11 +72,14 @@ final class PageResourceCoordinator {
         DocumentUpdateCoordinator updates = new DocumentUpdateCoordinator(
                 document, styleSheets, styleApplicator, listener);
         PageRuntime runtime = javaScriptEngine.createPageRuntime(document, ignored -> updates.flush());
-        List<SubResourceLoad> cancellableLoads = new ArrayList<>();
+        List<ResourceLoad> cancellableLoads = new ArrayList<>();
+        ImageResourceRegistry images = new ImageResourceRegistry();
 
         try {
             StyleLoadPlan styleLoads = startStyleLoads(
                     resources, styleSheets, updates, runtime, cancellableLoads);
+            List<CompletableFuture<Void>> imageLoads = startImageLoads(
+                    resources, images, updates, cancellableLoads);
             synchronized (document) {
                 styleApplicator.apply(document, styleSheets);
             }
@@ -81,12 +95,15 @@ final class PageResourceCoordinator {
             runtime.awaitIdle();
             updates.enableNotifications();
 
-            CompletableFuture<Void> allStyles = CompletableFuture.allOf(
-                    styleLoads.allTasks().toArray(CompletableFuture[]::new));
+            List<CompletableFuture<Void>> allResources = new ArrayList<>(styleLoads.allTasks());
+            allResources.addAll(imageLoads);
+            CompletableFuture<Void> resourcesLoaded = CompletableFuture.allOf(
+                    allResources.toArray(CompletableFuture[]::new));
             return new PageSession(
-                    document, runtime, styleSheets, allStyles, cancellableLoads, updates, onClose);
+                    document, runtime, styleSheets, images, resourcesLoaded,
+                    cancellableLoads, updates, onClose);
         } catch (RuntimeException failure) {
-            cancellableLoads.forEach(SubResourceLoad::cancel);
+            cancellableLoads.forEach(ResourceLoad::cancel);
             updates.close();
             runtime.close();
             throw failure;
@@ -97,7 +114,7 @@ final class PageResourceCoordinator {
                                           StyleSheetRegistry styleSheets,
                                           DocumentUpdateCoordinator updates,
                                           PageRuntime runtime,
-                                          List<SubResourceLoad> cancellableLoads) {
+                                          List<ResourceLoad> cancellableLoads) {
         List<CompletableFuture<Void>> allTasks = new ArrayList<>();
         List<CompletableFuture<Void>> renderBlockingTasks = new ArrayList<>();
         for (StyleSheetResource styleSheet : resources.styleSheets()) {
@@ -118,6 +135,48 @@ final class PageResourceCoordinator {
             }
         }
         return new StyleLoadPlan(allTasks, renderBlockingTasks);
+    }
+
+    private List<CompletableFuture<Void>> startImageLoads(
+            DocumentResources resources,
+            ImageResourceRegistry images,
+            DocumentUpdateCoordinator updates,
+            List<ResourceLoad> cancellableLoads) {
+        List<CompletableFuture<Void>> tasks = new ArrayList<>();
+        // Budgets pro Seite: dieselbe URL wird nur einmal geladen, und eine Seite kann
+        // weder beliebig viele Requests auslösen noch unbegrenzt Bildspeicher belegen.
+        Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
+        AtomicLong totalImageBytes = new AtomicLong();
+        for (ImageResource image : resources.images()) {
+            CompletableFuture<BinaryResource> shared = loadsByUri.get(image.uri());
+            if (shared == null) {
+                if (loadsByUri.size() >= MAX_IMAGE_LOADS_PER_PAGE) {
+                    continue;
+                }
+                BinarySubResourceLoad load;
+                try {
+                    load = resourceLoader.loadImageAsync(image.uri());
+                } catch (IllegalArgumentException invalidUri) {
+                    continue;
+                }
+                cancellableLoads.add(load);
+                shared = load.future().thenApply(resource ->
+                        totalImageBytes.addAndGet(resource.sizeBytes()) <= MAX_TOTAL_IMAGE_BYTES
+                                ? resource
+                                : null);
+                loadsByUri.put(image.uri(), shared);
+            }
+            CompletableFuture<Void> task = shared
+                    .thenAccept(resource -> {
+                        if (resource != null) {
+                            images.register(image.element(), resource);
+                            updates.invalidate(InvalidationType.RENDER_TREE);
+                        }
+                    })
+                    .exceptionally(failure -> null);
+            tasks.add(task);
+        }
+        return List.copyOf(tasks);
     }
 
     private static CompletableFuture<Void> applyStyleSheet(
@@ -145,20 +204,20 @@ final class PageResourceCoordinator {
     }
 
     private Iterable<JavaScriptSource> scriptSequence(
-            DocumentResources resources, List<SubResourceLoad> cancellableLoads) {
+            DocumentResources resources, List<ResourceLoad> cancellableLoads) {
         return () -> new ScriptSourceIterator(resources.scripts().iterator(), cancellableLoads);
     }
 
     private final class ScriptSourceIterator implements Iterator<JavaScriptSource> {
 
         private final Iterator<ScriptResource> resources;
-        private final List<SubResourceLoad> cancellableLoads;
+        private final List<ResourceLoad> cancellableLoads;
         private JavaScriptSource next;
         private boolean prepared;
         private int inlineIndex;
 
         private ScriptSourceIterator(Iterator<ScriptResource> resources,
-                                     List<SubResourceLoad> cancellableLoads) {
+                                     List<ResourceLoad> cancellableLoads) {
             this.resources = resources;
             this.cancellableLoads = cancellableLoads;
         }

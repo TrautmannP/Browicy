@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 public final class RenderTreeBuilder {
 
@@ -19,7 +20,20 @@ public final class RenderTreeBuilder {
             Set.of("head", "title", "meta", "link", "script", "style");
     private static final Set<String> BLOCK_TAGS = Set.of(
             "html", "body", "p", "div", "section", "article", "main", "header", "footer",
-            "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote");
+            "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote",
+            "address", "aside", "center", "details", "dialog", "dl", "dt", "dd",
+            "fieldset", "figcaption", "figure", "form", "hr", "nav", "pre",
+            "table", "thead", "tbody", "tfoot", "tr", "td", "th");
+
+    private final Function<Element, byte[]> imageData;
+
+    public RenderTreeBuilder() {
+        this(ignored -> null);
+    }
+
+    public RenderTreeBuilder(Function<Element, byte[]> imageData) {
+        this.imageData = java.util.Objects.requireNonNull(imageData, "imageData");
+    }
 
     public RenderTree build(Document document) {
         Element rootElement = document.getBody();
@@ -95,6 +109,11 @@ public final class RenderTreeBuilder {
             }
             if ("br".equals(element.getTagName())) {
                 output.add(new RenderLineBreak(style));
+            } else if ("img".equals(element.getTagName())) {
+                output.add(new RenderImage(
+                        element, style, imageData.apply(element),
+                        positiveIntegerAttribute(element, "width"),
+                        positiveIntegerAttribute(element, "height")));
             } else if (style.display() == RenderStyle.Display.BLOCK) {
                 output.add(buildBox(element, style));
             } else if (style.display() == RenderStyle.Display.INLINE_BLOCK) {
@@ -102,6 +121,17 @@ public final class RenderTreeBuilder {
             } else {
                 output.add(buildInlineBox(element, style));
             }
+        }
+    }
+
+    private static Integer positiveIntegerAttribute(Element element, String name) {
+        String value = element.getAttribute(name);
+        if (value == null || value.isBlank()) return null;
+        try {
+            int parsed = Integer.parseInt(value.strip());
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 

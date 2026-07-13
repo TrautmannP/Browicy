@@ -1,6 +1,7 @@
 package com.browicy.ui;
 
 import com.browicy.engine.InvalidationType;
+import com.browicy.engine.ImageResourceRegistry;
 import com.browicy.engine.PageSession;
 import com.browicy.engine.PageUpdate;
 import com.browicy.engine.dom.Document;
@@ -17,6 +18,7 @@ import com.browicy.ui.render.RenderLayoutEngine;
 import com.browicy.ui.render.RenderLayoutEngine.BoxFragment;
 import com.browicy.ui.render.RenderLayoutEngine.ClipRect;
 import com.browicy.ui.render.RenderLayoutEngine.InlineBoxFragment;
+import com.browicy.ui.render.RenderLayoutEngine.ImageFragment;
 import com.browicy.ui.render.RenderLayoutEngine.LayoutResult;
 import com.browicy.ui.render.RenderLayoutEngine.PaintFragment;
 import com.browicy.ui.render.RenderLayoutEngine.TextFragment;
@@ -47,6 +49,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
 
     private final Document document;
     private final PageRuntime runtime;
+    private final ImageResourceRegistry images;
     private RenderTree renderTree;
     private Element pressedTarget;
     private final RenderLayoutEngine layoutEngine = new RenderLayoutEngine();
@@ -54,16 +57,17 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private int layoutWidth = -1;
 
     public DomViewPanel(Document document) {
-        this(document, PageRuntime.closed());
+        this(document, PageRuntime.closed(), new ImageResourceRegistry());
     }
 
     public DomViewPanel(PageSession session) {
-        this(session.document(), session.runtime());
+        this(session.document(), session.runtime(), session.images());
     }
 
-    private DomViewPanel(Document document, PageRuntime runtime) {
+    DomViewPanel(Document document, PageRuntime runtime, ImageResourceRegistry images) {
         this.document = document;
         this.runtime = runtime;
+        this.images = images;
         setLayout(null);
         setOpaque(true);
         setFocusable(true);
@@ -153,7 +157,9 @@ public final class DomViewPanel extends JPanel implements Scrollable {
 
     private void rebuildRenderTree() {
         synchronized (document) {
-            renderTree = new RenderTreeBuilder().build(document);
+            renderTree = new RenderTreeBuilder(element -> images.find(element)
+                    .map(com.browicy.engine.net.BinaryResource::content)
+                    .orElse(null)).build(document);
         }
         invalidateReflow();
     }
@@ -177,6 +183,10 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                 source = inline.box().source();
                 left = inline.x();
                 width = inline.width();
+            } else if (fragment instanceof ImageFragment image) {
+                source = image.image().source();
+                left = image.x();
+                width = image.width();
             } else {
                 continue;
             }
@@ -249,6 +259,8 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                         fragmentGraphics.setFont(text.font());
                         fragmentGraphics.setColor(toAwtColor(text.color()));
                         fragmentGraphics.drawString(text.text(), text.x(), text.baseline());
+                    } else if (fragment instanceof ImageFragment image) {
+                        paintImage(fragmentGraphics, image);
                     }
                 } finally {
                     if (fragmentGraphics != g2d) {
@@ -280,6 +292,20 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         paintStyledBox(graphics, fragment.box().style(),
                 fragment.x(), fragment.y(), fragment.width(), fragment.height(),
                 fragment.firstFragment(), fragment.lastFragment());
+    }
+
+    private static void paintImage(Graphics2D graphics, ImageFragment fragment) {
+        if (fragment.bitmap() != null) {
+            graphics.drawImage(fragment.bitmap(),
+                    Math.round(fragment.x()), Math.round(fragment.y()),
+                    Math.max(0, Math.round(fragment.width())),
+                    Math.max(0, Math.round(fragment.height())), null);
+        } else {
+            graphics.setColor(new Color(0x9e, 0x9e, 0x9e));
+            graphics.draw(new Rectangle2D.Float(fragment.x(), fragment.y(),
+                    Math.max(0, fragment.width() - 1),
+                    Math.max(0, fragment.height() - 1)));
+        }
     }
 
     private static void paintStyledBox(Graphics2D graphics,

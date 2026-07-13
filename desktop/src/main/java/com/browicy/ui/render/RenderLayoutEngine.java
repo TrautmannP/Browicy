@@ -5,6 +5,7 @@ import com.browicy.engine.render.CssColor;
 import com.browicy.engine.render.RenderBox;
 import com.browicy.engine.render.RenderInlineBox;
 import com.browicy.engine.render.RenderInlineBlock;
+import com.browicy.engine.render.RenderImage;
 import com.browicy.engine.render.RenderLineBreak;
 import com.browicy.engine.render.RenderLength;
 import com.browicy.engine.render.RenderNode;
@@ -15,10 +16,26 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.WeakHashMap;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 
 public final class RenderLayoutEngine {
+
+    private static final float PLACEHOLDER_SIZE = 16f;
+    private static final int MAX_IMAGE_DIMENSION = 8192;
+    private static final long MAX_IMAGE_PIXELS = 32_000_000L;
+    private final Map<com.browicy.engine.dom.Element, Optional<BufferedImage>> decodedImages =
+            java.util.Collections.synchronizedMap(new WeakHashMap<>());
 
     public LayoutResult layout(RenderTree tree, int viewportWidth, Insets insets, Graphics2D graphics) {
         float availableWidth = Math.max(1, viewportWidth - insets.left - insets.right);
@@ -155,6 +172,83 @@ public final class RenderLayoutEngine {
         return resolveDefiniteHeight(length, containingHeight);
     }
 
+    private ImageLayout imageLayout(RenderImage image,
+                                    float percentageBase,
+                                    Float containingHeight) {
+        BufferedImage bitmap = decode(image);
+        float naturalWidth = image.htmlWidth() != null
+                ? image.htmlWidth()
+                : bitmap == null ? PLACEHOLDER_SIZE : bitmap.getWidth();
+        float naturalHeight = image.htmlHeight() != null
+                ? image.htmlHeight()
+                : bitmap == null ? PLACEHOLDER_SIZE : bitmap.getHeight();
+        float ratio = bitmap != null && bitmap.getWidth() > 0 && bitmap.getHeight() > 0
+                ? (float) bitmap.getWidth() / bitmap.getHeight()
+                : naturalWidth / Math.max(1, naturalHeight);
+        Float cssWidth = image.style().width().isAuto()
+                ? null
+                : Math.max(0, image.style().width().resolve(percentageBase));
+        Float cssHeight = resolveDefiniteHeight(image.style().height(), containingHeight);
+        float width;
+        float height;
+        if (cssWidth != null && cssHeight != null) {
+            width = cssWidth;
+            height = cssHeight;
+        } else if (cssWidth != null) {
+            width = cssWidth;
+            height = width / Math.max(0.0001f, ratio);
+        } else if (cssHeight != null) {
+            height = cssHeight;
+            width = height * ratio;
+        } else {
+            width = naturalWidth;
+            height = naturalHeight;
+        }
+        width = constrain(width,
+                resolveConstraint(image.style().minWidth(), percentageBase),
+                resolveConstraint(image.style().maxWidth(), percentageBase));
+        height = constrain(height,
+                resolveHeightConstraint(image.style().minHeight(), containingHeight),
+                resolveHeightConstraint(image.style().maxHeight(), containingHeight));
+        return new ImageLayout(bitmap, width, height, image.style().verticalAlign(),
+                image.style().fontSizePx());
+    }
+
+    private BufferedImage decode(RenderImage image) {
+        byte[] data = image.data();
+        if (data == null || data.length == 0) return null;
+        Optional<BufferedImage> cached = decodedImages.get(image.source());
+        if (cached != null) return cached.orElse(null);
+        BufferedImage decoded = decodeWithinLimits(data);
+        decodedImages.put(image.source(), Optional.ofNullable(decoded));
+        return decoded;
+    }
+
+    private static BufferedImage decodeWithinLimits(byte[] data) {
+        try (ImageInputStream input =
+                     ImageIO.createImageInputStream(new ByteArrayInputStream(data))) {
+            if (input == null) return null;
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) return null;
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(input, true, true);
+                long width = reader.getWidth(0);
+                long height = reader.getHeight(0);
+                if (width <= 0 || height <= 0
+                        || width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION
+                        || width * height > MAX_IMAGE_PIXELS) {
+                    return null;
+                }
+                return reader.read(0);
+            } finally {
+                reader.dispose();
+            }
+        } catch (IOException | RuntimeException invalidImage) {
+            return null;
+        }
+    }
+
     private float shrinkToFitWidth(RenderBox box,
                                    float availableContentWidth,
                                    Graphics2D graphics) {
@@ -236,6 +330,10 @@ public final class RenderLayoutEngine {
         if (node instanceof RenderInlineBlock inlineBlock) {
             return intrinsicBoxWidth(inlineBlock.box(), percentageBase, graphics);
         }
+        if (node instanceof RenderImage image) {
+            ImageLayout layout = imageLayout(image, percentageBase, null);
+            return new IntrinsicWidths(layout.width(), layout.width());
+        }
         return new IntrinsicWidths(0, 0);
     }
 
@@ -247,6 +345,10 @@ public final class RenderLayoutEngine {
         if (fragment instanceof InlineBoxFragment box) {
             return new InlineBoxFragment(box.box(), box.x(), box.y(), box.width(), box.height(),
                     box.firstFragment(), box.lastFragment(), effective);
+        }
+        if (fragment instanceof ImageFragment image) {
+            return new ImageFragment(image.image(), image.bitmap(), image.x(), image.y(),
+                    image.width(), image.height(), effective);
         }
         TextFragment text = (TextFragment) fragment;
         return new TextFragment(text.text(), text.x(), text.width(), text.baseline(), text.top(),
@@ -349,6 +451,21 @@ public final class RenderLayoutEngine {
         @Override public float bottom() { return top + height; }
     }
 
+    public record ImageFragment(RenderImage image,
+                                BufferedImage bitmap,
+                                float x,
+                                float y,
+                                float width,
+                                float height,
+                                ClipRect clip) implements InlineFragment {
+        public ImageFragment(RenderImage image, BufferedImage bitmap, float x, float y,
+                             float width, float height) {
+            this(image, bitmap, x, y, width, height, null);
+        }
+        @Override public float top() { return y; }
+        @Override public float bottom() { return y + height; }
+    }
+
     public record LineBox(float x,
                           float y,
                           float width,
@@ -368,7 +485,7 @@ public final class RenderLayoutEngine {
 
     private sealed interface InlineToken
             permits OpenBoxToken, CloseBoxToken, AtomicBlockToken, WordToken, SpaceToken,
-                    BreakToken {
+                    BreakToken, ImageToken {
     }
 
     private record OpenBoxToken(RenderInlineBox box) implements InlineToken {
@@ -387,6 +504,9 @@ public final class RenderLayoutEngine {
     }
 
     private record BreakToken(RenderStyle style) implements InlineToken {
+    }
+
+    private record ImageToken(RenderImage image) implements InlineToken {
     }
 
     private final class InlineLayouter {
@@ -440,6 +560,8 @@ public final class RenderLayoutEngine {
                     closeBox(close.box());
                 } else if (token instanceof AtomicBlockToken atomic) {
                     addAtomicBlock(atomic.block());
+                } else if (token instanceof ImageToken image) {
+                    addImage(image.image());
                 } else if (token instanceof BreakToken lineBreak) {
                     pendingSpace = false;
                     pendingSpaceStyle = null;
@@ -469,8 +591,24 @@ public final class RenderLayoutEngine {
                     tokens.add(new CloseBoxToken(inlineBox));
                 } else if (node instanceof RenderInlineBlock inlineBlock) {
                     tokens.add(new AtomicBlockToken(inlineBlock));
+                } else if (node instanceof RenderImage image) {
+                    tokens.add(new ImageToken(image));
                 }
             }
+        }
+
+        private void addImage(RenderImage image) {
+            ImageLayout layout = imageLayout(image, width, containingHeight);
+            float pendingWidth = pendingSpaceWidth();
+            if (line.hasPlacedContent()
+                    && line.width() + pendingWidth + layout.width() > width) {
+                pendingSpace = false;
+                pendingSpaceStyle = null;
+                flushLine(false, null);
+            } else {
+                materializePendingSpace();
+            }
+            line.addImage(image, layout);
         }
 
         private void addAtomicBlock(RenderInlineBlock inlineBlock) {
@@ -688,12 +826,19 @@ public final class RenderLayoutEngine {
                                 float baselineOffset) {
     }
 
+    private record ImageLayout(BufferedImage bitmap,
+                               float width,
+                               float height,
+                               RenderStyle.VerticalAlign verticalAlign,
+                               float fontSize) {
+    }
+
     private record FinishedLine(LineBox line,
                                 List<PaintFragment> atomicFragments,
                                 List<LineBox> atomicLines) {
     }
 
-    private sealed interface LineItem permits TextItem, BoxItem, StrutItem, AtomicItem {
+    private sealed interface LineItem permits TextItem, BoxItem, StrutItem, AtomicItem, ImageItem {
         float ascent();
         float descent();
         default RenderStyle.VerticalAlign verticalAlign() {
@@ -729,6 +874,20 @@ public final class RenderLayoutEngine {
         @Override public float descent() {
             return layout.height() - ascent();
         }
+        @Override public RenderStyle.VerticalAlign verticalAlign() {
+            return layout.verticalAlign();
+        }
+        @Override public float height() { return layout.height(); }
+    }
+
+    private record ImageItem(RenderImage image, ImageLayout layout, float x) implements LineItem {
+        @Override public float ascent() {
+            if (layout.verticalAlign() == RenderStyle.VerticalAlign.MIDDLE) {
+                return Math.min(layout.height(), layout.height() / 2f + layout.fontSize() / 4f);
+            }
+            return layout.height();
+        }
+        @Override public float descent() { return layout.height() - ascent(); }
         @Override public RenderStyle.VerticalAlign verticalAlign() {
             return layout.verticalAlign();
         }
@@ -855,6 +1014,12 @@ public final class RenderLayoutEngine {
             placedContent = true;
         }
 
+        void addImage(RenderImage image, ImageLayout layout) {
+            addItem(new ImageItem(image, layout, width));
+            width += layout.width();
+            placedContent = true;
+        }
+
         FinishedLine finish(float lineX, float lineY) {
             for (BoxItem box : active) {
                 box.finish(width, false, graphics);
@@ -886,6 +1051,7 @@ public final class RenderLayoutEngine {
             List<InlineFragment> fragments = new ArrayList<>();
             collectBoxFragments(roots, fragments, lineX, baseline);
             collectTextFragments(roots, fragments, lineX, baseline);
+            collectImageFragments(roots, fragments, lineX, lineY, height, baseline);
             List<PaintFragment> atomicFragments = new ArrayList<>();
             List<LineBox> atomicLines = new ArrayList<>();
             collectAtomicFragments(
@@ -944,6 +1110,29 @@ public final class RenderLayoutEngine {
             }
         }
 
+        private static void collectImageFragments(List<LineItem> items,
+                                                  List<InlineFragment> fragments,
+                                                  float lineX,
+                                                  float lineY,
+                                                  float lineHeight,
+                                                  float baseline) {
+            for (LineItem item : items) {
+                if (item instanceof ImageItem image) {
+                    float top = switch (image.verticalAlign()) {
+                        case TOP -> lineY;
+                        case BOTTOM -> lineY + lineHeight - image.height();
+                        case BASELINE, MIDDLE -> baseline - image.ascent();
+                    };
+                    fragments.add(new ImageFragment(image.image(), image.layout().bitmap(),
+                            lineX + image.x(), top,
+                            image.layout().width(), image.layout().height()));
+                } else if (item instanceof BoxItem box) {
+                    collectImageFragments(box.children, fragments, lineX, lineY,
+                            lineHeight, baseline);
+                }
+            }
+        }
+
         private static void collectAtomicFragments(List<LineItem> items,
                                                    List<PaintFragment> fragments,
                                                    List<LineBox> lines,
@@ -982,6 +1171,11 @@ public final class RenderLayoutEngine {
                 return new InlineBoxFragment(box.box(), box.x() + dx, box.y() + dy,
                         box.width(), box.height(), box.firstFragment(), box.lastFragment(),
                         translate(box.clip(), dx, dy));
+            }
+            if (fragment instanceof ImageFragment image) {
+                return new ImageFragment(image.image(), image.bitmap(), image.x() + dx,
+                        image.y() + dy, image.width(), image.height(),
+                        translate(image.clip(), dx, dy));
             }
             TextFragment text = (TextFragment) fragment;
             return new TextFragment(text.text(), text.x() + dx, text.width(),

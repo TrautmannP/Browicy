@@ -1,18 +1,26 @@
 package com.browicy.ui;
 
 import com.browicy.engine.css.StyleApplicator;
+import com.browicy.engine.ImageResourceRegistry;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.html.HtmlParser;
+import com.browicy.engine.js.PageRuntime;
+import com.browicy.engine.net.BinaryResource;
+import com.browicy.engine.net.NetworkResourceType;
 import com.browicy.engine.render.CssColor;
 import com.browicy.ui.render.RenderLayoutEngine.BoxFragment;
 import com.browicy.ui.render.RenderLayoutEngine.InlineBoxFragment;
+import com.browicy.ui.render.RenderLayoutEngine.ImageFragment;
 import com.browicy.ui.render.RenderLayoutEngine.LayoutResult;
 import com.browicy.ui.render.RenderLayoutEngine.LineBox;
 import com.browicy.ui.render.RenderLayoutEngine.TextFragment;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.net.URI;
 import java.util.List;
+import javax.imageio.ImageIO;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -516,6 +524,106 @@ public class DomViewPanelTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals(CssColor.parse("blue"), after.color());
+    }
+
+    @Test
+    public void usesIntrinsicImageRatioAndPaintsTheScaledBitmap() throws Exception {
+        Document document = parse("""
+                <body><p>before<img id="image" src="https://example.test/image.png"
+                  style="width:80px">after</p></body>
+                """);
+        BufferedImage source = new BufferedImage(40, 20, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D sourceGraphics = source.createGraphics();
+        sourceGraphics.setColor(java.awt.Color.RED);
+        sourceGraphics.fillRect(0, 0, 40, 20);
+        sourceGraphics.dispose();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(source, "png", bytes);
+        ImageResourceRegistry images = new ImageResourceRegistry();
+        images.register(document.getElementById("image"), new BinaryResource(
+                URI.create("https://example.test/image.png"), 200, bytes.toByteArray(),
+                NetworkResourceType.IMAGE));
+        DomViewPanel panel = new DomViewPanel(document, PageRuntime.closed(), images);
+        panel.setSize(300, 1);
+
+        ImageFragment fragment = panel.layoutForTesting(300).fragments().stream()
+                .filter(ImageFragment.class::isInstance)
+                .map(ImageFragment.class::cast)
+                .findFirst().orElseThrow();
+
+        assertEquals(80f, fragment.width(), 0.001f);
+        assertEquals(40f, fragment.height(), 0.001f);
+        assertNotNull(fragment.bitmap());
+        BufferedImage painted = paint(panel);
+        assertColor(painted, Math.round(fragment.x() + fragment.width() / 2),
+                Math.round(fragment.y() + fragment.height() / 2), CssColor.parse("red"));
+    }
+
+    @Test
+    public void reservesHtmlSizedPlaceholderAndClipsItWithItsParent() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div style="height:20px;overflow:hidden">
+                  <img width="90" height="60" src="https://example.test/missing.png">
+                </div></body>
+                """));
+
+        ImageFragment fragment = panel.layoutForTesting(250).fragments().stream()
+                .filter(ImageFragment.class::isInstance)
+                .map(ImageFragment.class::cast)
+                .findFirst().orElseThrow();
+
+        assertEquals(90f, fragment.width(), 0.001f);
+        assertEquals(60f, fragment.height(), 0.001f);
+        assertNull(fragment.bitmap());
+        assertNotNull(fragment.clip());
+        assertEquals(20f, fragment.clip().height(), 0.001f);
+    }
+
+    @Test
+    public void refusesToDecodeImagesExceedingTheDimensionLimitAndShowsPlaceholder()
+            throws Exception {
+        Document document = parse("""
+                <body><img id="riesig" width="90" height="60"
+                  src="https://example.test/riesig.png"></body>
+                """);
+        BufferedImage oversized = new BufferedImage(9000, 1, BufferedImage.TYPE_INT_ARGB);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(oversized, "png", bytes);
+        ImageResourceRegistry images = new ImageResourceRegistry();
+        images.register(document.getElementById("riesig"), new BinaryResource(
+                URI.create("https://example.test/riesig.png"), 200, bytes.toByteArray(),
+                NetworkResourceType.IMAGE));
+        DomViewPanel panel = new DomViewPanel(document, PageRuntime.closed(), images);
+        panel.setSize(300, 1);
+
+        ImageFragment fragment = panel.layoutForTesting(300).fragments().stream()
+                .filter(ImageFragment.class::isInstance)
+                .map(ImageFragment.class::cast)
+                .findFirst().orElseThrow();
+
+        assertNull(fragment.bitmap());
+        assertEquals(90f, fragment.width(), 0.001f);
+        assertEquals(60f, fragment.height(), 0.001f);
+    }
+
+    @Test
+    public void laysOutImagesNestedBelowLegacyCenterElements() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><center><br><div>
+                  <img id="hplogo" width="272" height="92"
+                    src="https://example.test/google.png">
+                </div></center></body>
+                """));
+
+        ImageFragment logo = panel.layoutForTesting(1000).fragments().stream()
+                .filter(ImageFragment.class::isInstance)
+                .map(ImageFragment.class::cast)
+                .filter(fragment -> "hplogo".equals(
+                        fragment.image().source().getAttribute("id")))
+                .findFirst().orElseThrow();
+
+        assertEquals(272f, logo.width(), 0.001f);
+        assertEquals(92f, logo.height(), 0.001f);
     }
 
     private static Document parse(String html) {

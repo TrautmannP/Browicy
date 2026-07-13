@@ -10,14 +10,17 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 
 public final class SubResourceLoader implements AutoCloseable {
 
     private static final System.Logger LOGGER = System.getLogger(SubResourceLoader.class.getName());
+    private static final int MAX_CONCURRENT_IMAGE_FETCHES = 8;
 
     private final HttpClient client;
     private final ExecutorService executor;
     private final List<NetworkRequestObserver> observers = new CopyOnWriteArrayList<>();
+    private final Semaphore imageFetchPermits = new Semaphore(MAX_CONCURRENT_IMAGE_FETCHES);
 
     public SubResourceLoader() {
         this(new HttpClient());
@@ -64,6 +67,45 @@ public final class SubResourceLoader implements AutoCloseable {
         return load;
     }
 
+    public BinarySubResourceLoad loadImageAsync(URI uri) {
+        Objects.requireNonNull(uri, "uri");
+        validateHttpUri(uri);
+
+        long requestId = RequestIds.next();
+        CompletableFuture<BinaryResource> future = new CompletableFuture<>();
+        BinarySubResourceLoad load = new BinarySubResourceLoad(
+                requestId,
+                uri,
+                NetworkResourceType.IMAGE,
+                future,
+                resource -> emit(new NetworkRequestEvent.Loaded(
+                        requestId, Instant.now(), resource.uri(), resource.statusCode(),
+                        resource.sizeBytes(), resource.resourceType())),
+                failure -> emit(new NetworkRequestEvent.Failed(
+                        requestId, Instant.now(), uri.toString(), failure,
+                        NetworkResourceType.IMAGE)),
+                () -> emit(new NetworkRequestEvent.Cancelled(
+                        requestId, Instant.now(), uri.toString(), NetworkResourceType.IMAGE)));
+        emit(new NetworkRequestEvent.Started(
+                requestId, Instant.now(), uri.toString(), NetworkResourceType.IMAGE));
+
+        try {
+            executor.execute(() -> fetchImage(load));
+        } catch (RuntimeException rejected) {
+            load.completeFailed(rejected);
+        }
+        return load;
+    }
+
+    public BinaryResource loadImage(URI uri) throws IOException {
+        try {
+            return loadImageAsync(uri).await();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Laden unterbrochen: " + uri, exception);
+        }
+    }
+
     public TextResource load(URI uri, NetworkResourceType resourceType) throws IOException {
         try {
             return loadAsync(uri, resourceType).await();
@@ -89,7 +131,8 @@ public final class SubResourceLoader implements AutoCloseable {
                     acceptFor(load.resourceType()),
                     load::isCancelled,
                     (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
-                            load.id(), Instant.now(), from, to, statusCode, load.resourceType())));
+                            load.id(), Instant.now(), from, to, statusCode, load.resourceType())),
+                    true);
             HttpResponse response = result.response();
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IOException("HTTP " + response.statusCode() + " für " + result.uri());
@@ -104,6 +147,40 @@ public final class SubResourceLoader implements AutoCloseable {
             load.cancel();
         } catch (Exception exception) {
             load.completeFailed(exception);
+        }
+    }
+
+    private void fetchImage(BinarySubResourceLoad load) {
+        try {
+            imageFetchPermits.acquire();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            load.completeFailed(new IOException("Laden unterbrochen: " + load.uri(), interrupted));
+            return;
+        }
+        try {
+            HttpResourceFetcher.FetchResult result = HttpResourceFetcher.fetch(
+                    client,
+                    load.uri(),
+                    acceptFor(NetworkResourceType.IMAGE),
+                    load::isCancelled,
+                    (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
+                            load.id(), Instant.now(), from, to, statusCode,
+                            NetworkResourceType.IMAGE)),
+                    true);
+            HttpResponse response = result.response();
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IOException("HTTP " + response.statusCode() + " für " + result.uri());
+            }
+            load.completeLoaded(new BinaryResource(
+                    result.uri(), response.statusCode(), response.body(),
+                    NetworkResourceType.IMAGE));
+        } catch (CancellationException cancellation) {
+            load.cancel();
+        } catch (Exception exception) {
+            load.completeFailed(exception);
+        } finally {
+            imageFetchPermits.release();
         }
     }
 
@@ -122,6 +199,7 @@ public final class SubResourceLoader implements AutoCloseable {
         return switch (type) {
             case STYLESHEET -> "text/css,*/*;q=0.1";
             case SCRIPT -> "text/javascript,application/javascript,*/*;q=0.1";
+            case IMAGE -> "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.1";
             case DOCUMENT -> throw new IllegalArgumentException("Dokument ist keine Subresource");
         };
     }

@@ -62,7 +62,6 @@ public class HttpClientTest {
     @Test
     public void readsChunkedResponses() throws IOException {
         server.on("/chunked", exchange -> {
-            // Länge 0 lässt den JDK-Server Transfer-Encoding: chunked verwenden
             exchange.sendResponseHeaders(200, 0);
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write("Erster Teil, ".getBytes(StandardCharsets.UTF_8));
@@ -88,6 +87,19 @@ public class HttpClientTest {
         HttpResponse response = client.get(URI.create(server.url("/gzip")));
 
         assertEquals("Komprimierter Inhalt äöü", new String(response.body(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void rejectsGzipBodiesThatDecompressBeyondTheBodyLimit() throws IOException {
+        byte[] bomb = gzip(new byte[33 * 1024 * 1024]);
+        server.on("/bombe", exchange -> {
+            exchange.getResponseHeaders().set("Content-Encoding", "gzip");
+            LocalTestServer.respond(exchange, 200, "text/html", bomb);
+        });
+
+        IOException e = assertThrows(IOException.class,
+                () -> client.get(URI.create(server.url("/bombe"))));
+        assertTrue(e.getMessage().contains("zu groß"));
     }
 
     @Test

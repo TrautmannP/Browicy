@@ -78,4 +78,21 @@ public class DocumentResourceScannerTest {
         assertEquals(1, resources.scripts().size());
         assertTrue(resources.scripts().getFirst().module());
     }
+
+    @Test
+    public void resolvesImageSourcesAgainstTheDocumentBaseUri() {
+        Document document = parser.parse("""
+                <html><head><base href="/assets/"></head><body>
+                  <img id="logo" src="images/logo.png#ignored">
+                  <img src="data:image/png;base64,AAAA">
+                </body></html>
+                """, "https://example.test/page/index.html");
+
+        DocumentResources resources = scanner.scan(document);
+
+        assertEquals(1, resources.images().size());
+        assertEquals(document.getElementById("logo"), resources.images().getFirst().element());
+        assertEquals(URI.create("https://example.test/assets/images/logo.png"),
+                resources.images().getFirst().uri());
+    }
 }

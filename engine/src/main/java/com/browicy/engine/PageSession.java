@@ -4,20 +4,20 @@ import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.DocumentReadyState;
 import com.browicy.engine.js.PageRuntime;
-import com.browicy.engine.net.SubResourceLoad;
+import com.browicy.engine.net.ResourceLoad;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Owns every resource whose lifetime is bound to one loaded document. */
 public final class PageSession implements AutoCloseable {
 
     private final Document document;
     private final PageRuntime runtime;
     private final StyleSheetRegistry styleSheets;
+    private final ImageResourceRegistry images;
     private final CompletableFuture<Void> resourcesLoaded;
-    private final List<SubResourceLoad> cancellableLoads;
+    private final List<ResourceLoad> cancellableLoads;
     private final DocumentUpdateCoordinator updateCoordinator;
     private final Runnable onClose;
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -25,13 +25,15 @@ public final class PageSession implements AutoCloseable {
     PageSession(Document document,
                 PageRuntime runtime,
                 StyleSheetRegistry styleSheets,
+                ImageResourceRegistry images,
                 CompletableFuture<Void> resourcesLoaded,
-                List<SubResourceLoad> cancellableLoads,
+                List<ResourceLoad> cancellableLoads,
                 DocumentUpdateCoordinator updateCoordinator,
                 Runnable onClose) {
         this.document = Objects.requireNonNull(document, "document");
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.styleSheets = Objects.requireNonNull(styleSheets, "styleSheets");
+        this.images = Objects.requireNonNull(images, "images");
         this.resourcesLoaded = Objects.requireNonNull(resourcesLoaded, "resourcesLoaded");
         this.cancellableLoads = List.copyOf(cancellableLoads);
         this.updateCoordinator = updateCoordinator;
@@ -45,6 +47,7 @@ public final class PageSession implements AutoCloseable {
                 document,
                 PageRuntime.closed(),
                 new StyleSheetRegistry(),
+                new ImageResourceRegistry(),
                 CompletableFuture.completedFuture(null),
                 List.of(),
                 null,
@@ -63,6 +66,10 @@ public final class PageSession implements AutoCloseable {
         return styleSheets;
     }
 
+    public ImageResourceRegistry images() {
+        return images;
+    }
+
     public CompletableFuture<Void> resourcesLoaded() {
         return resourcesLoaded;
     }
@@ -76,7 +83,6 @@ public final class PageSession implements AutoCloseable {
         return closed.get();
     }
 
-    /** Backwards-compatible alias for closing a page session. */
     public void cancel() {
         close();
     }
@@ -87,7 +93,7 @@ public final class PageSession implements AutoCloseable {
             return;
         }
         try {
-            cancellableLoads.forEach(SubResourceLoad::cancel);
+            cancellableLoads.forEach(ResourceLoad::cancel);
             if (updateCoordinator != null) {
                 updateCoordinator.close();
             }

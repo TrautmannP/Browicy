@@ -8,24 +8,24 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 
-public final class SubResourceLoad implements ResourceLoad {
+public final class BinarySubResourceLoad implements ResourceLoad {
 
     private final long id;
     private final URI uri;
     private final NetworkResourceType resourceType;
-    private final CompletableFuture<TextResource> future;
-    private final Consumer<TextResource> loadedListener;
+    private final CompletableFuture<BinaryResource> future;
+    private final Consumer<BinaryResource> loadedListener;
     private final Consumer<Exception> failedListener;
     private final Runnable cancelledListener;
     private volatile boolean cancelled;
 
-    SubResourceLoad(long id,
-                    URI uri,
-                    NetworkResourceType resourceType,
-                    CompletableFuture<TextResource> future,
-                    Consumer<TextResource> loadedListener,
-                    Consumer<Exception> failedListener,
-                    Runnable cancelledListener) {
+    BinarySubResourceLoad(long id,
+                          URI uri,
+                          NetworkResourceType resourceType,
+                          CompletableFuture<BinaryResource> future,
+                          Consumer<BinaryResource> loadedListener,
+                          Consumer<Exception> failedListener,
+                          Runnable cancelledListener) {
         this.id = id;
         this.uri = Objects.requireNonNull(uri, "uri");
         this.resourceType = Objects.requireNonNull(resourceType, "resourceType");
@@ -35,69 +35,41 @@ public final class SubResourceLoad implements ResourceLoad {
         this.cancelledListener = Objects.requireNonNull(cancelledListener, "cancelledListener");
     }
 
-    public long id() {
-        return id;
-    }
+    public long id() { return id; }
+    public URI uri() { return uri; }
+    public NetworkResourceType resourceType() { return resourceType; }
+    public CompletableFuture<BinaryResource> future() { return future; }
+    public boolean isDone() { return future.isDone(); }
+    public boolean isCancelled() { return cancelled || future.isCancelled(); }
 
-    public URI uri() {
-        return uri;
-    }
-
-    public NetworkResourceType resourceType() {
-        return resourceType;
-    }
-
-    public CompletableFuture<TextResource> future() {
-        return future;
-    }
-
-    public boolean isDone() {
-        return future.isDone();
-    }
-
-    public boolean isCancelled() {
-        return cancelled || future.isCancelled();
-    }
-
+    @Override
     public synchronized boolean cancel() {
-        if (future.isDone()) {
-            return false;
-        }
+        if (future.isDone()) return false;
         cancelled = true;
         cancelledListener.run();
         return future.cancel(false);
     }
 
-    public TextResource await() throws IOException, InterruptedException {
+    public BinaryResource await() throws IOException, InterruptedException {
         try {
             return future.get();
         } catch (ExecutionException exception) {
             Throwable cause = exception.getCause();
-            if (cause instanceof IOException io) {
-                throw io;
-            }
-            if (cause instanceof CancellationException cancellation) {
-                throw cancellation;
-            }
-            if (cause instanceof RuntimeException runtime) {
-                throw runtime;
-            }
+            if (cause instanceof IOException io) throw io;
+            if (cause instanceof CancellationException cancellation) throw cancellation;
+            if (cause instanceof RuntimeException runtime) throw runtime;
             throw new IOException(cause);
         }
     }
 
-    synchronized void completeLoaded(TextResource resource) {
-        if (future.isDone()) {
-            return;
-        }
+    synchronized void completeLoaded(BinaryResource resource) {
+        if (future.isDone()) return;
         loadedListener.accept(resource);
         future.complete(resource);
     }
 
     synchronized void completeFailed(Exception failure) {
-        if (future.isDone()) {
-            return;
-        }
+        if (future.isDone()) return;
         failedListener.accept(failure);
         future.completeExceptionally(failure);
     }

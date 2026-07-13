@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-/** Batches DOM/style invalidations and flushes at most once per event-loop turn. */
 public final class DocumentUpdateCoordinator implements AutoCloseable {
 
     private static final System.Logger LOGGER =
@@ -57,14 +56,21 @@ public final class DocumentUpdateCoordinator implements AutoCloseable {
         invalidation = merge(invalidation, InvalidationType.STYLE);
     }
 
-    public synchronized void invalidate(InvalidationType type) {
-        if (!closed) {
+    public void invalidate(InvalidationType type) {
+        boolean flushNow;
+        synchronized (this) {
+            if (closed) return;
             invalidation = merge(invalidation, Objects.requireNonNull(type, "type"));
+            flushNow = notificationsEnabled;
         }
+        if (flushNow) flush();
     }
 
-    public synchronized void enableNotifications() {
-        notificationsEnabled = true;
+    public void enableNotifications() {
+        synchronized (this) {
+            notificationsEnabled = true;
+        }
+        flush();
     }
 
     public void flush() {

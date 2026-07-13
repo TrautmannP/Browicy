@@ -19,9 +19,10 @@ public final class DocumentResourceScanner {
     public DocumentResources scan(Document document) {
         List<StyleSheetResource> styleSheets = new ArrayList<>();
         List<ScriptResource> scripts = new ArrayList<>();
+        List<ImageResource> images = new ArrayList<>();
         ScanState state = new ScanState();
-        scanNode(document, document, false, styleSheets, scripts, state);
-        return new DocumentResources(styleSheets, scripts);
+        scanNode(document, document, false, styleSheets, scripts, images, state);
+        return new DocumentResources(styleSheets, scripts, images);
     }
 
     private static void scanNode(Node node,
@@ -29,14 +30,15 @@ public final class DocumentResourceScanner {
                                  boolean insideHead,
                                  List<StyleSheetResource> styleSheets,
                                  List<ScriptResource> scripts,
+                                 List<ImageResource> images,
                                  ScanState state) {
         for (Node child : node.getChildren()) {
             boolean childInsideHead = insideHead;
             if (child instanceof Element element) {
                 childInsideHead |= "head".equals(element.getTagName());
-                scanElement(element, document, childInsideHead, styleSheets, scripts, state);
+                scanElement(element, document, childInsideHead, styleSheets, scripts, images, state);
             }
-            scanNode(child, document, childInsideHead, styleSheets, scripts, state);
+            scanNode(child, document, childInsideHead, styleSheets, scripts, images, state);
         }
     }
 
@@ -45,6 +47,7 @@ public final class DocumentResourceScanner {
                                     boolean insideHead,
                                     List<StyleSheetResource> styleSheets,
                                     List<ScriptResource> scripts,
+                                    List<ImageResource> images,
                                     ScanState state) {
         switch (element.getTagName()) {
             case "style" -> styleSheets.add(new StyleSheetResource.Inline(
@@ -52,9 +55,18 @@ public final class DocumentResourceScanner {
             case "link" -> externalStyleSheet(element, document, insideHead, state)
                     .ifPresent(styleSheets::add);
             case "script" -> script(element, document, state).ifPresent(scripts::add);
+            case "img" -> image(element, document).ifPresent(images::add);
             default -> {
             }
         }
+    }
+
+    private static java.util.Optional<ImageResource> image(Element element, Document document) {
+        if (!element.hasAttribute("src")) {
+            return java.util.Optional.empty();
+        }
+        return resolveHttpUri(document, element.getAttribute("src"))
+                .map(uri -> new ImageResource(element, uri));
     }
 
     private static java.util.Optional<StyleSheetResource.External> externalStyleSheet(

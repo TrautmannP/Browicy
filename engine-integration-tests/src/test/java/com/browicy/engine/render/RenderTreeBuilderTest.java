@@ -105,6 +105,43 @@ public class RenderTreeBuilderTest {
         assertEquals(RenderStyle.TextAlign.RIGHT, style.textAlign());
     }
 
+    @Test
+    public void createsSpecializedImageNodesWithHtmlFallbackDimensions() {
+        Document document = new HtmlParser().parse("""
+                <body><p>before<img id="hero" src="hero.png" width="120" height="45">after</p></body>
+                """);
+        byte[] bytes = {1, 2, 3};
+
+        RenderTree tree = new RenderTreeBuilder(element -> bytes).build(document);
+        RenderBox paragraph = boxChildren(tree.root()).getFirst();
+        RenderImage image = paragraph.children().stream()
+                .filter(RenderImage.class::isInstance)
+                .map(RenderImage.class::cast)
+                .findFirst().orElseThrow();
+
+        assertEquals(document.getElementById("hero"), image.source());
+        assertEquals(Integer.valueOf(120), image.htmlWidth());
+        assertEquals(Integer.valueOf(45), image.htmlHeight());
+        assertEquals(RenderStyle.Display.INLINE, image.style().display());
+        assertEquals(3, image.data().length);
+    }
+
+    @Test
+    public void treatsLegacyCenterContainersAsBlocksSoNestedImagesReachLayout() {
+        RenderTree tree = build("""
+                <body><center><br><div><img id="logo" width="272" height="92"></div></center></body>
+        """);
+
+        RenderBox center = boxChildren(tree.root()).getFirst();
+        RenderBox container = boxChildren(center).stream()
+                .filter(box -> "div".equals(box.tagName()))
+                .findFirst().orElseThrow();
+
+        assertEquals("center", center.tagName());
+        assertEquals("div", container.tagName());
+        assertTrue(container.children().stream().anyMatch(RenderImage.class::isInstance));
+    }
+
     private static RenderTree build(String html) {
         Document document = new HtmlParser().parse(html);
         return new RenderTreeBuilder().build(document);

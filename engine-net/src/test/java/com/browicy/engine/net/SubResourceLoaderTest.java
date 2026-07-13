@@ -13,6 +13,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertArrayEquals;
 
 public class SubResourceLoaderTest {
 
@@ -109,5 +110,19 @@ public class SubResourceLoaderTest {
         assertThrows(IllegalArgumentException.class, () -> loader.loadAsync(
                 URI.create("file:///tmp/app.js"), NetworkResourceType.SCRIPT));
         assertTrue(events.isEmpty());
+    }
+
+    @Test
+    public void loadsImagesAsUnmodifiedBinaryResources() throws IOException {
+        byte[] pngBytes = new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x00, (byte) 0xff};
+        server.on("/pixel.png", exchange -> LocalTestServer.respond(
+                exchange, 200, "image/png", pngBytes));
+
+        BinaryResource resource = loader.loadImage(URI.create(server.url("/pixel.png")));
+
+        assertArrayEquals(pngBytes, resource.content());
+        assertEquals(NetworkResourceType.IMAGE, resource.resourceType());
+        assertEquals(NetworkResourceType.IMAGE,
+                ((NetworkRequestEvent.Loaded) events.getLast()).resourceType());
     }
 }

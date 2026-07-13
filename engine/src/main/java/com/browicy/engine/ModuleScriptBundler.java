@@ -4,6 +4,7 @@ import com.browicy.engine.net.NetworkResourceType;
 import com.browicy.engine.net.SubResourceLoad;
 import com.browicy.engine.net.SubResourceLoader;
 import com.browicy.engine.net.TextResource;
+import com.browicy.engine.net.ResourceLoad;
 
 import java.io.IOException;
 import java.net.URI;
@@ -14,7 +15,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Bundles the small, static ES-module subset needed by web feature test pages. */
 final class ModuleScriptBundler {
 
     private static final Pattern DEFAULT_IMPORT = Pattern.compile(
@@ -23,9 +23,9 @@ final class ModuleScriptBundler {
             "(?m)^\\s*(?:import\\s|export\\s+(?!default\\b))");
 
     private final SubResourceLoader loader;
-    private final List<SubResourceLoad> loads;
+    private final List<ResourceLoad> loads;
 
-    ModuleScriptBundler(SubResourceLoader loader, List<SubResourceLoad> loads) {
+    ModuleScriptBundler(SubResourceLoader loader, List<ResourceLoad> loads) {
         this.loader = loader;
         this.loads = loads;
     }
