@@ -2,7 +2,6 @@ package com.browicy.engine.dom;
 
 import com.browicy.engine.selectors.SelectorNodeAdapter;
 
-/** Gemeinsamer Adapter zwischen dem Browicy-DOM und der Selektor-Engine. */
 public final class DomSelectorAdapter implements SelectorNodeAdapter<Element> {
 
     public static final DomSelectorAdapter INSTANCE = new DomSelectorAdapter();
@@ -13,6 +12,24 @@ public final class DomSelectorAdapter implements SelectorNodeAdapter<Element> {
     @Override
     public Element parentElement(Element element) {
         return element.getParent() instanceof Element parent ? parent : null;
+    }
+
+    @Override
+    public Element previousElementSibling(Element element) {
+        Node sibling = element.getPreviousSibling();
+        while (sibling != null && !(sibling instanceof Element)) {
+            sibling = sibling.getPreviousSibling();
+        }
+        return (Element) sibling;
+    }
+
+    @Override
+    public Element nextElementSibling(Element element) {
+        Node sibling = element.getNextSibling();
+        while (sibling != null && !(sibling instanceof Element)) {
+            sibling = sibling.getNextSibling();
+        }
+        return (Element) sibling;
     }
 
     @Override
@@ -30,5 +47,15 @@ public final class DomSelectorAdapter implements SelectorNodeAdapter<Element> {
     @Override
     public boolean hasClass(Element element, String className) {
         return element.hasClass(className);
+    }
+
+    @Override
+    public boolean hasAttribute(Element element, String name) {
+        return element.hasAttribute(name);
+    }
+
+    @Override
+    public String attributeValue(Element element, String name) {
+        return element.getAttribute(name);
     }
 }

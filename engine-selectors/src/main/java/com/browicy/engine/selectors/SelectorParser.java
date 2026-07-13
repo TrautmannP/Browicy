@@ -3,7 +3,6 @@ package com.browicy.engine.selectors;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Parser für die von Browicy unterstützte CSS-Selektorteilmenge. */
 public final class SelectorParser {
 
     public SelectorList parse(String source) {
@@ -53,13 +52,19 @@ public final class SelectorParser {
                 if (consume('>')) {
                     combinator = Combinator.CHILD;
                     skipWhitespace();
+                } else if (consume('+')) {
+                    combinator = Combinator.ADJACENT_SIBLING;
+                    skipWhitespace();
+                } else if (consume('~')) {
+                    combinator = Combinator.GENERAL_SIBLING;
+                    skipWhitespace();
                 } else if (whitespace) {
                     combinator = Combinator.DESCENDANT;
                 } else {
                     throw error();
                 }
 
-                if (atEnd() || peek() == ',' || peek() == '>') {
+                if (atEnd() || peek() == ',' || isCombinator(peek())) {
                     throw error();
                 }
                 steps.add(new SelectorStep(parseCompoundSelector(), combinator));
@@ -71,6 +76,8 @@ public final class SelectorParser {
             String typeName = null;
             String id = null;
             List<String> classes = new ArrayList<>();
+            List<AttributeSelector> attributes = new ArrayList<>();
+            List<StructuralPseudoClass> pseudoClasses = new ArrayList<>();
 
             if (!atEnd() && consume('*')) {
                 typeName = "*";
@@ -78,23 +85,133 @@ public final class SelectorParser {
                 typeName = readTypeName();
             }
 
-            while (!atEnd() && (peek() == '.' || peek() == '#')) {
-                char prefix = source.charAt(position++);
-                String name = readIdentifier();
-                if (prefix == '#') {
-                    if (id != null) {
-                        throw error();
+            while (!atEnd()) {
+                if (peek() == '.' || peek() == '#') {
+                    char prefix = source.charAt(position++);
+                    String name = readIdentifier();
+                    if (prefix == '#') {
+                        if (id != null) {
+                            throw error();
+                        }
+                        id = name;
+                    } else {
+                        classes.add(name);
                     }
-                    id = name;
+                } else if (peek() == '[') {
+                    attributes.add(parseAttributeSelector());
+                } else if (peek() == ':') {
+                    pseudoClasses.add(parsePseudoClass());
                 } else {
-                    classes.add(name);
+                    break;
                 }
             }
 
-            if (typeName == null && id == null && classes.isEmpty()) {
+            if (typeName == null && id == null && classes.isEmpty()
+                    && attributes.isEmpty() && pseudoClasses.isEmpty()) {
                 throw error();
             }
-            return new CompoundSelector(typeName, id, classes);
+            return new CompoundSelector(typeName, id, classes, attributes, pseudoClasses);
+        }
+
+        private AttributeSelector parseAttributeSelector() {
+            consume('[');
+            skipWhitespace();
+            String name = readIdentifier();
+            skipWhitespace();
+            if (consume(']')) {
+                return new AttributeSelector(name, AttributeSelector.Operator.PRESENT, null);
+            }
+
+            AttributeSelector.Operator operator;
+            if (consume('=')) {
+                operator = AttributeSelector.Operator.EQUALS;
+            } else if (consume('~') && consume('=')) {
+                operator = AttributeSelector.Operator.INCLUDES;
+            } else {
+                throw error();
+            }
+            skipWhitespace();
+            String value = readQuotedString();
+            skipWhitespace();
+            if (!consume(']')) {
+                throw error();
+            }
+            return new AttributeSelector(name, operator, value);
+        }
+
+        private String readQuotedString() {
+            if (atEnd() || (peek() != '\'' && peek() != '"')) {
+                throw error();
+            }
+            char quote = source.charAt(position++);
+            StringBuilder result = new StringBuilder();
+            while (!atEnd()) {
+                char value = source.charAt(position++);
+                if (value == quote) {
+                    return result.toString();
+                }
+                if (value == '\\') {
+                    if (atEnd()) {
+                        throw error();
+                    }
+                    value = source.charAt(position++);
+                }
+                result.append(value);
+            }
+            throw error();
+        }
+
+        private StructuralPseudoClass parsePseudoClass() {
+            consume(':');
+            String name = readIdentifier().toLowerCase(java.util.Locale.ROOT);
+            if ("first-child".equals(name)) {
+                return StructuralPseudoClass.firstChild();
+            }
+            if ("last-child".equals(name)) {
+                return StructuralPseudoClass.lastChild();
+            }
+            if (!"nth-child".equals(name) || !consume('(')) {
+                throw error();
+            }
+            int start = position;
+            while (!atEnd() && peek() != ')') {
+                position++;
+            }
+            if (atEnd()) {
+                throw error();
+            }
+            String formula = source.substring(start, position);
+            position++;
+            int[] coefficients = parseNthFormula(formula);
+            return StructuralPseudoClass.nthChild(coefficients[0], coefficients[1]);
+        }
+
+        private int[] parseNthFormula(String sourceFormula) {
+            String formula = sourceFormula.replaceAll("\\s+", "")
+                    .toLowerCase(java.util.Locale.ROOT);
+            if ("odd".equals(formula)) {
+                return new int[]{2, 1};
+            }
+            if ("even".equals(formula)) {
+                return new int[]{2, 0};
+            }
+            try {
+                int n = formula.indexOf('n');
+                if (n < 0) {
+                    return new int[]{0, Integer.parseInt(formula)};
+                }
+                if (n != formula.lastIndexOf('n')) {
+                    throw error();
+                }
+                String aSource = formula.substring(0, n);
+                int a = aSource.isEmpty() || "+".equals(aSource) ? 1
+                        : "-".equals(aSource) ? -1 : Integer.parseInt(aSource);
+                String bSource = formula.substring(n + 1);
+                int b = bSource.isEmpty() ? 0 : Integer.parseInt(bSource);
+                return new int[]{a, b};
+            } catch (NumberFormatException exception) {
+                throw error();
+            }
         }
 
         private String readTypeName() {
@@ -163,6 +280,10 @@ public final class SelectorParser {
 
         private static boolean isIdentifierPart(char value) {
             return isIdentifierStart(value) || Character.isDigit(value);
+        }
+
+        private static boolean isCombinator(char value) {
+            return value == '>' || value == '+' || value == '~';
         }
     }
 }

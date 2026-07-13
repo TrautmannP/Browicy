@@ -38,6 +38,33 @@ public class ParentNodeTest {
     }
 
     @Test
+    public void supportsAttributesSiblingsAndStructuralPseudoClasses() {
+        Document document = new Document("about:test");
+        Element root = document.createElement("div");
+        Element first = document.createElement("input");
+        first.setAttribute("type", "text");
+        first.setAttribute("data-tags", "primary wide");
+        Element second = document.createElement("span");
+        Element third = document.createElement("input");
+        third.setAttribute("type", "checkbox");
+
+        document.appendChild(root);
+        root.appendChild(first);
+        root.appendChild(document.createTextNode("ignored by element selectors"));
+        root.appendChild(second);
+        root.appendChild(third);
+
+        assertSame(first, document.querySelector("input[type=\"text\"][data-tags~=\"wide\"]"));
+        assertEquals(List.of(first, third), document.querySelectorAll("[type]"));
+        assertSame(second, document.querySelector("input + span"));
+        assertSame(third, document.querySelector("input ~ input"));
+        assertSame(first, document.querySelector("input:first-child"));
+        assertSame(third, document.querySelector("input:last-child"));
+        assertSame(second, document.querySelector("span:nth-child(2)"));
+        assertEquals(List.of(first, third), document.querySelectorAll(":nth-child(odd)"));
+    }
+
+    @Test
     public void elementQueriesOnlyDescendantsAndReturnsStaticSnapshots() {
         Fixture fixture = fixture();
 
@@ -74,7 +101,8 @@ public class ParentNodeTest {
     public void invalidOrUnsupportedSelectorsThrowSyntaxError() {
         Fixture fixture = fixture();
 
-        for (String selector : List.of("", "div,", "div + p", "[data-id]", "div > > p")) {
+        for (String selector : List.of("", "div,", "[attr=value]", ":hover",
+                ":nth-child(nope)", "div > > p")) {
             DomException exception = assertThrows(DomException.class,
                     () -> fixture.document.querySelector(selector));
             assertEquals("SyntaxError", exception.getDomName());

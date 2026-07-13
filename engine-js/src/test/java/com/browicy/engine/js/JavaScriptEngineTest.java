@@ -250,7 +250,7 @@ public class JavaScriptEngineTest {
     public void invalidQuerySelectorRaisesDomSyntaxError() {
         Document document = parse("""
                 <html><body><script>
-                  try { document.querySelector('div + p'); }
+                  try { document.querySelector('div > > p'); }
                   catch (error) { console.log(error.name, error.code); }
                 </script></body></html>
                 """);

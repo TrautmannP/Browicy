@@ -34,6 +34,25 @@ public class StyleSheetRegistryTest {
         assertEquals("green", paragraph(document).getComputedStyles().get("color"));
     }
 
+    @Test
+    public void appliesRulesUsingAdvancedSelectors() {
+        Document document = documentWithParagraph();
+        Element paragraph = paragraph(document);
+        paragraph.setAttribute("data-tags", "intro featured");
+        Element sibling = document.createElement("p");
+        paragraph.getParent().appendChild(sibling);
+        StyleSheetRegistry registry = new StyleSheetRegistry();
+        registry.register(0, """
+                p[data-tags~=\"featured\"]:first-child { color: red; }
+                p + p:last-child { color: blue; }
+                """);
+
+        new StyleApplicator().apply(document, registry);
+
+        assertEquals("red", paragraph.getComputedStyles().get("color"));
+        assertEquals("blue", sibling.getComputedStyles().get("color"));
+    }
+
     private static Document documentWithParagraph() {
         Document document = new Document("about:test");
         Element html = document.createElement("html");

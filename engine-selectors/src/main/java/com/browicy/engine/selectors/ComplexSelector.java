@@ -3,7 +3,6 @@ package com.browicy.engine.selectors;
 import java.util.List;
 import java.util.Objects;
 
-/** Selektorkette aus zusammengesetzten Selektoren und Kombinatoren. */
 public record ComplexSelector(List<SelectorStep> steps) implements Selector {
 
     public ComplexSelector {
@@ -47,6 +46,21 @@ public record ComplexSelector(List<SelectorStep> steps) implements Selector {
             return true;
         }
 
+        if (step.relationToPrevious() == Combinator.ADJACENT_SIBLING) {
+            N sibling = adapter.previousElementSibling(element);
+            return sibling != null && matchesStep(sibling, index - 1, adapter);
+        }
+        if (step.relationToPrevious() == Combinator.GENERAL_SIBLING) {
+            N sibling = adapter.previousElementSibling(element);
+            while (sibling != null) {
+                if (matchesStep(sibling, index - 1, adapter)) {
+                    return true;
+                }
+                sibling = adapter.previousElementSibling(sibling);
+            }
+            return false;
+        }
+
         N parent = adapter.parentElement(element);
         if (step.relationToPrevious() == Combinator.CHILD) {
             return parent != null && matchesStep(parent, index - 1, adapter);
@@ -66,10 +80,10 @@ public record ComplexSelector(List<SelectorStep> steps) implements Selector {
         StringBuilder result = new StringBuilder(steps.getFirst().selector().toString());
         for (int index = 1; index < steps.size(); index++) {
             SelectorStep step = steps.get(index);
-            if (step.relationToPrevious() == Combinator.CHILD) {
-                result.append(" > ");
-            } else {
+            if (step.relationToPrevious() == Combinator.DESCENDANT) {
                 result.append(' ');
+            } else {
+                result.append(' ').append(step.relationToPrevious().css()).append(' ');
             }
             result.append(step.selector());
         }

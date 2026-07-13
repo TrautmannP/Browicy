@@ -4,14 +4,18 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
-/**
- * Zusammengesetzter Selektor ohne DOM-Beziehung, etwa
- * {@code div.card.active#main}, {@code .notice} oder {@code *}.
- */
-public record CompoundSelector(String typeName, String id, List<String> classes) {
+public record CompoundSelector(String typeName, String id, List<String> classes,
+                               List<AttributeSelector> attributes,
+                               List<StructuralPseudoClass> pseudoClasses) {
+
+    public CompoundSelector(String typeName, String id, List<String> classes) {
+        this(typeName, id, classes, List.of(), List.of());
+    }
 
     public CompoundSelector {
         classes = List.copyOf(Objects.requireNonNull(classes, "classes"));
+        attributes = List.copyOf(Objects.requireNonNull(attributes, "attributes"));
+        pseudoClasses = List.copyOf(Objects.requireNonNull(pseudoClasses, "pseudoClasses"));
         if (typeName != null && typeName.isBlank()) {
             throw new IllegalArgumentException("Der Elementname darf nicht leer sein");
         }
@@ -21,13 +25,15 @@ public record CompoundSelector(String typeName, String id, List<String> classes)
         if (classes.stream().anyMatch(className -> className == null || className.isBlank())) {
             throw new IllegalArgumentException("Klassennamen dürfen nicht leer sein");
         }
-        if (typeName == null && id == null && classes.isEmpty()) {
+        if (typeName == null && id == null && classes.isEmpty()
+                && attributes.isEmpty() && pseudoClasses.isEmpty()) {
             throw new IllegalArgumentException("Ein Selektor benötigt mindestens einen Bestandteil");
         }
     }
 
     public Specificity specificity() {
-        return new Specificity(id == null ? 0 : 1, classes.size(),
+        return new Specificity(id == null ? 0 : 1,
+                classes.size() + attributes.size() + pseudoClasses.size(),
                 typeName == null || "*".equals(typeName) ? 0 : 1);
     }
 
@@ -43,6 +49,16 @@ public record CompoundSelector(String typeName, String id, List<String> classes)
         }
         for (String className : classes) {
             if (!adapter.hasClass(element, className)) {
+                return false;
+            }
+        }
+        for (AttributeSelector attribute : attributes) {
+            if (!attribute.matches(element, adapter)) {
+                return false;
+            }
+        }
+        for (StructuralPseudoClass pseudoClass : pseudoClasses) {
+            if (!pseudoClass.matches(element, adapter)) {
                 return false;
             }
         }
@@ -62,6 +78,12 @@ public record CompoundSelector(String typeName, String id, List<String> classes)
         }
         if (id != null) {
             result.append('#').append(id);
+        }
+        for (AttributeSelector attribute : attributes) {
+            result.append(attribute);
+        }
+        for (StructuralPseudoClass pseudoClass : pseudoClasses) {
+            result.append(pseudoClass);
         }
         return result.toString();
     }

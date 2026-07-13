@@ -1,9 +1,10 @@
 package com.browicy.engine.selectors;
 
-/** Von Browicy unterstützte Beziehungen zwischen zusammengesetzten Selektoren. */
 public enum Combinator {
     CHILD(">"),
-    DESCENDANT(" ");
+    DESCENDANT(" "),
+    ADJACENT_SIBLING("+"),
+    GENERAL_SIBLING("~");
 
     private final String css;
 
