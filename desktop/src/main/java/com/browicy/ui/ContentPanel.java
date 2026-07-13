@@ -12,10 +12,13 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.SwingConstants;
+import javax.swing.SwingWorker;
 
 /**
  * Inhaltsbereich des aktiven Tabs: leerer-Tab-Hinweis für {@code about:blank},
- * sonst die über die Engine geladene und gerenderte Seite.
+ * sonst die über die Engine geladene und gerenderte Seite. Das Laden läuft
+ * abseits des Event-Dispatch-Threads, damit die Oberfläche während
+ * Netzwerkzugriffen bedienbar bleibt.
  */
 public final class ContentPanel extends JPanel {
 
@@ -44,20 +47,65 @@ public final class ContentPanel extends JPanel {
         removeAll();
         if (tab.isBlank()) {
             add(emptyTabContent(tab), BorderLayout.CENTER);
-        } else {
-            Document document = engine.loadPage(tab.getUrl());
-            String title = document.getTitle();
-            JScrollPane scrollPane = new JScrollPane(new DomViewPanel(document));
-            scrollPane.setBorder(null);
-            scrollPane.getVerticalScrollBar().setUnitIncrement(24);
-            add(scrollPane, BorderLayout.CENTER);
-            if (!title.isBlank()) {
-                // Nach dem Aufbau melden; löst über den Listener refresh() der Tab-Leiste aus.
-                state.updateTitle(tab.getId(), title);
-            }
+            revalidate();
+            repaint();
+            return;
         }
+
+        add(loadingContent(tab.getUrl()), BorderLayout.CENTER);
         revalidate();
         repaint();
+
+        String tabId = tab.getId();
+        String url = tab.getUrl();
+        new SwingWorker<Document, Void>() {
+            @Override
+            protected Document doInBackground() {
+                return engine.loadPage(url);
+            }
+
+            @Override
+            protected void done() {
+                // Nur anzeigen, wenn der Tab inzwischen nicht weiternavigiert wurde
+                if (!tabId.equals(renderedTabId) || !url.equals(renderedUrl)) {
+                    return;
+                }
+                Document document;
+                try {
+                    document = get();
+                } catch (Exception e) {
+                    document = engine.parseHtml(
+                            "<body><h1>Seite konnte nicht geladen werden</h1></body>", url);
+                }
+                showDocument(tabId, document);
+            }
+        }.execute();
+    }
+
+    private void showDocument(String tabId, Document document) {
+        removeAll();
+        JScrollPane scrollPane = new JScrollPane(new DomViewPanel(document));
+        scrollPane.setBorder(null);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(24);
+        add(scrollPane, BorderLayout.CENTER);
+        revalidate();
+        repaint();
+
+        String title = document.getTitle();
+        if (!title.isBlank()) {
+            // Nach dem Aufbau melden; löst über den Listener refresh() der Tab-Leiste aus.
+            state.updateTitle(tabId, title);
+        }
+    }
+
+    private JPanel loadingContent(String url) {
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBackground(UiTheme.BACKGROUND);
+        JLabel label = new JLabel("Lädt " + url + " …", SwingConstants.CENTER);
+        label.setFont(UiTheme.BODY);
+        label.setForeground(UiTheme.TEXT_SECONDARY);
+        panel.add(label, new GridBagConstraints());
+        return panel;
     }
 
     private JPanel emptyTabContent(BrowserTab tab) {
