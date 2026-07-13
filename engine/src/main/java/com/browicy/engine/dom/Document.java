@@ -1,5 +1,8 @@
 package com.browicy.engine.dom;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Wurzel eines geparsten HTML-Dokuments. Bietet bequemen Zugriff auf
  * {@code <html>}, {@code <head>}, {@code <body>} und den Titel.
@@ -51,6 +54,47 @@ public final class Document extends Node {
     public String getTitle() {
         Element title = findFirst("title");
         return title == null ? "" : title.getTextContent().strip();
+    }
+
+    /**
+     * Sucht in Dokumentreihenfolge das erste Element mit dem angegebenen
+     * {@code id}-Attribut, oder {@code null}.
+     */
+    public Element getElementById(String id) {
+        if (id == null) {
+            return null;
+        }
+        for (Element element : collectElements(null)) {
+            if (id.equals(element.getAttribute("id"))) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Liefert alle Elemente mit dem angegebenen Tag-Namen in Dokumentreihenfolge.
+     */
+    public List<Element> getElementsByTagName(String tag) {
+        return collectElements(tag.toLowerCase());
+    }
+
+    /** Sammelt Elemente in Dokumentreihenfolge; {@code tag == null} sammelt alle. */
+    private List<Element> collectElements(String tag) {
+        List<Element> result = new ArrayList<>();
+        collect(this, tag, result);
+        return result;
+    }
+
+    private static void collect(Node node, String tag, List<Element> result) {
+        for (Node child : node.getChildren()) {
+            if (child instanceof Element element) {
+                if (tag == null || element.getTagName().equals(tag)) {
+                    result.add(element);
+                }
+                collect(element, tag, result);
+            }
+        }
     }
 
     private Element findFirst(String tag) {

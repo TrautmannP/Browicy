@@ -41,6 +41,14 @@ public final class Element extends Node {
     }
 
     /**
+     * Setzt bzw. überschreibt ein Attribut. Attributnamen werden wie beim
+     * Parsen in Kleinbuchstaben normalisiert.
+     */
+    public void setAttribute(String name, String value) {
+        attributes.put(name.toLowerCase(), value == null ? "" : value);
+    }
+
+    /**
      * Liefert alle direkten Kind-Elemente (ohne Textknoten).
      */
     public List<Element> getChildElements() {

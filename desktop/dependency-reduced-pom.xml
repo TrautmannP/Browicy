@@ -30,6 +30,9 @@
               <transformers>
                 <transformer>
                   <mainClass>${main.class}</mainClass>
+                  <manifestEntries>
+                    <Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
+                  </manifestEntries>
                 </transformer>
               </transformers>
             </configuration>
@@ -70,6 +73,7 @@
     </profile>
   </profiles>
   <properties>
+    <exec.skip>false</exec.skip>
     <main.class>com.browicy.Main</main.class>
   </properties>
 </project>

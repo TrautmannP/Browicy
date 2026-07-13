@@ -1,0 +1,13 @@
+<component name="ProjectRunConfigurationManager">
+  <!-- Geteilte Run-Konfiguration für IntelliJ IDEA. Die VM-Optionen erlauben
+       Truffle (GraalJS) Native-Access und Unsafe, sonst warnt das JDK beim
+       Initialisieren der JavaScript-Engine. -->
+  <configuration default="false" name="Browicy" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="com.browicy.Main" />
+    <module name="browicy-desktop" />
+    <option name="VM_PARAMETERS" value="--enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

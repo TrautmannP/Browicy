@@ -16,6 +16,8 @@
 
     <properties>
         <main.class>com.browicy.Main</main.class>
+        <!-- Nur dieses Modul führt bei "mvn ... exec:java" tatsächlich aus -->
+        <exec.skip>false</exec.skip>
     </properties>
 
     <dependencies>
@@ -49,6 +51,11 @@
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>${main.class}</mainClass>
+                                    <manifestEntries>
+                                        <!-- Erlaubt Truffle (GraalJS) Native-Access ohne
+                                             JDK-Warnung beim Start mit java -jar (JDK 24+). -->
+                                        <Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
+                                    </manifestEntries>
                                 </transformer>
                             </transformers>
                         </configuration>

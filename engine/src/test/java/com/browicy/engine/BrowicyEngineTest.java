@@ -78,6 +78,45 @@ public class BrowicyEngineTest {
     }
 
     @Test
+    public void executesInlineScriptsWhenLoadingPages() {
+        server.serveHtml("/js", """
+                <html>
+                  <head><title>Vor JavaScript</title></head>
+                  <body>
+                    <h1 id="ueberschrift">Statischer Text</h1>
+                    <script>
+                      document.getElementById('ueberschrift').textContent = 'Von JavaScript gerendert';
+                      document.title = 'Nach JavaScript';
+                    </script>
+                  </body>
+                </html>
+                """);
+
+        Document document = engine.loadPage(server.url("/js"));
+
+        assertEquals("Nach JavaScript", document.getTitle());
+        assertTrue(document.getBody().getTextContent().contains("Von JavaScript gerendert"));
+    }
+
+    @Test
+    public void brokenScriptsDoNotPreventPageRendering() {
+        server.serveHtml("/kaputt", """
+                <html>
+                  <head><title>Robuste Seite</title></head>
+                  <body>
+                    <p>Sichtbarer Inhalt</p>
+                    <script>das ist kein gültiges JavaScript(((</script>
+                  </body>
+                </html>
+                """);
+
+        Document document = engine.loadPage(server.url("/kaputt"));
+
+        assertEquals("Robuste Seite", document.getTitle());
+        assertTrue(document.getBody().getTextContent().contains("Sichtbarer Inhalt"));
+    }
+
+    @Test
     public void servesHelloWorldForAboutUrls() {
         Document document = engine.loadPage("about:home");
 

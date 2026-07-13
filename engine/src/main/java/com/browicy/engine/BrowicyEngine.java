@@ -2,6 +2,8 @@ package com.browicy.engine;
 
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.html.HtmlParser;
+import com.browicy.engine.js.JavaScriptEngine;
+import com.browicy.engine.js.JsExecutionResult;
 import com.browicy.engine.net.PageLoader;
 
 import java.net.URI;
@@ -11,10 +13,11 @@ import java.net.URI;
  * ausschließlich mit dieser Klasse und erhält fertige DOM-Dokumente.
  *
  * <p>Aktueller Stand: Netzwerk-Laden über einen eigenen HTTP/1.1-Client
- * ({@code com.browicy.engine.net}) und HTML-Parsing zu einem DOM-Baum.
- * CSS, JavaScript und Layout folgen in späteren Ausbaustufen. Fehler beim
- * Laden führen nicht zu Exceptions, sondern zu einer gerenderten
- * Fehlerseite — die UI erhält immer ein Dokument.</p>
+ * ({@code com.browicy.engine.net}), HTML-Parsing zu einem DOM-Baum und
+ * Ausführung von Inline-JavaScript über GraalJS
+ * ({@code com.browicy.engine.js}). CSS und Layout folgen in späteren
+ * Ausbaustufen. Fehler beim Laden führen nicht zu Exceptions, sondern zu
+ * einer gerenderten Fehlerseite — die UI erhält immer ein Dokument.</p>
  */
 public final class BrowicyEngine {
 
@@ -33,6 +36,7 @@ public final class BrowicyEngine {
             """;
 
     private final HtmlParser parser = new HtmlParser();
+    private final JavaScriptEngine jsEngine = new JavaScriptEngine();
     private final PageLoader pageLoader;
 
     public BrowicyEngine() {
@@ -62,7 +66,10 @@ public final class BrowicyEngine {
         }
         try {
             PageLoader.Page page = pageLoader.load(url);
-            return parser.parse(page.html(), page.uri().toString());
+            Document document = parser.parse(page.html(), page.uri().toString());
+            // Skriptfehler sind wie im Browser nicht fatal — Seite bleibt anzeigbar
+            jsEngine.runScripts(document);
+            return document;
         } catch (Exception e) {
             String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             return errorPage(url, message);
@@ -71,9 +78,18 @@ public final class BrowicyEngine {
 
     /**
      * Parst den übergebenen HTML-Quelltext direkt zu einem Dokument.
+     * Skripte werden hierbei nicht ausgeführt (siehe {@link #executeScripts}).
      */
     public Document parseHtml(String html, String url) {
         return parser.parse(html, url);
+    }
+
+    /**
+     * Führt alle Inline-Skripte des Dokuments aus und liefert Konsolen-
+     * ausgaben und Fehler (z.B. für eine spätere Entwickler-Konsole).
+     */
+    public JsExecutionResult executeScripts(Document document) {
+        return jsEngine.runScripts(document);
     }
 
     private Document errorPage(String url, String message) {

@@ -30,6 +30,25 @@ public abstract class Node {
     }
 
     /**
+     * Entfernt alle Kindknoten und löst deren Eltern-Verweis
+     * (z.B. für {@code element.textContent = "..."} aus JavaScript).
+     */
+    public void clearChildren() {
+        for (Node child : children) {
+            child.parent = null;
+        }
+        children.clear();
+    }
+
+    /**
+     * Ersetzt den gesamten Inhalt dieses Teilbaums durch einen einzelnen Textknoten.
+     */
+    public void setTextContent(String text) {
+        clearChildren();
+        appendChild(new TextNode(text == null ? "" : text));
+    }
+
+    /**
      * Liefert den gesamten Textinhalt dieses Teilbaums (Textknoten in Dokumentreihenfolge).
      */
     public String getTextContent() {
