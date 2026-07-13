@@ -3,6 +3,9 @@ package com.browicy.engine.js;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Event;
+import com.browicy.engine.css.CssParser;
+import com.browicy.engine.selectors.SelectorParseException;
+import com.browicy.engine.selectors.SelectorParser;
 import java.io.OutputStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -56,6 +59,8 @@ final class GraalPageRuntime implements PageRuntime {
     private volatile boolean contextUsable = true;
     private volatile boolean shutdownRequested;
     private boolean inlineLoadHandlerInstalled;
+    private boolean globalLoadHandlerFired;
+    private Value windowLoadInvoker;
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer) {
         this.document = Objects.requireNonNull(document, "document");
@@ -154,6 +159,11 @@ final class GraalPageRuntime implements PageRuntime {
                 List.copyOf(console.getMessages()), List.copyOf(errors))));
     }
 
+    @Override
+    public JsExecutionResult snapshot() {
+        return snapshotResult();
+    }
+
     private void runEventLoop() {
         try {
             initializeContext();
@@ -184,7 +194,30 @@ final class GraalPageRuntime implements PageRuntime {
         Value bindings = context.getBindings("js");
         bindings.putMember("document", jsDocument);
         bindings.putMember("console", console);
+        CssParser cssParser = new CssParser();
+        SelectorParser selectorParser = new SelectorParser();
+        bindings.putMember("__browicyCssSupports", (ProxyExecutable) args -> {
+            if (args.length >= 2) {
+                return cssParser.supports(asText(args[0]), asText(args[1]));
+            }
+            String condition = args.length == 0 ? "" : asText(args[0]).strip();
+            if (condition.startsWith("selector(") && condition.endsWith(")")) {
+                try {
+                    selectorParser.parse(condition.substring(9, condition.length() - 1));
+                    return true;
+                } catch (SelectorParseException ignored) {
+                    return false;
+                }
+            }
+            if (condition.startsWith("(") && condition.endsWith(")")) {
+                condition = condition.substring(1, condition.length() - 1);
+            }
+            int separator = condition.indexOf(':');
+            return separator > 0 && cssParser.supports(
+                    condition.substring(0, separator), condition.substring(separator + 1));
+        });
         context.eval("js", JavaScriptEngine.BROWSER_BOOTSTRAP);
+        windowLoadInvoker = context.eval("js", "(callback, event) => callback.call(window, event)");
         jsDocument.setDomOperationWrapper(context.eval("js", JavaScriptEngine.DOM_OPERATION_WRAPPER));
         jsDocument.setEventListenerInvoker(context.eval("js", JavaScriptEngine.EVENT_LISTENER_INVOKER));
         bindings.putMember("setTimeout", (ProxyExecutable) args -> registerTimer(args, false));
@@ -261,7 +294,12 @@ final class GraalPageRuntime implements PageRuntime {
                             && domEvent.target() == document.getBody()) {
                         installInlineLoadHandler();
                     }
-                    yield domEvent.target().dispatchEvent(domEvent.event());
+                    boolean allowed = domEvent.target().dispatchEvent(domEvent.event());
+                    if ("load".equals(domEvent.event().getType())
+                            && domEvent.target() == document.getBody()) {
+                        invokeGlobalLoadHandler(domEvent.event());
+                    }
+                    yield allowed;
                 }
                 case PageTask.Callback callback -> {
                     callback.callback().run();
@@ -273,6 +311,29 @@ final class GraalPageRuntime implements PageRuntime {
                 }
             };
         }
+    }
+
+    private void invokeGlobalLoadHandler(Event event) {
+        if (globalLoadHandlerFired || !contextUsable) return;
+        globalLoadHandlerFired = true;
+        Value handler = context.getBindings("js").getMember("onload");
+        if (handler != null && handler.canExecute()) {
+            try {
+                windowLoadInvoker.executeVoid(handler, jsDocument.wrap(event));
+            } catch (PolyglotException exception) {
+                recordPolyglotFailure(exception);
+            }
+        }
+        try {
+            context.getBindings("js").getMember("__browicyDispatchWindowEvent")
+                    .executeVoid("load", jsDocument.wrap(event));
+        } catch (PolyglotException exception) {
+            recordPolyglotFailure(exception);
+        }
+    }
+
+    private static String asText(Value value) {
+        return value.isString() ? value.asString() : value.toString();
     }
 
     private JsExecutionResult evaluate(JavaScriptSource source) {
@@ -381,7 +442,13 @@ final class GraalPageRuntime implements PageRuntime {
     }
 
     private void recordPolyglotFailure(PolyglotException exception) {
-        errors.add(message(exception));
+        String detail = message(exception);
+        if (exception.getSourceLocation() != null) {
+            var location = exception.getSourceLocation();
+            detail += " (" + location.getSource().getName() + ":"
+                    + location.getStartLine() + ":" + location.getStartColumn() + ")";
+        }
+        errors.add(detail);
         if (exception.isCancelled() || exception.isResourceExhausted()) {
             contextUsable = false;
         }

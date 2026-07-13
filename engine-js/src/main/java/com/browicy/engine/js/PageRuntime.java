@@ -32,6 +32,9 @@ public interface PageRuntime extends PageTaskQueue, AutoCloseable {
     /** Waits until all tasks that were queued before this call have completed. */
     void awaitIdle();
 
+    /** Returns an immutable snapshot of console output and script errors. */
+    JsExecutionResult snapshot();
+
     boolean isClosed();
 
     @Override
@@ -58,6 +61,7 @@ public interface PageRuntime extends PageTaskQueue, AutoCloseable {
         @Override public void enqueue(PageTask task) { }
         @Override public void enqueueMicrotask(PageTask task) { }
         @Override public void awaitIdle() { }
+        @Override public JsExecutionResult snapshot() { return JsExecutionResult.EMPTY; }
         @Override public boolean isClosed() { return true; }
         @Override public void close() { }
     }

@@ -72,17 +72,18 @@ public final class DocumentResourceScanner {
 
     private static java.util.Optional<ScriptResource> script(
             Element element, Document document, ScanState state) {
-        if (!isClassicScript(element)) {
+        boolean module = "module".equalsIgnoreCase(element.getAttribute("type"));
+        if (!module && !isClassicScript(element)) {
             return java.util.Optional.empty();
         }
         int treeOrder = state.nextScriptOrder++;
         if (element.hasAttribute("src")) {
             return resolveHttpUri(document, element.getAttribute("src"))
                     .map(uri -> new ScriptResource.External(
-                            treeOrder, element, uri, element.hasAttribute("async")));
+                            treeOrder, element, uri, element.hasAttribute("async"), module));
         }
         return java.util.Optional.of(new ScriptResource.Inline(
-                treeOrder, element, element.getTextContent()));
+                treeOrder, element, element.getTextContent(), module));
     }
 
     private static boolean isClassicScript(Element element) {

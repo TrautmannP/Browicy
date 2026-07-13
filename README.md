@@ -20,6 +20,8 @@ back into a monolith as the feature set expands.
   and, with `BrowicyEngine`, orchestrates the full loading process.
 * **[engine-integration-tests](./engine-integration-tests)** — cross-module
   integration tests without cyclic test dependencies between the production modules.
+* **[browser-cli](./browser-cli)** — headless inspection CLI that emits machine-readable
+  page, DOM, CSS, render-tree, JavaScript, and network diagnostics for developers and agents.
 * **[devtools](./devtools)** — developer tools; depends only on the network module.
 * **[desktop](./desktop)** — Swing interface and Graphics2D renderer.
 
@@ -81,18 +83,34 @@ additional reachability metadata may be needed.
 
 ## JavaScript (Prototype)
 
-When loading a page, the engine executes all inline `<script>` blocks via
+When loading a page, the engine executes inline and external scripts via
 GraalJS (`com.browicy.engine.js.JavaScriptEngine`). The scripts run in
 a sandbox without host access (no Java, no file system, no processes)
 and with a statement limit to guard against infinite loops. The currently
 available DOM API includes, among others,
 `document.title`, `document.getElementById`, `document.querySelector`,
 `document.createElement`, `element.classList`, `element.textContent`,
-`element.setAttribute`, and `element.appendChild`; `console.log` output and
-script errors are collected (`JsExecutionResult`) and, as in a browser, are not fatal.
+`element.setAttribute`, `element.appendChild`, `element.append`, `element.style`,
+`CSS.supports`, `URLSearchParams`, timers, microtasks, and basic window lifecycle events;
+`console.log` output and source-located script errors are collected (`JsExecutionResult`)
+and, as in a browser, are not fatal.
 
-Not yet supported: external scripts (`<script src=…>`), events, timers
-(`setTimeout`), and dynamic loading.
+Static ES modules with default imports are bundled recursively over HTTP(S). Named imports,
+dynamic `import()`, Fetch/XHR, full CSSOM, and most layout modes are not supported yet.
+
+## Headless inspection and progress tracking
+
+Agents and developers can exercise the real engine without controlling the Swing UI:
+
+```bat
+inspect.cmd "https://css3test.com/?filter=css2007" target\css3test-css2007.json
+```
+
+The generated JSON is intentionally stable and includes the final page state, a DOM/tag
+inventory, accepted CSS rule counts, render-tree counts, source-located JavaScript errors,
+and every document/subresource request. This makes reports diffable in CI and gives agents
+concrete evidence about the next missing API. See [docs/engine-progress.md](./docs/engine-progress.md)
+for the current css3test baseline and suggested workflow.
 
 ## Tests
 

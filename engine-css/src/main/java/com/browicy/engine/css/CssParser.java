@@ -105,6 +105,38 @@ public final class CssParser {
         return declarations;
     }
 
+    /** Returns whether this engine currently recognizes a property/value pair. */
+    public boolean supports(String property, String value) {
+        if (property == null || property.isBlank() || value == null || value.isBlank()) {
+            return false;
+        }
+        return !parseDeclarations(property + ":" + value).isEmpty();
+    }
+
+    /** Returns whether this engine recognizes at least one value for a property. */
+    public boolean supportsProperty(String property) {
+        if (property == null) {
+            return false;
+        }
+        String normalized = property.strip().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "color", "background", "background-color" -> supports(normalized, "black");
+            case "font-size" -> supports(normalized, "16px");
+            case "font-weight" -> supports(normalized, "normal");
+            case "font-style" -> supports(normalized, "normal");
+            case "display" -> supports(normalized, "block");
+            case "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+                 "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+                 "border", "border-width", "border-top-width", "border-right-width",
+                 "border-bottom-width", "border-left-width" -> supports(normalized, "0");
+            case "border-color", "border-top-color", "border-right-color",
+                 "border-bottom-color", "border-left-color" -> supports(normalized, "black");
+            case "border-style", "border-top-style", "border-right-style",
+                 "border-bottom-style", "border-left-style" -> supports(normalized, "solid");
+            default -> false;
+        };
+    }
+
     private static void parseDeclaration(Map<String, String> target, String property, String value) {
         switch (property) {
             case "color", "background-color" -> putColor(target, property, value);

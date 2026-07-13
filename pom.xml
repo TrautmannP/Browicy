@@ -22,6 +22,7 @@
         <module>engine-net</module>
         <module>engine</module>
         <module>engine-integration-tests</module>
+        <module>browser-cli</module>
         <module>devtools</module>
         <module>desktop</module>
     </modules>

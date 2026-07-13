@@ -189,7 +189,10 @@ final class PageResourceCoordinator {
                 ScriptResource resource = resources.next();
                 if (resource instanceof ScriptResource.Inline inline) {
                     if (!inline.code().isBlank()) {
-                        next = new JavaScriptSource(inline.code(), inline.element(),
+                        String code = inline.module()
+                                ? bundleModule(documentUri(inline.element()), inline.code())
+                                : inline.code();
+                        next = new JavaScriptSource(code, inline.element(),
                                 "inline-script-" + (++inlineIndex) + ".js");
                         return;
                     }
@@ -207,7 +210,11 @@ final class PageResourceCoordinator {
                 cancellableLoads.add(load);
                 try {
                     TextResource downloaded = load.await();
-                    next = new JavaScriptSource(downloaded.content(), external.element(),
+                    String code = external.module()
+                            ? new ModuleScriptBundler(resourceLoader, cancellableLoads)
+                                    .bundle(downloaded.uri(), downloaded.content())
+                            : downloaded.content();
+                    next = new JavaScriptSource(code, external.element(),
                             downloaded.uri().toString());
                     return;
                 } catch (InterruptedException interrupted) {
@@ -219,6 +226,25 @@ final class PageResourceCoordinator {
                                     + external.uri(), failure);
                 }
             }
+        }
+
+        private String bundleModule(java.net.URI uri, String code) {
+            try {
+                return new ModuleScriptBundler(resourceLoader, cancellableLoads).bundle(uri, code);
+            } catch (IOException | InterruptedException failure) {
+                if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+                return "throw new Error(" + jsString(failure.getMessage()) + ");";
+            }
+        }
+
+        private java.net.URI documentUri(com.browicy.engine.dom.Element element) {
+            return java.net.URI.create(element.getOwnerDocument().getUrl());
+        }
+
+        private String jsString(String value) {
+            String safe = value == null ? "ES-Modul konnte nicht geladen werden" : value;
+            return "'" + safe.replace("\\", "\\\\").replace("'", "\\'")
+                    .replace("\r", "\\r").replace("\n", "\\n") + "'";
         }
     }
 

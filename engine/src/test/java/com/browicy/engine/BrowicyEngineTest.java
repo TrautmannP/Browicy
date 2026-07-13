@@ -354,4 +354,24 @@ public class BrowicyEngineTest {
         }
     }
 
+    @Test
+    public void loadsStaticDefaultImportsFromExternalEsModules() {
+        server.serveHtml("/modules", """
+                <html><body><p id="message">before</p>
+                  <script type="module" src="/app.js"></script>
+                </body></html>
+                """);
+        server.serveText("/app.js", "text/javascript", """
+                import data from './data.js';
+                onload = () => document.getElementById('message').textContent = data.message;
+                """);
+        server.serveText("/data.js", "text/javascript", """
+                export default { message: 'module-loaded' };
+                """);
+
+        Document document = engine.loadPage(server.url("/modules"));
+
+        assertEquals("module-loaded", document.getElementById("message").getTextContent());
+    }
+
 }

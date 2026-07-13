@@ -119,6 +119,16 @@ public class CssParserTest {
         assertEquals("div", rules.get(1).selector().toString());
     }
 
+    @Test
+    public void exposesTheSameCapabilityChecksUsedByTheJavaScriptCssApi() {
+        CssParser parser = new CssParser();
+
+        assertTrue(parser.supportsProperty("background-color"));
+        assertTrue(parser.supports("display", "block"));
+        assertFalse(parser.supports("display", "grid"));
+        assertFalse(parser.supportsProperty("position"));
+    }
+
 
     @Test
     public void invalidSelectorListDiscardsTheWholeCssRule() {

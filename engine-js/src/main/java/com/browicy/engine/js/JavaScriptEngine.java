@@ -15,7 +15,12 @@ public final class JavaScriptEngine {
 
     static final String BROWSER_BOOTSTRAP = """
             globalThis.window = globalThis;
+            globalThis.self = globalThis;
+            globalThis.onload = null;
             globalThis.Node = function Node() { throw new TypeError('Illegal constructor'); };
+            Object.defineProperty(Node, Symbol.hasInstance, {
+              value: candidate => candidate != null && typeof candidate.nodeType === 'number'
+            });
             Node.ELEMENT_NODE = 1;
             Node.TEXT_NODE = 3;
             Node.COMMENT_NODE = 8;
@@ -28,6 +33,60 @@ public final class JavaScriptEngine {
             Node.DOCUMENT_POSITION_CONTAINS = 0x08;
             Node.DOCUMENT_POSITION_CONTAINED_BY = 0x10;
             Node.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC = 0x20;
+            globalThis.EventTarget = function EventTarget() { throw new TypeError('Illegal constructor'); };
+            Object.defineProperty(EventTarget, Symbol.hasInstance, {
+              value: candidate => candidate != null && typeof candidate.addEventListener === 'function'
+            });
+            globalThis.HTMLElement = function HTMLElement() { throw new TypeError('Illegal constructor'); };
+            HTMLElement.prototype = Object.create(Node.prototype);
+            Object.defineProperty(HTMLElement, Symbol.hasInstance, {
+              value: candidate => candidate != null && candidate.nodeType === 1
+            });
+            globalThis.Window = function Window() { throw new TypeError('Illegal constructor'); };
+            Object.defineProperty(Window, Symbol.hasInstance, { value: candidate => candidate === window });
+            const __windowListeners = new Map();
+            globalThis.addEventListener = (type, callback) => {
+              type = String(type);
+              const listeners = __windowListeners.get(type) || [];
+              if (typeof callback === 'function' && !listeners.includes(callback)) listeners.push(callback);
+              __windowListeners.set(type, listeners);
+            };
+            globalThis.removeEventListener = (type, callback) => {
+              const listeners = __windowListeners.get(String(type)) || [];
+              __windowListeners.set(String(type), listeners.filter(candidate => candidate !== callback));
+            };
+            globalThis.__browicyDispatchWindowEvent = (type, event) => {
+              for (const listener of [...(__windowListeners.get(String(type)) || [])]) listener.call(window, event);
+            };
+            globalThis.CSS = Object.freeze({ supports: (...args) => __browicyCssSupports(...args) });
+            const __locationHref = String(document.URL || 'about:blank');
+            const __queryStart = __locationHref.indexOf('?');
+            globalThis.location = Object.freeze({
+              href: __locationHref,
+              search: __queryStart < 0 ? '' : __locationHref.substring(__queryStart).split('#')[0]
+            });
+            globalThis.URLSearchParams = class URLSearchParams {
+              constructor(source = '') {
+                this.values = Object.create(null);
+                String(source).replace(/^\\?/, '').split('&').filter(Boolean).forEach(entry => {
+                  const parts = entry.split('=');
+                  this.values[decodeURIComponent(parts.shift())] = decodeURIComponent(parts.join('=') || '');
+                });
+              }
+              get(name) { return Object.prototype.hasOwnProperty.call(this.values, name) ? this.values[name] : null; }
+            };
+            const __storage = new Map();
+            globalThis.localStorage = Object.freeze({
+              getItem: key => __storage.has(String(key)) ? __storage.get(String(key)) : null,
+              setItem: (key, value) => __storage.set(String(key), String(value)),
+              removeItem: key => __storage.delete(String(key)),
+              clear: () => __storage.clear()
+            });
+            globalThis.history = Object.freeze({ replaceState: () => undefined });
+            globalThis.matchMedia = query => Object.freeze({
+              media: String(query), matches: false,
+              addEventListener: () => undefined, removeEventListener: () => undefined
+            });
             globalThis.Range = function Range() { return document.createRange(); };
             Range.START_TO_START = 0;
             Range.START_TO_END = 1;

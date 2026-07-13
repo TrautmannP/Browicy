@@ -62,7 +62,7 @@ public class DocumentResourceScannerTest {
     }
 
     @Test
-    public void ignoresUnsupportedOrInvalidResourceUrls() {
+    public void includesModulesButIgnoresUnsupportedOrInvalidResourceUrls() {
         Document document = parser.parse("""
                 <html><head>
                   <link rel="stylesheet" href="file:///tmp/theme.css">
@@ -75,6 +75,7 @@ public class DocumentResourceScannerTest {
         DocumentResources resources = scanner.scan(document);
 
         assertTrue(resources.styleSheets().isEmpty());
-        assertTrue(resources.scripts().isEmpty());
+        assertEquals(1, resources.scripts().size());
+        assertTrue(resources.scripts().getFirst().module());
     }
 }

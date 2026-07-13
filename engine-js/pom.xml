@@ -17,6 +17,10 @@
     <dependencies>
         <dependency>
             <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-css</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.browicy</groupId>
             <artifactId>browicy-engine-dom</artifactId>
         </dependency>
         <dependency>

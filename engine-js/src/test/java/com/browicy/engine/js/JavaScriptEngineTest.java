@@ -721,6 +721,45 @@ public class JavaScriptEngineTest {
     }
 
     @Test
+    public void exposesCssStyleDeclarationAndCssSupportsWithoutOverReporting() {
+        Document document = parse("""
+                <html><body><div id="target"></div><script>
+                  const target = document.getElementById('target');
+                  target.style.color = 'red';
+                  target.style.display = 'grid';
+                  target.append('hello');
+                  target.innerHTML = '<strong>world</strong>';
+                  target.setAttribute('data-css', CSS.supports('color', 'red') + ':'
+                    + CSS.supports('display', 'grid') + ':' + ('color' in target.style));
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals("color:red;", document.getElementById("target").getAttribute("style"));
+        assertEquals("true:false:true", document.getElementById("target").getAttribute("data-css"));
+        assertEquals("world", document.getElementById("target").getTextContent());
+    }
+
+    @Test
+    public void invokesWindowOnloadWithLocationAndUrlSearchParams() {
+        Document document = parser.parse("""
+                <html><body data-filter=""><script>
+                  onload = () => {
+                    const filter = new URLSearchParams(location.search).get('filter');
+                    document.body.setAttribute('data-filter', filter);
+                  };
+                </script></body></html>
+                """, "https://example.test/?filter=css2007");
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals("css2007", document.getBody().getAttribute("data-filter"));
+    }
+
+    @Test
     public void lazyScriptSequenceExecutesBeforeRequestingNextSource() {
         Document document = parse("""
                 <html><body><p id="message">before</p></body></html>

@@ -1,9 +1,12 @@
 package com.browicy.engine.js;
 
+import com.browicy.engine.dom.Document;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 
 import com.browicy.engine.dom.Element;
+import com.browicy.engine.dom.Node;
+import com.browicy.engine.html.HtmlParser;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
@@ -12,6 +15,8 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
@@ -20,14 +25,14 @@ final class JsElement implements ProxyObject, JsNodeLike {
     private static final List<String> MEMBERS = List.of(
             "tagName", "nodeName", "nodeType", "nodeValue", "namespaceURI", "prefix", "localName",
             "id", "className", "classList", "name", "type", "value", "checked", "defaultChecked", "selected", "defaultSelected",
-            "textContent", "children", "childNodes", "length", "elements", "form", "options", "selectedIndex",
+            "textContent", "innerHTML", "style", "sheet", "children", "childNodes", "length", "elements", "form", "options", "selectedIndex",
             "caption", "tHead", "tFoot", "tBodies", "rows", "cells", "rowIndex", "sectionRowIndex", "cellIndex",
             "parentNode", "ownerDocument", "firstChild", "lastChild", "previousSibling", "nextSibling",
             "getAttribute", "setAttribute", "removeAttribute", "hasAttribute", "getElementsByTagName",
             "querySelector", "querySelectorAll",
             "createCaption", "deleteCaption", "createTHead", "deleteTHead", "createTFoot", "deleteTFoot",
             "insertRow", "deleteRow", "insertCell", "deleteCell", "add", "remove",
-            "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
+            "append", "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
             "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode", "click",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
@@ -37,6 +42,8 @@ final class JsElement implements ProxyObject, JsNodeLike {
     private final Element element;
     private final JsDocument document;
     private JsDomTokenList classList;
+    private JsStyleDeclaration style;
+    private final Map<String, Value> expandos = new LinkedHashMap<>();
 
     Element unwrap() {
         return element;
@@ -66,6 +73,10 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "selected" -> element.hasAttribute("selected");
             case "defaultSelected" -> element.hasAttribute("selected");
             case "textContent" -> element.getTextContent();
+            case "innerHTML" -> element.getTextContent();
+            case "style" -> style == null ? style = new JsStyleDeclaration(element) : style;
+            case "sheet" -> "style".equals(tag())
+                    ? ProxyObject.fromMap(Map.of("cssRules", ProxyArray.fromArray())) : null;
             case "children" -> collection(element::getChildElements);
             case "childNodes" -> ProxyArray.fromList(element.getChildren().stream()
                     .map(document::wrap).collect(Collectors.toList()));
@@ -118,6 +129,16 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "deleteCell" -> (ProxyExecutable) args -> { deleteFrom(cells(), indexArg(args, 0, -2)); return null; };
             case "add" -> (ProxyExecutable) args -> { addOption(args); return null; };
             case "remove" -> (ProxyExecutable) args -> { removeOption(args); return null; };
+            case "append" -> (ProxyExecutable) args -> {
+                for (Value value : args) {
+                    if (value.isProxyObject() && value.asProxyObject() instanceof JsNodeLike node) {
+                        element.appendChild(node.unwrapNode());
+                    } else {
+                        element.appendChild(element.getOwnerDocument().createTextNode(toText(value)));
+                    }
+                }
+                return null;
+            };
             case "appendChild" -> (ProxyExecutable) args -> {
                 JsNodeLike child = expectNode(args, 0, false);
                 element.appendChild(child.unwrapNode());
@@ -173,7 +194,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "DOCUMENT_POSITION_CONTAINS" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_CONTAINS;
             case "DOCUMENT_POSITION_CONTAINED_BY" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_CONTAINED_BY;
             case "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC;
-            default -> null;
+            default -> expandos.get(key);
         };
     }
 
@@ -181,6 +202,11 @@ final class JsElement implements ProxyObject, JsNodeLike {
     public void putMember(String key, Value value) {
         switch (key) {
             case "textContent" -> element.setTextContent(toText(value));
+            case "innerHTML" -> setInnerHtml(toText(value));
+            case "style" -> {
+                if (style == null) style = new JsStyleDeclaration(element);
+                style.setCssText(toText(value));
+            }
             case "id" -> element.setAttribute("id", toText(value));
             case "className" -> element.setAttribute("class", toText(value));
             case "name" -> element.setAttribute("name", toText(value));
@@ -190,8 +216,18 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "defaultChecked" -> booleanAttribute("checked", value.asBoolean());
             case "selected", "defaultSelected" -> booleanAttribute("selected", value.asBoolean());
             case "selectedIndex" -> setSelectedIndex(value.asInt());
-            default -> throw new UnsupportedOperationException(
-                    "Eigenschaft nicht unterstützt oder schreibgeschützt: " + key);
+            default -> expandos.put(key, value);
+        }
+    }
+
+    private void setInnerHtml(String html) {
+        element.clearChildren();
+        Document fragment = new HtmlParser().parse(
+                "<body>" + html + "</body>", element.getOwnerDocument().getUrl());
+        Element body = fragment.getBody();
+        if (body == null) return;
+        for (Node child : List.copyOf(body.getChildren())) {
+            element.appendChild(child);
         }
     }
 
@@ -338,12 +374,14 @@ final class JsElement implements ProxyObject, JsNodeLike {
 
     @Override
     public Object getMemberKeys() {
-        return MEMBERS.toArray();
+        List<String> keys = new ArrayList<>(MEMBERS);
+        keys.addAll(expandos.keySet());
+        return keys.toArray();
     }
 
     @Override
     public boolean hasMember(String key) {
-        return MEMBERS.contains(key);
+        return MEMBERS.contains(key) || expandos.containsKey(key);
     }
 
     private static String asString(Value[] args, int index) {
