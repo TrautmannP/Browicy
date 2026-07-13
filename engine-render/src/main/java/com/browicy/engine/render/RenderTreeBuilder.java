@@ -35,13 +35,19 @@ public final class RenderTreeBuilder {
                 null,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
                 BoxEdges.ZERO,
                 HorizontalAutoMargins.NONE,
                 BoxEdges.ZERO,
                 BoxEdges.ZERO,
                 BoxColors.CURRENT_COLOR,
                 BoxBorders.NONE,
-                RenderStyle.TextAlign.LEFT);
+                RenderStyle.TextAlign.LEFT,
+                RenderStyle.Overflow.VISIBLE,
+                RenderStyle.VerticalAlign.BASELINE);
         if (rootElement == null) {
             return new RenderTree(new RenderBox(null, initial, List.of()));
         }
@@ -141,13 +147,19 @@ public final class RenderTreeBuilder {
                 null,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
                 BoxEdges.ZERO,
                 HorizontalAutoMargins.NONE,
                 BoxEdges.ZERO,
                 BoxEdges.ZERO,
                 BoxColors.CURRENT_COLOR,
                 BoxBorders.NONE,
-                inherited.textAlign());
+                inherited.textAlign(),
+                RenderStyle.Overflow.VISIBLE,
+                RenderStyle.VerticalAlign.BASELINE);
     }
 
     private static RenderStyle resolveStyle(Element element, RenderStyle parent) {
@@ -162,6 +174,10 @@ public final class RenderTreeBuilder {
         CssColor background = null;
         RenderLength width = RenderLength.AUTO;
         RenderLength height = RenderLength.AUTO;
+        RenderLength minWidth = RenderLength.AUTO;
+        RenderLength maxWidth = RenderLength.AUTO;
+        RenderLength minHeight = RenderLength.AUTO;
+        RenderLength maxHeight = RenderLength.AUTO;
         BoxEdges margin = defaultMargin(tag);
         HorizontalAutoMargins autoMargins = HorizontalAutoMargins.NONE;
         BoxEdges padding = BoxEdges.ZERO;
@@ -169,6 +185,8 @@ public final class RenderTreeBuilder {
         BoxColors borderColor = BoxColors.CURRENT_COLOR;
         BoxBorders borderStyle = BoxBorders.NONE;
         RenderStyle.TextAlign textAlign = parent.textAlign();
+        RenderStyle.Overflow overflow = RenderStyle.Overflow.VISIBLE;
+        RenderStyle.VerticalAlign verticalAlign = RenderStyle.VerticalAlign.BASELINE;
 
         if (declarations.containsKey("display")) {
             display = switch (declarations.get("display")) {
@@ -189,6 +207,10 @@ public final class RenderTreeBuilder {
         }
         width = resolveDimension(declarations.get("width"), fontSize);
         height = resolveDimension(declarations.get("height"), fontSize);
+        minWidth = resolveDimension(declarations.get("min-width"), fontSize);
+        maxWidth = resolveDimension(declarations.get("max-width"), fontSize);
+        minHeight = resolveDimension(declarations.get("min-height"), fontSize);
+        maxHeight = resolveDimension(declarations.get("max-height"), fontSize);
         if (declarations.containsKey("text-align")) {
             textAlign = switch (declarations.get("text-align")) {
                 case "center" -> RenderStyle.TextAlign.CENTER;
@@ -196,6 +218,18 @@ public final class RenderTreeBuilder {
                 default -> RenderStyle.TextAlign.LEFT;
             };
         }
+        overflow = switch (declarations.getOrDefault("overflow", "visible")) {
+            case "hidden" -> RenderStyle.Overflow.HIDDEN;
+            case "auto" -> RenderStyle.Overflow.AUTO;
+            case "scroll" -> RenderStyle.Overflow.SCROLL;
+            default -> RenderStyle.Overflow.VISIBLE;
+        };
+        verticalAlign = switch (declarations.getOrDefault("vertical-align", "baseline")) {
+            case "top", "text-top" -> RenderStyle.VerticalAlign.TOP;
+            case "middle" -> RenderStyle.VerticalAlign.MIDDLE;
+            case "bottom", "text-bottom" -> RenderStyle.VerticalAlign.BOTTOM;
+            default -> RenderStyle.VerticalAlign.BASELINE;
+        };
         CssColor declaredColor = CssColor.parse(declarations.get("color"));
         if (declaredColor != null) {
             color = declaredColor;
@@ -216,8 +250,9 @@ public final class RenderTreeBuilder {
         borderWidth = effectiveBorderWidths(borderWidth, borderStyle);
 
         return new RenderStyle(display, fontSize, fontWeight, italic, color, background,
-                width, height, margin, autoMargins, padding, borderWidth, borderColor,
-                borderStyle, textAlign);
+                width, height, minWidth, maxWidth, minHeight, maxHeight, margin,
+                autoMargins, padding, borderWidth, borderColor, borderStyle, textAlign,
+                overflow, verticalAlign);
     }
 
     private static RenderStyle.Display defaultDisplay(String tag) {
@@ -362,7 +397,9 @@ public final class RenderTreeBuilder {
     private static RenderStyle copyWithDisplay(RenderStyle style, RenderStyle.Display display) {
         return new RenderStyle(display, style.fontSizePx(), style.fontWeight(), style.italic(),
                 style.color(), style.backgroundColor(), style.width(), style.height(),
+                style.minWidth(), style.maxWidth(), style.minHeight(), style.maxHeight(),
                 style.margin(), style.autoMargins(), style.padding(), style.borderWidth(),
-                style.borderColor(), style.borderStyle(), style.textAlign());
+                style.borderColor(), style.borderStyle(), style.textAlign(), style.overflow(),
+                style.verticalAlign());
     }
 }

@@ -23,6 +23,9 @@ public final class CssParser {
     private static final Pattern DIMENSION = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|%)|0|auto)",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern MAX_DIMENSION = Pattern.compile(
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|%)|0|none)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_SIZE = Pattern.compile(
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_WEIGHT = Pattern.compile("[1-9]00");
@@ -127,8 +130,11 @@ public final class CssParser {
             case "font-weight" -> supports(normalized, "normal");
             case "font-style" -> supports(normalized, "normal");
             case "display" -> supports(normalized, "block");
-            case "width", "height" -> supports(normalized, "auto");
+            case "width", "height", "min-width", "min-height" -> supports(normalized, "auto");
+            case "max-width", "max-height" -> supports(normalized, "none");
             case "text-align" -> supports(normalized, "left");
+            case "overflow" -> supports(normalized, "visible");
+            case "vertical-align" -> supports(normalized, "baseline");
             case "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
                  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
                  "border", "border-width", "border-top-width", "border-right-width",
@@ -163,7 +169,23 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
-            case "width", "height" -> putIfMatches(target, property, value, DIMENSION);
+            case "width", "height", "min-width", "min-height" ->
+                    putIfMatches(target, property, value, DIMENSION);
+            case "max-width", "max-height" ->
+                    putIfMatches(target, property, value, MAX_DIMENSION);
+            case "overflow" -> {
+                if (value.equals("visible") || value.equals("hidden") || value.equals("auto")
+                        || value.equals("scroll")) {
+                    target.put(property, value);
+                }
+            }
+            case "vertical-align" -> {
+                if (value.equals("baseline") || value.equals("top") || value.equals("middle")
+                        || value.equals("bottom") || value.equals("text-top")
+                        || value.equals("text-bottom")) {
+                    target.put(property, value);
+                }
+            }
             case "text-align" -> {
                 if (value.equals("left") || value.equals("center") || value.equals("right")) {
                     target.put(property, value);

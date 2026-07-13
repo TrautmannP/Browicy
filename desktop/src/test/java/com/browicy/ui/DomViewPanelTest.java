@@ -377,9 +377,9 @@ public class DomViewPanelTest {
                 .toList();
 
         assertEquals(2, inlineBlocks.size());
-        assertEquals(70f, inlineBlocks.get(0).width(), 0.001f);
-        assertEquals(40f, inlineBlocks.get(0).height(), 0.001f);
-        assertTrue(inlineBlocks.get(1).x() >= inlineBlocks.get(0).x() + 70f);
+        assertEquals(74f, inlineBlocks.get(0).width(), 0.001f);
+        assertEquals(44f, inlineBlocks.get(0).height(), 0.001f);
+        assertTrue(inlineBlocks.get(1).x() >= inlineBlocks.get(0).x() + 74f);
         assertEquals(1, layout.lineBoxes().stream()
                 .filter(line -> line.height() >= 40f)
                 .count());
@@ -390,6 +390,106 @@ public class DomViewPanelTest {
                 CssColor.parse("blue"));
         assertColor(image, Math.round(first.x()) + 3, Math.round(first.y()) + 3,
                 CssColor.parse("red"));
+    }
+
+    @Test
+    public void treatsDeclaredDimensionsAsContentBoxDimensions() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="box" style="width:100px;height:40px;padding:10px;
+                  border:2px solid blue"></div></body>
+                """));
+
+        BoxFragment box = boxById(panel.layoutForTesting(400), "box");
+
+        assertEquals(124f, box.width(), 0.001f);
+        assertEquals(64f, box.height(), 0.001f);
+    }
+
+    @Test
+    public void shrinkWrapsAutomaticInlineBlockWidthAroundItsContent() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div><span id="chip" style="display:inline-block;padding:4px;
+                  border:1px solid black">compact</span></div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment chip = boxById(layout, "chip");
+        TextFragment text = layout.fragments().stream()
+                .filter(TextFragment.class::isInstance)
+                .map(TextFragment.class::cast)
+                .filter(fragment -> fragment.text().equals("compact"))
+                .findFirst().orElseThrow();
+
+        assertEquals(text.width() + 10f, chip.width(), 0.001f);
+        assertTrue(chip.width() < 120f);
+    }
+
+    @Test
+    public void resolvesPercentageHeightsOnlyAgainstDefiniteContainingHeights() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div><div id="auto-percent" style="height:50%">content</div></div>
+                <div style="height:100px"><div id="fixed-percent" style="height:50%"></div></div>
+                </body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment automatic = boxById(layout, "auto-percent");
+        BoxFragment definite = boxById(layout, "fixed-percent");
+
+        assertTrue(automatic.height() > 10f);
+        assertTrue(automatic.height() < 40f);
+        assertEquals(50f, definite.height(), 0.001f);
+    }
+
+    @Test
+    public void appliesMinMaxConstraintsAndMarksOverflowForClipping() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="limited" style="width:40px;min-width:80px;max-width:120px;
+                  height:80px;min-height:20px;max-height:30px;overflow:hidden">
+                  overflowing content that cannot fit</div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment limited = boxById(layout, "limited");
+        TextFragment clippedText = layout.fragments().stream()
+                .filter(TextFragment.class::isInstance)
+                .map(TextFragment.class::cast)
+                .filter(fragment -> fragment.clip() != null)
+                .findFirst().orElseThrow();
+
+        assertEquals(80f, limited.width(), 0.001f);
+        assertEquals(30f, limited.height(), 0.001f);
+        assertNotNull(clippedText.clip());
+        assertEquals(limited.width(), clippedText.clip().width(), 0.001f);
+        assertEquals(limited.height(), clippedText.clip().height(), 0.001f);
+    }
+
+    @Test
+    public void verticallyAlignsDifferentlySizedInlineBlocksAtLineEdges() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div><span id="top" style="display:inline-block;width:20px;height:20px;
+                  vertical-align:top"></span><span id="bottom" style="display:inline-block;
+                  width:20px;height:40px;vertical-align:bottom"></span></div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment top = boxById(layout, "top");
+        BoxFragment bottom = boxById(layout, "bottom");
+        LineBox line = layout.lineBoxes().stream()
+                .filter(candidate -> candidate.height() >= 40f)
+                .findFirst().orElseThrow();
+
+        assertEquals(line.y(), top.y(), 0.001f);
+        assertEquals(line.y() + line.height(), bottom.y() + bottom.height(), 0.001f);
+    }
+
+    private static BoxFragment boxById(LayoutResult layout, String id) {
+        return layout.fragments().stream()
+                .filter(BoxFragment.class::isInstance)
+                .map(BoxFragment.class::cast)
+                .filter(fragment -> fragment.box().source() != null)
+                .filter(fragment -> id.equals(fragment.box().source().getAttribute("id")))
+                .findFirst().orElseThrow();
     }
 
     @Test

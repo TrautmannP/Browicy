@@ -1,6 +1,5 @@
 package com.browicy.engine.render;
 
-/** Fully resolved style values consumed by layout and painting. */
 public record RenderStyle(
         Display display,
         float fontSizePx,
@@ -10,16 +9,24 @@ public record RenderStyle(
         CssColor backgroundColor,
         RenderLength width,
         RenderLength height,
+        RenderLength minWidth,
+        RenderLength maxWidth,
+        RenderLength minHeight,
+        RenderLength maxHeight,
         BoxEdges margin,
         HorizontalAutoMargins autoMargins,
         BoxEdges padding,
         BoxEdges borderWidth,
         BoxColors borderColor,
         BoxBorders borderStyle,
-        TextAlign textAlign) {
+        TextAlign textAlign,
+        Overflow overflow,
+        VerticalAlign verticalAlign) {
 
     public enum Display { BLOCK, INLINE, INLINE_BLOCK, NONE }
     public enum TextAlign { LEFT, CENTER, RIGHT }
+    public enum Overflow { VISIBLE, HIDDEN, AUTO, SCROLL }
+    public enum VerticalAlign { BASELINE, TOP, MIDDLE, BOTTOM }
 
     public RenderStyle {
         if (fontSizePx <= 0) {

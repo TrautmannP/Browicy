@@ -15,6 +15,7 @@ import com.browicy.engine.render.RenderTree;
 import com.browicy.engine.render.RenderTreeBuilder;
 import com.browicy.ui.render.RenderLayoutEngine;
 import com.browicy.ui.render.RenderLayoutEngine.BoxFragment;
+import com.browicy.ui.render.RenderLayoutEngine.ClipRect;
 import com.browicy.ui.render.RenderLayoutEngine.InlineBoxFragment;
 import com.browicy.ui.render.RenderLayoutEngine.LayoutResult;
 import com.browicy.ui.render.RenderLayoutEngine.PaintFragment;
@@ -179,6 +180,13 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             } else {
                 continue;
             }
+            ClipRect fragmentClip = fragment.clip();
+            if (fragmentClip != null && (x < fragmentClip.x()
+                    || x >= fragmentClip.x() + fragmentClip.width()
+                    || y < fragmentClip.y()
+                    || y >= fragmentClip.y() + fragmentClip.height())) {
+                continue;
+            }
             if (source != null && x >= left && x < left + width
                     && y >= fragment.top() && y < fragment.bottom()) {
                 return source;
@@ -225,14 +233,27 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                         || fragment.top() >= clip.y + clip.height)) {
                     continue;
                 }
-                if (fragment instanceof BoxFragment box) {
-                    paintBox(g2d, box);
-                } else if (fragment instanceof InlineBoxFragment inlineBox) {
-                    paintInlineBox(g2d, inlineBox);
-                } else if (fragment instanceof TextFragment text) {
-                    g2d.setFont(text.font());
-                    g2d.setColor(toAwtColor(text.color()));
-                    g2d.drawString(text.text(), text.x(), text.baseline());
+                Graphics2D fragmentGraphics = g2d;
+                if (fragment.clip() != null) {
+                    fragmentGraphics = (Graphics2D) g2d.create();
+                    ClipRect fragmentClip = fragment.clip();
+                    fragmentGraphics.clip(new Rectangle2D.Float(fragmentClip.x(), fragmentClip.y(),
+                            fragmentClip.width(), fragmentClip.height()));
+                }
+                try {
+                    if (fragment instanceof BoxFragment box) {
+                        paintBox(fragmentGraphics, box);
+                    } else if (fragment instanceof InlineBoxFragment inlineBox) {
+                        paintInlineBox(fragmentGraphics, inlineBox);
+                    } else if (fragment instanceof TextFragment text) {
+                        fragmentGraphics.setFont(text.font());
+                        fragmentGraphics.setColor(toAwtColor(text.color()));
+                        fragmentGraphics.drawString(text.text(), text.x(), text.baseline());
+                    }
+                } finally {
+                    if (fragmentGraphics != g2d) {
+                        fragmentGraphics.dispose();
+                    }
                 }
             }
         } finally {

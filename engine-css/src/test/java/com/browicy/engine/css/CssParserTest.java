@@ -156,6 +156,21 @@ public class CssParserTest {
         assertFalse(parser.supports("text-align", "justify"));
     }
 
+    @Test
+    public void parsesSizeConstraintsOverflowAndVerticalAlignment() {
+        var declarations = new CssParser().parseDeclarations("""
+                min-width: 20px; max-width: 75%; min-height: auto; max-height: none;
+                overflow: hidden; vertical-align: middle
+                """);
+
+        assertEquals("20px", declarations.get("min-width"));
+        assertEquals("75%", declarations.get("max-width"));
+        assertEquals("auto", declarations.get("min-height"));
+        assertEquals("none", declarations.get("max-height"));
+        assertEquals("hidden", declarations.get("overflow"));
+        assertEquals("middle", declarations.get("vertical-align"));
+    }
+
 
     @Test
     public void invalidSelectorListDiscardsTheWholeCssRule() {

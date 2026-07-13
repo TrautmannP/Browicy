@@ -6,6 +6,7 @@ import com.browicy.engine.render.RenderBox;
 import com.browicy.engine.render.RenderInlineBox;
 import com.browicy.engine.render.RenderInlineBlock;
 import com.browicy.engine.render.RenderLineBreak;
+import com.browicy.engine.render.RenderLength;
 import com.browicy.engine.render.RenderNode;
 import com.browicy.engine.render.RenderStyle;
 import com.browicy.engine.render.RenderTextRun;
@@ -23,7 +24,8 @@ public final class RenderLayoutEngine {
         float availableWidth = Math.max(1, viewportWidth - insets.left - insets.right);
         List<LineBox> lineBoxes = new ArrayList<>();
         BlockLayout root = layoutBlock(
-                tree.root(), insets.left, insets.top, availableWidth, graphics, lineBoxes);
+                tree.root(), insets.left, insets.top, availableWidth, null, false,
+                graphics, lineBoxes);
         float height = insets.top + root.outerHeight() + insets.bottom;
         return new LayoutResult(
                 viewportWidth,
@@ -36,6 +38,8 @@ public final class RenderLayoutEngine {
                                     float containingX,
                                     float y,
                                     float availableWidth,
+                                    Float containingHeight,
+                                    boolean shrinkToFitAuto,
                                     Graphics2D graphics,
                                     List<LineBox> lineBoxes) {
         RenderStyle style = box.style();
@@ -43,9 +47,21 @@ public final class RenderLayoutEngine {
         BoxEdges padding = style.padding();
         BoxEdges border = style.borderWidth();
 
-        float borderBoxWidth = style.width().isAuto()
-                ? Math.max(1, availableWidth - margin.horizontal())
-                : Math.max(0, style.width().resolve(availableWidth));
+        float horizontalDecoration = border.horizontal() + padding.horizontal();
+        float availableContentWidth = Math.max(0,
+                availableWidth - margin.horizontal() - horizontalDecoration);
+        float contentBoxWidth;
+        if (style.width().isAuto()) {
+            contentBoxWidth = shrinkToFitAuto
+                    ? shrinkToFitWidth(box, availableContentWidth, graphics)
+                    : availableContentWidth;
+        } else {
+            contentBoxWidth = Math.max(0, style.width().resolve(availableWidth));
+        }
+        contentBoxWidth = constrain(contentBoxWidth,
+                resolveConstraint(style.minWidth(), availableWidth),
+                resolveConstraint(style.maxWidth(), availableWidth));
+        float borderBoxWidth = contentBoxWidth + horizontalDecoration;
         float freeWidth = Math.max(0,
                 availableWidth - borderBoxWidth - margin.horizontal());
         float automaticLeft = style.autoMargins().left()
@@ -55,8 +71,14 @@ public final class RenderLayoutEngine {
         float borderY = y + margin.top();
         float contentX = borderX + border.left() + padding.left();
         float contentY = borderY + border.top() + padding.top();
-        float contentWidth = Math.max(1,
-                borderBoxWidth - border.horizontal() - padding.horizontal());
+        float contentWidth = Math.max(1, contentBoxWidth);
+
+        Float specifiedContentHeight = resolveDefiniteHeight(style.height(), containingHeight);
+        Float childContainingHeight = specifiedContentHeight == null
+                ? null
+                : constrain(specifiedContentHeight,
+                        resolveHeightConstraint(style.minHeight(), containingHeight),
+                        resolveHeightConstraint(style.maxHeight(), containingHeight));
 
         List<PaintFragment> childFragments = new ArrayList<>();
         List<RenderNode> inlineBuffer = new ArrayList<>();
@@ -65,9 +87,11 @@ public final class RenderLayoutEngine {
         for (RenderNode child : box.children()) {
             if (child instanceof RenderBox childBox) {
                 currentY += flushInline(inlineBuffer, contentX, currentY, contentWidth,
-                        style.textAlign(), graphics, childFragments, lineBoxes);
+                        childContainingHeight, style.textAlign(), graphics, childFragments,
+                        lineBoxes);
                 BlockLayout childLayout = layoutBlock(
-                        childBox, contentX, currentY, contentWidth, graphics, lineBoxes);
+                        childBox, contentX, currentY, contentWidth, childContainingHeight,
+                        false, graphics, lineBoxes);
                 childFragments.addAll(childLayout.fragments());
                 currentY += childLayout.outerHeight();
             } else {
@@ -75,15 +99,26 @@ public final class RenderLayoutEngine {
             }
         }
         currentY += flushInline(inlineBuffer, contentX, currentY, contentWidth,
-                style.textAlign(), graphics, childFragments, lineBoxes);
+                childContainingHeight, style.textAlign(), graphics, childFragments, lineBoxes);
 
-        float contentHeight = Math.max(0, currentY - contentY);
-        float naturalBorderBoxHeight = border.top() + padding.top() + contentHeight
+        float naturalContentHeight = Math.max(0, currentY - contentY);
+        float contentHeight = specifiedContentHeight == null
+                ? naturalContentHeight
+                : specifiedContentHeight;
+        contentHeight = constrain(contentHeight,
+                resolveHeightConstraint(style.minHeight(), containingHeight),
+                resolveHeightConstraint(style.maxHeight(), containingHeight));
+        float borderBoxHeight = border.top() + padding.top() + contentHeight
                 + padding.bottom() + border.bottom();
-        float borderBoxHeight = style.height().isAuto()
-                ? naturalBorderBoxHeight
-                : Math.max(0, style.height().resolve(availableWidth));
         float outerHeight = Math.max(0, margin.top() + borderBoxHeight + margin.bottom());
+
+        if (style.overflow() != RenderStyle.Overflow.VISIBLE) {
+            ClipRect clip = new ClipRect(
+                    borderX + border.left(), borderY + border.top(),
+                    Math.max(0, borderBoxWidth - border.horizontal()),
+                    Math.max(0, borderBoxHeight - border.vertical()));
+            childFragments.replaceAll(fragment -> withClip(fragment, clip));
+        }
 
         List<PaintFragment> fragments = new ArrayList<>(childFragments.size() + 1);
         fragments.add(new BoxFragment(box, borderX, borderY, borderBoxWidth, borderBoxHeight));
@@ -91,10 +126,149 @@ public final class RenderLayoutEngine {
         return new BlockLayout(outerHeight, List.copyOf(fragments));
     }
 
+    private static float constrain(float value, Float minimum, Float maximum) {
+        float result = Math.max(0, value);
+        if (maximum != null) {
+            result = Math.min(result, maximum);
+        }
+        if (minimum != null) {
+            result = Math.max(result, minimum);
+        }
+        return result;
+    }
+
+    private static Float resolveConstraint(RenderLength length, float percentageBase) {
+        return length.isAuto() ? null : Math.max(0, length.resolve(percentageBase));
+    }
+
+    private static Float resolveDefiniteHeight(RenderLength length, Float containingHeight) {
+        if (length.isAuto()) {
+            return null;
+        }
+        if (length.unit() == RenderLength.Unit.PERCENT) {
+            return containingHeight == null ? null : Math.max(0, length.resolve(containingHeight));
+        }
+        return Math.max(0, length.value());
+    }
+
+    private static Float resolveHeightConstraint(RenderLength length, Float containingHeight) {
+        return resolveDefiniteHeight(length, containingHeight);
+    }
+
+    private float shrinkToFitWidth(RenderBox box,
+                                   float availableContentWidth,
+                                   Graphics2D graphics) {
+        IntrinsicWidths intrinsic = intrinsicWidths(box.children(), availableContentWidth, graphics);
+        return Math.min(Math.max(intrinsic.minimum(), availableContentWidth),
+                intrinsic.preferred());
+    }
+
+    private IntrinsicWidths intrinsicWidths(List<RenderNode> nodes,
+                                            float percentageBase,
+                                            Graphics2D graphics) {
+        float preferred = 0;
+        float minimum = 0;
+        float inlinePreferred = 0;
+        float inlineMinimum = 0;
+        for (RenderNode node : nodes) {
+            if (node instanceof RenderBox block) {
+                preferred = Math.max(preferred, inlinePreferred);
+                minimum = Math.max(minimum, inlineMinimum);
+                inlinePreferred = 0;
+                inlineMinimum = 0;
+                IntrinsicWidths child = intrinsicBoxWidth(block, percentageBase, graphics);
+                preferred = Math.max(preferred, child.preferred());
+                minimum = Math.max(minimum, child.minimum());
+            } else {
+                IntrinsicWidths child = intrinsicNodeWidth(node, percentageBase, graphics);
+                inlinePreferred += child.preferred();
+                inlineMinimum = Math.max(inlineMinimum, child.minimum());
+            }
+        }
+        return new IntrinsicWidths(
+                Math.max(preferred, inlinePreferred),
+                Math.max(minimum, inlineMinimum));
+    }
+
+    private IntrinsicWidths intrinsicBoxWidth(RenderBox box,
+                                              float percentageBase,
+                                              Graphics2D graphics) {
+        RenderStyle style = box.style();
+        float decoration = style.margin().horizontal() + style.borderWidth().horizontal()
+                + style.padding().horizontal();
+        if (!style.width().isAuto()) {
+            float width = constrain(style.width().resolve(percentageBase),
+                    resolveConstraint(style.minWidth(), percentageBase),
+                    resolveConstraint(style.maxWidth(), percentageBase)) + decoration;
+            return new IntrinsicWidths(width, width);
+        }
+        IntrinsicWidths content = intrinsicWidths(box.children(), percentageBase, graphics);
+        float preferred = constrain(content.preferred(),
+                resolveConstraint(style.minWidth(), percentageBase),
+                resolveConstraint(style.maxWidth(), percentageBase));
+        float minimum = constrain(content.minimum(),
+                resolveConstraint(style.minWidth(), percentageBase),
+                resolveConstraint(style.maxWidth(), percentageBase));
+        return new IntrinsicWidths(preferred + decoration, minimum + decoration);
+    }
+
+    private IntrinsicWidths intrinsicNodeWidth(RenderNode node,
+                                               float percentageBase,
+                                               Graphics2D graphics) {
+        if (node instanceof RenderTextRun run) {
+            FontMetrics metrics = graphics.getFontMetrics(InlineLayouter.fontFor(run.style()));
+            String collapsed = run.text().trim().replaceAll("\\s+", " ");
+            float preferred = metrics.stringWidth(collapsed);
+            float minimum = 0;
+            for (String word : collapsed.split(" ")) {
+                minimum = Math.max(minimum, metrics.stringWidth(word));
+            }
+            return new IntrinsicWidths(preferred, minimum);
+        }
+        if (node instanceof RenderInlineBox inline) {
+            IntrinsicWidths content = intrinsicWidths(inline.children(), percentageBase, graphics);
+            RenderStyle style = inline.style();
+            float decoration = style.margin().horizontal() + style.borderWidth().horizontal()
+                    + style.padding().horizontal();
+            return new IntrinsicWidths(content.preferred() + decoration,
+                    content.minimum() + decoration);
+        }
+        if (node instanceof RenderInlineBlock inlineBlock) {
+            return intrinsicBoxWidth(inlineBlock.box(), percentageBase, graphics);
+        }
+        return new IntrinsicWidths(0, 0);
+    }
+
+    private static PaintFragment withClip(PaintFragment fragment, ClipRect clip) {
+        ClipRect effective = intersect(fragment.clip(), clip);
+        if (fragment instanceof BoxFragment box) {
+            return new BoxFragment(box.box(), box.x(), box.y(), box.width(), box.height(), effective);
+        }
+        if (fragment instanceof InlineBoxFragment box) {
+            return new InlineBoxFragment(box.box(), box.x(), box.y(), box.width(), box.height(),
+                    box.firstFragment(), box.lastFragment(), effective);
+        }
+        TextFragment text = (TextFragment) fragment;
+        return new TextFragment(text.text(), text.x(), text.width(), text.baseline(), text.top(),
+                text.height(), text.font(), text.color(), effective);
+    }
+
+    private static ClipRect intersect(ClipRect first, ClipRect second) {
+        if (first == null) {
+            return second;
+        }
+        float left = Math.max(first.x(), second.x());
+        float top = Math.max(first.y(), second.y());
+        float right = Math.min(first.x() + first.width(), second.x() + second.width());
+        float bottom = Math.min(first.y() + first.height(), second.y() + second.height());
+        return new ClipRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
+    }
+
     private float flushInline(List<RenderNode> inlineNodes,
                               float x,
                               float y,
                               float width,
+                              Float containingHeight,
                               RenderStyle.TextAlign textAlign,
                               Graphics2D graphics,
                               List<PaintFragment> target,
@@ -103,7 +277,7 @@ public final class RenderLayoutEngine {
             return 0;
         }
         InlineLayouter layouter = new InlineLayouter(
-                x, y, width, textAlign, graphics, target, lineBoxes);
+                x, y, width, containingHeight, textAlign, graphics, target, lineBoxes);
         layouter.layout(inlineNodes);
         inlineNodes.clear();
         return layouter.finish();
@@ -122,6 +296,10 @@ public final class RenderLayoutEngine {
     public interface PaintFragment {
         float top();
         float bottom();
+        ClipRect clip();
+    }
+
+    public record ClipRect(float x, float y, float width, float height) {
     }
 
     public interface InlineFragment extends PaintFragment {
@@ -129,8 +307,12 @@ public final class RenderLayoutEngine {
         float width();
     }
 
-    public record BoxFragment(RenderBox box, float x, float y, float width, float height)
+    public record BoxFragment(RenderBox box, float x, float y, float width, float height,
+                              ClipRect clip)
             implements PaintFragment {
+        public BoxFragment(RenderBox box, float x, float y, float width, float height) {
+            this(box, x, y, width, height, null);
+        }
         @Override public float top() { return y; }
         @Override public float bottom() { return y + height; }
     }
@@ -141,7 +323,12 @@ public final class RenderLayoutEngine {
                                     float width,
                                     float height,
                                     boolean firstFragment,
-                                    boolean lastFragment) implements InlineFragment {
+                                    boolean lastFragment,
+                                    ClipRect clip) implements InlineFragment {
+        public InlineBoxFragment(RenderInlineBox box, float x, float y, float width,
+                                 float height, boolean firstFragment, boolean lastFragment) {
+            this(box, x, y, width, height, firstFragment, lastFragment, null);
+        }
         @Override public float top() { return y; }
         @Override public float bottom() { return y + height; }
     }
@@ -153,7 +340,12 @@ public final class RenderLayoutEngine {
                                float top,
                                float height,
                                Font font,
-                               CssColor color) implements InlineFragment {
+                               CssColor color,
+                               ClipRect clip) implements InlineFragment {
+        public TextFragment(String text, float x, float width, float baseline, float top,
+                            float height, Font font, CssColor color) {
+            this(text, x, width, baseline, top, height, font, color, null);
+        }
         @Override public float bottom() { return top + height; }
     }
 
@@ -169,6 +361,9 @@ public final class RenderLayoutEngine {
     }
 
     private record BlockLayout(float outerHeight, List<PaintFragment> fragments) {
+    }
+
+    private record IntrinsicWidths(float preferred, float minimum) {
     }
 
     private sealed interface InlineToken
@@ -198,6 +393,7 @@ public final class RenderLayoutEngine {
         private final float startY;
         private final float x;
         private final float width;
+        private final Float containingHeight;
         private final RenderStyle.TextAlign textAlign;
         private final Graphics2D graphics;
         private final List<PaintFragment> target;
@@ -212,6 +408,7 @@ public final class RenderLayoutEngine {
         InlineLayouter(float x,
                        float y,
                        float width,
+                       Float containingHeight,
                        RenderStyle.TextAlign textAlign,
                        Graphics2D graphics,
                        List<PaintFragment> target,
@@ -220,6 +417,7 @@ public final class RenderLayoutEngine {
             this.y = y;
             this.startY = y;
             this.width = width;
+            this.containingHeight = containingHeight;
             this.textAlign = textAlign;
             this.graphics = graphics;
             this.target = target;
@@ -278,12 +476,18 @@ public final class RenderLayoutEngine {
         private void addAtomicBlock(RenderInlineBlock inlineBlock) {
             List<LineBox> atomicLines = new ArrayList<>();
             BlockLayout block = layoutBlock(
-                    inlineBlock.box(), 0, 0, width, graphics, atomicLines);
+                    inlineBlock.box(), 0, 0, width, containingHeight, true,
+                    graphics, atomicLines);
             BoxFragment root = (BoxFragment) block.fragments().getFirst();
             float atomicWidth = inlineBlock.box().style().margin().left()
                     + root.width() + inlineBlock.box().style().margin().right();
+            float baselineOffset = inlineBlock.box().style().overflow()
+                    != RenderStyle.Overflow.VISIBLE || atomicLines.isEmpty()
+                    ? block.outerHeight()
+                    : atomicLines.getLast().baseline();
             AtomicLayout atomic = new AtomicLayout(block, atomicLines, atomicWidth,
-                    block.outerHeight());
+                    block.outerHeight(), inlineBlock.box().style().verticalAlign(),
+                    inlineBlock.box().style().fontSizePx(), baselineOffset);
 
             float pendingWidth = pendingSpaceWidth();
             if (line.hasPlacedContent()
@@ -478,7 +682,10 @@ public final class RenderLayoutEngine {
     private record AtomicLayout(BlockLayout block,
                                 List<LineBox> lines,
                                 float width,
-                                float height) {
+                                float height,
+                                RenderStyle.VerticalAlign verticalAlign,
+                                float fontSize,
+                                float baselineOffset) {
     }
 
     private record FinishedLine(LineBox line,
@@ -489,6 +696,12 @@ public final class RenderLayoutEngine {
     private sealed interface LineItem permits TextItem, BoxItem, StrutItem, AtomicItem {
         float ascent();
         float descent();
+        default RenderStyle.VerticalAlign verticalAlign() {
+            return RenderStyle.VerticalAlign.BASELINE;
+        }
+        default float height() {
+            return ascent() + descent();
+        }
     }
 
     private record TextItem(String text,
@@ -507,8 +720,19 @@ public final class RenderLayoutEngine {
     }
 
     private record AtomicItem(AtomicLayout layout, float x) implements LineItem {
-        @Override public float ascent() { return layout.height(); }
-        @Override public float descent() { return 0; }
+        @Override public float ascent() {
+            if (layout.verticalAlign() == RenderStyle.VerticalAlign.MIDDLE) {
+                return Math.min(layout.height(), layout.height() / 2f + layout.fontSize() / 4f);
+            }
+            return layout.baselineOffset();
+        }
+        @Override public float descent() {
+            return layout.height() - ascent();
+        }
+        @Override public RenderStyle.VerticalAlign verticalAlign() {
+            return layout.verticalAlign();
+        }
+        @Override public float height() { return layout.height(); }
     }
 
     private static final class BoxItem implements LineItem {
@@ -643,9 +867,18 @@ public final class RenderLayoutEngine {
 
             float ascent = 0;
             float descent = 0;
+            float edgeAlignedHeight = 0;
             for (LineItem item : roots) {
-                ascent = Math.max(ascent, item.ascent());
-                descent = Math.max(descent, item.descent());
+                if (item.verticalAlign() == RenderStyle.VerticalAlign.TOP
+                        || item.verticalAlign() == RenderStyle.VerticalAlign.BOTTOM) {
+                    edgeAlignedHeight = Math.max(edgeAlignedHeight, item.height());
+                } else {
+                    ascent = Math.max(ascent, item.ascent());
+                    descent = Math.max(descent, item.descent());
+                }
+            }
+            if (ascent + descent < edgeAlignedHeight) {
+                descent += edgeAlignedHeight - ascent - descent;
             }
             float baseline = lineY + ascent;
             float height = ascent + descent;
@@ -656,7 +889,7 @@ public final class RenderLayoutEngine {
             List<PaintFragment> atomicFragments = new ArrayList<>();
             List<LineBox> atomicLines = new ArrayList<>();
             collectAtomicFragments(
-                    roots, atomicFragments, atomicLines, lineX, baseline);
+                    roots, atomicFragments, atomicLines, lineX, lineY, height, baseline);
             return new FinishedLine(
                     new LineBox(lineX, lineY, width, height, baseline, fragments),
                     atomicFragments,
@@ -715,11 +948,17 @@ public final class RenderLayoutEngine {
                                                    List<PaintFragment> fragments,
                                                    List<LineBox> lines,
                                                    float lineX,
+                                                   float lineY,
+                                                   float lineHeight,
                                                    float baseline) {
             for (LineItem item : items) {
                 if (item instanceof AtomicItem atomic) {
                     float dx = lineX + atomic.x();
-                    float dy = baseline - atomic.ascent();
+                    float dy = switch (atomic.verticalAlign()) {
+                        case TOP -> lineY;
+                        case BOTTOM -> lineY + lineHeight - atomic.height();
+                        case BASELINE, MIDDLE -> baseline - atomic.ascent();
+                    };
                     for (PaintFragment fragment : atomic.layout().block().fragments()) {
                         fragments.add(translate(fragment, dx, dy));
                     }
@@ -727,7 +966,8 @@ public final class RenderLayoutEngine {
                         lines.add(translate(line, dx, dy));
                     }
                 } else if (item instanceof BoxItem box) {
-                    collectAtomicFragments(box.children, fragments, lines, lineX, baseline);
+                    collectAtomicFragments(box.children, fragments, lines, lineX, lineY,
+                            lineHeight, baseline);
                 }
             }
         }
@@ -735,16 +975,23 @@ public final class RenderLayoutEngine {
         private static PaintFragment translate(PaintFragment fragment, float dx, float dy) {
             if (fragment instanceof BoxFragment box) {
                 return new BoxFragment(
-                        box.box(), box.x() + dx, box.y() + dy, box.width(), box.height());
+                        box.box(), box.x() + dx, box.y() + dy, box.width(), box.height(),
+                        translate(box.clip(), dx, dy));
             }
             if (fragment instanceof InlineBoxFragment box) {
                 return new InlineBoxFragment(box.box(), box.x() + dx, box.y() + dy,
-                        box.width(), box.height(), box.firstFragment(), box.lastFragment());
+                        box.width(), box.height(), box.firstFragment(), box.lastFragment(),
+                        translate(box.clip(), dx, dy));
             }
             TextFragment text = (TextFragment) fragment;
             return new TextFragment(text.text(), text.x() + dx, text.width(),
                     text.baseline() + dy, text.top() + dy, text.height(), text.font(),
-                    text.color());
+                    text.color(), translate(text.clip(), dx, dy));
+        }
+
+        private static ClipRect translate(ClipRect clip, float dx, float dy) {
+            return clip == null ? null
+                    : new ClipRect(clip.x() + dx, clip.y() + dy, clip.width(), clip.height());
         }
 
         private static LineBox translate(LineBox line, float dx, float dy) {
