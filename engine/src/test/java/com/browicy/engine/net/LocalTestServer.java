@@ -8,18 +8,23 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Lokaler HTTP-Server für Tests des Netzwerkstacks. Läuft auf einem
  * zufälligen freien Port, damit Tests deterministisch und ohne
- * Internetverbindung funktionieren.
+ * Internetverbindung funktionieren. Handler laufen auf eigenen Threads,
+ * damit auch parallele und absichtlich blockierende Requests möglich sind.
  */
 public final class LocalTestServer implements AutoCloseable {
 
     private final HttpServer server;
+    private final ExecutorService handlerThreads = Executors.newVirtualThreadPerTaskExecutor();
 
     public LocalTestServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(handlerThreads);
         server.start();
     }
 
@@ -57,5 +62,6 @@ public final class LocalTestServer implements AutoCloseable {
     @Override
     public void close() {
         server.stop(0);
+        handlerThreads.shutdownNow();
     }
 }

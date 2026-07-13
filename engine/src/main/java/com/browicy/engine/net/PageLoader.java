@@ -5,6 +5,10 @@ import java.net.URI;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -13,8 +17,13 @@ import java.util.regex.Pattern;
  * URL, folgt Weiterleitungen (z.&nbsp;B. {@code http://google.com} →
  * {@code http://www.google.com/}) und dekodiert den Rumpf mit dem passenden
  * Zeichensatz zu HTML-Quelltext.
+ *
+ * <p>Neben dem synchronen {@link #load(String)} startet
+ * {@link #loadAsync(String)} den Vorgang nebenläufig und liefert einen
+ * beobacht- und abbrechbaren {@link PageLoad}. Mehrere Ladevorgänge laufen
+ * parallel; standardmäßig auf virtuellen Threads.</p>
  */
-public final class PageLoader {
+public final class PageLoader implements AutoCloseable {
 
     /** Ergebnis eines Seitenladevorgangs: finale URL nach Redirects, Status und HTML. */
     public record Page(URI uri, int statusCode, String html) {
@@ -33,13 +42,20 @@ public final class PageLoader {
     private static final int CHARSET_SNIFF_BYTES = 2048;
 
     private final HttpClient client;
+    private final ExecutorService executor;
 
     public PageLoader() {
         this(new HttpClient());
     }
 
     public PageLoader(HttpClient client) {
+        this(client, Executors.newVirtualThreadPerTaskExecutor());
+    }
+
+    /** Für Tests oder eigene Thread-Verwaltung: Ladevorgänge laufen auf dem übergebenen Executor. */
+    public PageLoader(HttpClient client, ExecutorService executor) {
         this.client = client;
+        this.executor = executor;
     }
 
     /**
@@ -61,8 +77,38 @@ public final class PageLoader {
 
     /** Lädt die Seite hinter der URL und folgt dabei bis zu {@value #MAX_REDIRECTS} Weiterleitungen. */
     public Page load(String url) throws IOException {
+        return load(url, () -> false);
+    }
+
+    /**
+     * Startet den Ladevorgang nebenläufig und kehrt sofort zurück. Zustand,
+     * Ergebnis und Abbruch laufen über den zurückgegebenen {@link PageLoad}.
+     */
+    public PageLoad loadAsync(String url) {
+        PageLoad load = new PageLoad(url);
+        executor.execute(() -> {
+            try {
+                load.completeLoaded(load(url, load::isCancelled));
+            } catch (CancellationException alreadyCancelled) {
+                // Zustand wurde bereits durch cancel() gesetzt
+            } catch (Exception e) {
+                load.completeFailed(e);
+            }
+        });
+        return load;
+    }
+
+    /**
+     * Wie {@link #load(String)}, prüft aber vor jedem Request die
+     * Abbruchbedingung — ein laufender Einzelrequest wird also erst an der
+     * nächsten Weiterleitungsgrenze abgebrochen.
+     */
+    private Page load(String url, BooleanSupplier cancelled) throws IOException {
         URI uri = normalize(url);
         for (int redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+            if (cancelled.getAsBoolean()) {
+                throw new CancellationException("Ladevorgang abgebrochen: " + url);
+            }
             HttpResponse response = client.get(uri);
             String location = response.location();
             if (response.isRedirect() && location != null) {
@@ -72,6 +118,12 @@ public final class PageLoader {
             return new Page(uri, response.statusCode(), decodeHtml(response));
         }
         throw new IOException("Zu viele Weiterleitungen (mehr als " + MAX_REDIRECTS + "): " + url);
+    }
+
+    /** Nimmt keine neuen Ladevorgänge mehr an und wartet auf laufende. */
+    @Override
+    public void close() {
+        executor.close();
     }
 
     private static String decodeHtml(HttpResponse response) {
