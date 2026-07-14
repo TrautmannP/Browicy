@@ -28,6 +28,7 @@ public final class BrowserFrame extends JFrame {
     private final BrowserState state = new BrowserState();
     private final BrowicyEngine engine = new BrowicyEngine();
     private final NetworkLog networkLog = new NetworkLog();
+    private final EdtFreezeWatchdog edtWatchdog = new EdtFreezeWatchdog();
 
     private final JPanel contentArea = new JPanel(new BorderLayout());
     private final ContentPanel content;
@@ -125,6 +126,7 @@ public final class BrowserFrame extends JFrame {
 
     @Override
     public void dispose() {
+        edtWatchdog.close();
         content.close();
         state.close();
         engine.close();

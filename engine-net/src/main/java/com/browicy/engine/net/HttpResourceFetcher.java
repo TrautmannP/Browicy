@@ -2,6 +2,7 @@ package com.browicy.engine.net;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Locale;
 import java.util.concurrent.CancellationException;
 import java.util.function.BooleanSupplier;
 
@@ -46,34 +47,101 @@ final class HttpResourceFetcher {
                              boolean blockInsecureRedirects,
                              DownloadBudget budget,
                              UriValidator validator) throws IOException {
-        URI uri = initialUri;
+        return fetch(client, HttpRequest.get(initialUri, accept), cancelled, redirectListener,
+                blockInsecureRedirects, budget, validator);
+    }
+
+    static FetchResult fetch(HttpClient client,
+                             HttpRequest initialRequest,
+                             BooleanSupplier cancelled,
+                             RedirectListener redirectListener,
+                             boolean blockInsecureRedirects) throws IOException {
+        return fetch(client, initialRequest, cancelled, redirectListener,
+                blockInsecureRedirects, null, ignored -> { });
+    }
+
+    static FetchResult fetch(HttpClient client,
+                             HttpRequest initialRequest,
+                             BooleanSupplier cancelled,
+                             RedirectListener redirectListener,
+                             boolean blockInsecureRedirects,
+                             DownloadBudget budget,
+                             UriValidator validator) throws IOException {
+        HttpRequest request = initialRequest;
         for (int redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
             if (cancelled.getAsBoolean()) {
-                throw new CancellationException("Ladevorgang abgebrochen: " + initialUri);
+                throw new CancellationException(
+                        "Ladevorgang abgebrochen: " + initialRequest.uri());
             }
-            validator.validate(uri);
-            HttpResponse response = client.get(uri, accept, budget);
+            validator.validate(request.uri());
+            HttpResponse response = client.request(request, budget);
             String location = response.location();
             if (response.isRedirect() && location != null) {
                 URI target;
                 try {
-                    target = uri.resolve(location.strip());
+                    target = request.uri().resolve(location.strip());
                 } catch (IllegalArgumentException invalidLocation) {
-                    throw new IOException("Ungültiges Redirect-Ziel: " + location, invalidLocation);
+                    throw new IOException("Ungültiges Redirect-Ziel: " + location,
+                            invalidLocation);
                 }
                 if (blockInsecureRedirects
-                        && "https".equalsIgnoreCase(uri.getScheme())
+                        && "https".equalsIgnoreCase(request.uri().getScheme())
                         && !"https".equalsIgnoreCase(target.getScheme())) {
                     throw new IOException(
-                            "Unsichere Weiterleitung von HTTPS blockiert: " + uri + " -> " + target);
+                            "Unsichere Weiterleitung von HTTPS blockiert: "
+                                    + request.uri() + " -> " + target);
                 }
-                redirectListener.redirected(uri, target, response.statusCode());
-                uri = target;
+                redirectListener.redirected(request.uri(), target, response.statusCode());
+                request = redirectedRequest(request, target, response.statusCode());
                 continue;
             }
-            return new FetchResult(uri, response);
+            return new FetchResult(request.uri(), response);
         }
-        throw new IOException("Zu viele Weiterleitungen (mehr als " + MAX_REDIRECTS + "): " + initialUri);
+        throw new IOException("Zu viele Weiterleitungen (mehr als " + MAX_REDIRECTS
+                + "): " + initialRequest.uri());
+    }
+
+    private static HttpRequest redirectedRequest(HttpRequest request,
+                                                 URI target,
+                                                 int statusCode) {
+        boolean switchToGet = (statusCode == 301 || statusCode == 302)
+                && request.method().equals("POST");
+        switchToGet |= statusCode == 303
+                && !request.method().equals("GET") && !request.method().equals("HEAD");
+
+        HttpRequest redirected = switchToGet
+                ? request.asGetWithoutBody(target)
+                : request.withUri(target);
+        if (!sameOrigin(request.uri(), target)) {
+            redirected = redirected.withoutSensitiveHeaders();
+        }
+        return redirected;
+    }
+
+    private static boolean sameOrigin(URI first, URI second) {
+        String firstScheme = normalizedScheme(first);
+        String secondScheme = normalizedScheme(second);
+        if (!firstScheme.equals(secondScheme)) {
+            return false;
+        }
+        String firstHost = first.getHost();
+        String secondHost = second.getHost();
+        if (firstHost == null || secondHost == null
+                || !firstHost.equalsIgnoreCase(secondHost)) {
+            return false;
+        }
+        return effectivePort(first, firstScheme) == effectivePort(second, secondScheme);
+    }
+
+    private static String normalizedScheme(URI uri) {
+        return uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+    }
+
+    private static int effectivePort(URI uri, String scheme) {
+        if (uri.getPort() != -1) {
+            return uri.getPort();
+        }
+        return scheme.equals("https") ? 443 : 80;
     }
 
     @FunctionalInterface

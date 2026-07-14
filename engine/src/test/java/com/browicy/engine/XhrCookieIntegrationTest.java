@@ -4,8 +4,10 @@ import com.browicy.engine.dom.Document;
 import com.browicy.engine.net.LocalTestServer;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import org.junit.After;
 import org.junit.Before;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -50,6 +52,44 @@ public class XhrCookieIntegrationTest {
             session.awaitResources();
             awaitOutput(session, "vom Server");
         }
+    }
+
+    @Test
+    public void asynchronousXhrPostsRequestBody() throws Exception {
+        AtomicReference<String> method = new AtomicReference<>();
+        AtomicReference<String> body = new AtomicReference<>();
+        AtomicReference<String> contentType = new AtomicReference<>();
+        server.on("/api/speichern", exchange -> {
+            method.set(exchange.getRequestMethod());
+            contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            LocalTestServer.respond(exchange, 200, "text/plain; charset=utf-8",
+                    "gespeichert".getBytes(StandardCharsets.UTF_8));
+        });
+        server.serveHtml("/", """
+                <html><body>
+                  <output id="out"></output>
+                  <script>
+                    var xhr = new XMLHttpRequest();
+                    xhr.onload = function() {
+                      document.getElementById('out').textContent = xhr.responseText;
+                    };
+                    xhr.open('POST', '/api/speichern');
+                    xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.send(JSON.stringify({wert: 42}));
+                  </script>
+                </body></html>
+                """);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            awaitOutput(session, "gespeichert");
+        }
+
+        assertEquals("POST", method.get());
+        assertEquals("application/json", contentType.get());
+        assertEquals("{\"wert\":42}", body.get());
     }
 
     @Test

@@ -16,13 +16,13 @@ public final class SubResourceLoader implements AutoCloseable {
 
     private static final System.Logger LOGGER = System.getLogger(SubResourceLoader.class.getName());
     private static final int MAX_CONCURRENT_IMAGE_FETCHES = 8;
-    private static final int MAX_CONCURRENT_SCRIPT_FETCHES = 8;
+    private static final int MAX_CONCURRENT_FETCHES = 8;
 
     private final HttpClient client;
     private final ExecutorService executor;
     private final List<NetworkRequestObserver> observers = new CopyOnWriteArrayList<>();
     private final Semaphore imageFetchPermits = new Semaphore(MAX_CONCURRENT_IMAGE_FETCHES);
-    private final Semaphore scriptFetchPermits = new Semaphore(MAX_CONCURRENT_SCRIPT_FETCHES);
+    private final Semaphore fetchPermits = new Semaphore(MAX_CONCURRENT_FETCHES);
 
     public SubResourceLoader() {
         this(new HttpClient());
@@ -117,9 +117,15 @@ public final class SubResourceLoader implements AutoCloseable {
     }
 
     public FetchResourceLoad fetchAsync(URI uri) {
-        Objects.requireNonNull(uri, "uri");
+        return fetchAsync(HttpRequest.get(uri, acceptFor(NetworkResourceType.FETCH)));
+    }
+
+    public FetchResourceLoad fetchAsync(HttpRequest request) {
+        Objects.requireNonNull(request, "request");
+        URI uri = request.uri();
         validateHttpUri(uri);
 
+        HttpRequest effectiveRequest = withDefaultAccept(request);
         long requestId = RequestIds.next();
         CompletableFuture<FetchResource> future = new CompletableFuture<>();
         FetchResourceLoad load = new FetchResourceLoad(
@@ -138,7 +144,7 @@ public final class SubResourceLoader implements AutoCloseable {
                 requestId, Instant.now(), uri.toString(), NetworkResourceType.FETCH));
 
         try {
-            executor.execute(() -> fetchScriptResource(load));
+            executor.execute(() -> fetchResource(load, effectiveRequest));
         } catch (RuntimeException rejected) {
             load.completeFailed(rejected);
         }
@@ -198,9 +204,9 @@ public final class SubResourceLoader implements AutoCloseable {
         }
     }
 
-    private void fetchScriptResource(FetchResourceLoad load) {
+    private void fetchResource(FetchResourceLoad load, HttpRequest request) {
         try {
-            scriptFetchPermits.acquire();
+            fetchPermits.acquire();
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             load.completeFailed(new IOException("Laden unterbrochen: " + load.uri(), interrupted));
@@ -209,8 +215,7 @@ public final class SubResourceLoader implements AutoCloseable {
         try {
             HttpResourceFetcher.FetchResult result = HttpResourceFetcher.fetch(
                     client,
-                    load.uri(),
-                    acceptFor(NetworkResourceType.FETCH),
+                    request,
                     load::isCancelled,
                     (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
                             load.id(), Instant.now(), from, to, statusCode,
@@ -228,7 +233,7 @@ public final class SubResourceLoader implements AutoCloseable {
         } catch (Exception exception) {
             load.completeFailed(exception);
         } finally {
-            scriptFetchPermits.release();
+            fetchPermits.release();
         }
     }
 
@@ -266,6 +271,16 @@ public final class SubResourceLoader implements AutoCloseable {
         } finally {
             imageFetchPermits.release();
         }
+    }
+
+
+    private static HttpRequest withDefaultAccept(HttpRequest request) {
+        if (request.headers().contains("Accept")) {
+            return request;
+        }
+        HttpHeaders headers = request.headers().copy();
+        headers.set("Accept", acceptFor(NetworkResourceType.FETCH));
+        return new HttpRequest(request.method(), request.uri(), headers, request.body());
     }
 
     private void emit(NetworkRequestEvent event) {

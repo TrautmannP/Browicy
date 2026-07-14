@@ -9,9 +9,12 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -61,6 +64,47 @@ public class FetchIntegrationTest {
         assertTrue(events.stream().anyMatch(event ->
                 event instanceof NetworkRequestEvent.Loaded loaded
                         && loaded.resourceType() == NetworkResourceType.FETCH));
+    }
+
+    @Test
+    public void inlineScriptPostsJsonBodyAndCustomHeader() throws Exception {
+        AtomicReference<String> method = new AtomicReference<>();
+        AtomicReference<String> body = new AtomicReference<>();
+        AtomicReference<String> requestHeader = new AtomicReference<>();
+        server.on("/api/eintrag", exchange -> {
+            method.set(exchange.getRequestMethod());
+            requestHeader.set(exchange.getRequestHeaders().getFirst("X-Anfrage"));
+            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            LocalTestServer.respond(exchange, 201, "application/json; charset=utf-8",
+                    "{\"id\":7}".getBytes(StandardCharsets.UTF_8));
+        });
+        server.serveHtml("/", """
+                <html><body>
+                  <output id="out"></output>
+                  <script>
+                    fetch('/api/eintrag', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json; charset=utf-8',
+                        'X-Anfrage': 'integration'
+                      },
+                      body: JSON.stringify({name: 'Grüße'})
+                    }).then(r => r.json()).then(daten => {
+                      document.getElementById('out').textContent = daten.id;
+                    });
+                  </script>
+                </body></html>
+                """);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            awaitOutput(session, "7");
+        }
+
+        assertEquals("POST", method.get());
+        assertEquals("integration", requestHeader.get());
+        assertEquals("{\"name\":\"Grüße\"}", body.get());
     }
 
     @Test

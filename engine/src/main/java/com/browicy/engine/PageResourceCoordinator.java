@@ -44,6 +44,7 @@ final class PageResourceCoordinator {
     private static final long MAX_TOTAL_IMAGE_BYTES = 128L * 1024 * 1024;
     private static final int MAX_FONT_LOADS_PER_PAGE = 32;
     private static final long MAX_TOTAL_FONT_BYTES = 32L * 1024 * 1024;
+    private static final long RENDER_BLOCKING_TIMEOUT_MILLIS = 15_000;
 
     private final DocumentResourceScanner scanner;
     private final SubResourceLoader resourceLoader;
@@ -65,13 +66,19 @@ final class PageResourceCoordinator {
     }
 
     PageSession load(Document document, PageUpdateListener listener) {
-        return load(document, listener, () -> { });
+        return load(document, listener, () -> { }, new PageLoadProgress());
     }
 
     PageSession load(Document document, PageUpdateListener listener, Runnable onClose) {
+        return load(document, listener, onClose, new PageLoadProgress());
+    }
+
+    PageSession load(Document document, PageUpdateListener listener, Runnable onClose,
+                     PageLoadProgress progress) {
         Objects.requireNonNull(document, "document");
         Objects.requireNonNull(listener, "listener");
         Objects.requireNonNull(onClose, "onClose");
+        Objects.requireNonNull(progress, "progress");
 
         DocumentResources resources = scanner.scan(document);
         StyleSheetRegistry styleSheets = new StyleSheetRegistry();
@@ -95,42 +102,55 @@ final class PageResourceCoordinator {
                 MAX_TOTAL_FONT_BYTES, MAX_TOTAL_FONT_BYTES);
 
         try {
+            progress.phase(PageLoadProgress.Phase.APPLYING_STYLES, "");
             StyleLoadPlan styleLoads = startStyleLoads(
-                    resources, styleSheets, updates, runtime, cancellableLoads);
+                    resources, styleSheets, updates, runtime, cancellableLoads, progress);
             synchronized (document) {
                 styleApplicator.apply(document, styleSheets);
             }
 
-            for (JavaScriptSource source : scriptSequence(resources, cancellableLoads)) {
+            progress.phase(PageLoadProgress.Phase.RUNNING_SCRIPTS, "");
+            resources.scripts().forEach(script -> progress.scriptPlanned());
+            for (JavaScriptSource source : scriptSequence(resources, cancellableLoads, progress)) {
+                progress.activity(source.sourceName());
                 runtime.execute(source);
+                progress.scriptExecuted();
             }
 
             PageLifecycleCoordinator lifecycle = new PageLifecycleCoordinator(document, runtime);
             lifecycle.markInteractive();
+            progress.phase(PageLoadProgress.Phase.APPLYING_STYLES,
+                    "Warte auf render-blockierende Stylesheets");
             awaitRenderBlocking(styleLoads.renderBlockingTasks());
             synchronized (document) {
                 styleApplicator.apply(document, styleSheets);
             }
             lifecycle.markComplete();
+            progress.phase(PageLoadProgress.Phase.RUNNING_SCRIPTS,
+                    "Warte auf Abschluss der Skript-Warteschlange");
             runtime.awaitIdle();
             updates.enableNotifications();
 
+            progress.phase(PageLoadProgress.Phase.LOADING_RESOURCES, "");
             List<CompletableFuture<Void>> imageLoads = new ArrayList<>(startImageLoads(
-                    resources, images, updates, cancellableLoads, pageUri, imageBudget));
+                    resources, images, updates, cancellableLoads, pageUri, imageBudget, progress));
             imageLoads.addAll(startCssImageLoads(
-                    document, images, updates, cancellableLoads, pageUri, imageBudget));
+                    document, images, updates, cancellableLoads, pageUri, imageBudget, progress));
             List<CompletableFuture<Void>> fontLoads = startFontLoads(
-                    styleSheets, fonts, updates, cancellableLoads, pageUri, fontBudget);
+                    styleSheets, fonts, updates, cancellableLoads, pageUri, fontBudget, progress);
 
             List<CompletableFuture<Void>> allResources = new ArrayList<>(styleLoads.allTasks());
             allResources.addAll(imageLoads);
             allResources.addAll(fontLoads);
             CompletableFuture<Void> resourcesLoaded = CompletableFuture.allOf(
                     allResources.toArray(CompletableFuture[]::new));
+            resourcesLoaded.whenComplete((ignored, failure) ->
+                    progress.phase(PageLoadProgress.Phase.COMPLETE, ""));
             return new PageSession(
                     document, runtime, styleSheets, images, fonts, cookies, resourcesLoaded,
-                    cancellableLoads, updates, onClose);
+                    cancellableLoads, updates, progress, onClose);
         } catch (RuntimeException failure) {
+            progress.phase(PageLoadProgress.Phase.FAILED, String.valueOf(failure.getMessage()));
             cancellableLoads.forEach(ResourceLoad::cancel);
             updates.close();
             runtime.close();
@@ -142,7 +162,8 @@ final class PageResourceCoordinator {
                                           StyleSheetRegistry styleSheets,
                                           DocumentUpdateCoordinator updates,
                                           PageRuntime runtime,
-                                          List<ResourceLoad> cancellableLoads) {
+                                          List<ResourceLoad> cancellableLoads,
+                                          PageLoadProgress progress) {
         List<CompletableFuture<Void>> allTasks = new ArrayList<>();
         List<CompletableFuture<Void>> renderBlockingTasks = new ArrayList<>();
         for (StyleSheetResource styleSheet : resources.styleSheets()) {
@@ -152,11 +173,13 @@ final class PageResourceCoordinator {
             SubResourceLoad load = resourceLoader.loadAsync(
                     external.uri(), NetworkResourceType.STYLESHEET);
             cancellableLoads.add(load);
+            progress.stylesheetStarted();
             CompletableFuture<Void> task = load.future()
                     .handle((resource, failure) -> resource)
                     .thenCompose(resource -> applyStyleSheet(
                             resource, external, styleSheets, updates, runtime))
-                    .exceptionally(failure -> null);
+                    .exceptionally(failure -> null)
+                    .whenComplete((ignored, failure) -> progress.stylesheetFinished());
             allTasks.add(task);
             if (external.renderBlocking()) {
                 renderBlockingTasks.add(task);
@@ -171,7 +194,8 @@ final class PageResourceCoordinator {
             DocumentUpdateCoordinator updates,
             List<ResourceLoad> cancellableLoads,
             URI pageUri,
-            DownloadBudget budget) {
+            DownloadBudget budget,
+            PageLoadProgress progress) {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         if (pageUri == null) return List.of();
         Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
@@ -188,7 +212,9 @@ final class PageResourceCoordinator {
                     continue;
                 }
                 cancellableLoads.add(load);
+                progress.imageStarted();
                 shared = load.future();
+                shared.whenComplete((ignored, failure) -> progress.imageFinished());
                 loadsByUri.put(image.uri(), shared);
             }
             CompletableFuture<Void> task = shared
@@ -210,7 +236,8 @@ final class PageResourceCoordinator {
             DocumentUpdateCoordinator updates,
             List<ResourceLoad> cancellableLoads,
             URI pageUri,
-            DownloadBudget budget) {
+            DownloadBudget budget,
+            PageLoadProgress progress) {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         if (pageUri == null) return List.of();
         Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
@@ -227,7 +254,9 @@ final class PageResourceCoordinator {
                     continue;
                 }
                 cancellableLoads.add(load);
+                progress.imageStarted();
                 shared = load.future();
+                shared.whenComplete((ignored, failure) -> progress.imageFinished());
                 loadsByUri.put(uri, shared);
             }
             CompletableFuture<Void> task = shared.thenAccept(resource -> {
@@ -258,7 +287,8 @@ final class PageResourceCoordinator {
             DocumentUpdateCoordinator updates,
             List<ResourceLoad> cancellableLoads,
             URI pageUri,
-            DownloadBudget budget) {
+            DownloadBudget budget,
+            PageLoadProgress progress) {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         if (pageUri == null) return List.of();
         Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
@@ -281,7 +311,9 @@ final class PageResourceCoordinator {
                     continue;
                 }
                 cancellableLoads.add(load);
+                progress.fontStarted();
                 shared = load.future();
+                shared.whenComplete((ignored, failure) -> progress.fontFinished());
                 loadsByUri.put(uri, shared);
             }
             CompletableFuture<Void> task = shared.thenAccept(resource -> {
@@ -389,22 +421,27 @@ final class PageResourceCoordinator {
     }
 
     private Iterable<JavaScriptSource> scriptSequence(
-            DocumentResources resources, List<ResourceLoad> cancellableLoads) {
-        return () -> new ScriptSourceIterator(resources.scripts().iterator(), cancellableLoads);
+            DocumentResources resources, List<ResourceLoad> cancellableLoads,
+            PageLoadProgress progress) {
+        return () -> new ScriptSourceIterator(
+                resources.scripts().iterator(), cancellableLoads, progress);
     }
 
     private final class ScriptSourceIterator implements Iterator<JavaScriptSource> {
 
         private final Iterator<ScriptResource> resources;
         private final List<ResourceLoad> cancellableLoads;
+        private final PageLoadProgress progress;
         private JavaScriptSource next;
         private boolean prepared;
         private int inlineIndex;
 
         private ScriptSourceIterator(Iterator<ScriptResource> resources,
-                                     List<ResourceLoad> cancellableLoads) {
+                                     List<ResourceLoad> cancellableLoads,
+                                     PageLoadProgress progress) {
             this.resources = resources;
             this.cancellableLoads = cancellableLoads;
+            this.progress = progress;
         }
 
         @Override
@@ -452,6 +489,7 @@ final class PageResourceCoordinator {
                     continue;
                 }
                 cancellableLoads.add(load);
+                progress.activity("Lade Skript " + external.uri());
                 try {
                     TextResource downloaded = load.await();
                     String code = external.module()
@@ -493,8 +531,21 @@ final class PageResourceCoordinator {
     }
 
     private static void awaitRenderBlocking(List<CompletableFuture<Void>> tasks) {
-        if (!tasks.isEmpty()) {
-            CompletableFuture.allOf(tasks.toArray(CompletableFuture[]::new)).join();
+        if (tasks.isEmpty()) {
+            return;
+        }
+        try {
+            CompletableFuture.allOf(tasks.toArray(CompletableFuture[]::new))
+                    .get(RENDER_BLOCKING_TIMEOUT_MILLIS, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException timeout) {
+            LOGGER.log(System.Logger.Level.WARNING,
+                    "Render-blockierende Stylesheets waren nach " + RENDER_BLOCKING_TIMEOUT_MILLIS
+                            + " ms nicht geladen – Seite wird ohne sie dargestellt");
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        } catch (java.util.concurrent.ExecutionException failure) {
+            LOGGER.log(System.Logger.Level.DEBUG,
+                    "Render-blockierendes Stylesheet schlug fehl", failure);
         }
     }
 

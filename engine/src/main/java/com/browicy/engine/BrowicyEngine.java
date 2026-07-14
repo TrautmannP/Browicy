@@ -85,26 +85,36 @@ public final class BrowicyEngine implements AutoCloseable {
     }
 
     public PageSession loadPageSession(String url, PageUpdateListener listener) {
+        return loadPageSession(url, listener, new PageLoadProgress());
+    }
+
+    public PageSession loadPageSession(String url, PageUpdateListener listener,
+                                       PageLoadProgress progress) {
         Objects.requireNonNull(listener, "listener");
+        Objects.requireNonNull(progress, "progress");
         URI uri;
         try {
             uri = PageLoader.normalize(url);
         } catch (IllegalArgumentException invalidUrl) {
+            progress.phase(PageLoadProgress.Phase.FAILED, "Ungültige URL");
             return createSession(
-                    errorPage(url, "Die Adresse ist keine gültige URL."), listener);
+                    errorPage(url, "Die Adresse ist keine gültige URL."), listener, progress);
         }
         String scheme = uri.getScheme();
         if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
             Document document = parser.parse(HELLO_WORLD_HTML, url);
-            return createSession(document, listener);
+            return createSession(document, listener, progress);
         }
         try {
+            progress.phase(PageLoadProgress.Phase.FETCHING_HTML, url);
             PageLoader.Page page = pageLoader.load(url);
+            progress.phase(PageLoadProgress.Phase.PARSING, page.uri().toString());
             Document document = parser.parse(page.html(), page.uri().toString());
-            return createSession(document, listener);
+            return createSession(document, listener, progress);
         } catch (Exception e) {
             String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-            return createSession(errorPage(url, message), listener);
+            progress.phase(PageLoadProgress.Phase.FAILED, message);
+            return createSession(errorPage(url, message), listener, progress);
         }
     }
 
@@ -116,9 +126,10 @@ public final class BrowicyEngine implements AutoCloseable {
         return jsEngine.runScripts(document);
     }
 
-    private PageSession createSession(Document document, PageUpdateListener listener) {
+    private PageSession createSession(Document document, PageUpdateListener listener,
+                                      PageLoadProgress progress) {
         PageSession session = resourceCoordinator.load(
-                document, listener, () -> activeSessions.remove(document));
+                document, listener, () -> activeSessions.remove(document), progress);
         activeSessions.put(document, session);
         return session;
     }

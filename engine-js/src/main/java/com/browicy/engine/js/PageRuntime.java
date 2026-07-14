@@ -4,7 +4,6 @@ import com.browicy.engine.dom.Event;
 import com.browicy.engine.dom.Node;
 import java.util.concurrent.CompletableFuture;
 
-/** Persistent, document-bound JavaScript runtime with a serialized event loop. */
 public interface PageRuntime extends PageTaskQueue, AutoCloseable {
 
     static PageRuntime closed() {
@@ -13,10 +12,8 @@ public interface PageRuntime extends PageTaskQueue, AutoCloseable {
 
     JsExecutionResult execute(JavaScriptSource source);
 
-    /** Enqueues a DOM event and returns immediately. */
     void dispatchEvent(Node target, Event event);
 
-    /** Enqueues a DOM event and exposes completion for lifecycle coordination and tests. */
     CompletableFuture<Boolean> submitEvent(Node target, Event event);
 
     default void enqueueTask(Runnable task) {
@@ -29,11 +26,13 @@ public interface PageRuntime extends PageTaskQueue, AutoCloseable {
         enqueueMicrotask(new PageTask.Callback(task));
     }
 
-    /** Waits until all tasks that were queued before this call have completed. */
     void awaitIdle();
 
-    /** Returns an immutable snapshot of console output and script errors. */
     JsExecutionResult snapshot();
+
+    default PageRuntimeDiagnostics diagnostics() {
+        return PageRuntimeDiagnostics.closedRuntime();
+    }
 
     boolean isClosed();
 

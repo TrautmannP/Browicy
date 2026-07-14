@@ -2,9 +2,12 @@ package com.browicy.engine;
 
 import com.browicy.engine.js.JsCookieStore;
 import com.browicy.engine.js.JsFetchBackend;
+import com.browicy.engine.js.JsFetchRequest;
 import com.browicy.engine.js.JsFetchResponse;
 import com.browicy.engine.net.FetchResource;
 import com.browicy.engine.net.FetchResourceLoad;
+import com.browicy.engine.net.HttpHeaders;
+import com.browicy.engine.net.HttpRequest;
 import com.browicy.engine.net.ResourceLoad;
 import com.browicy.engine.net.SubResourceLoader;
 import java.io.IOException;
@@ -36,15 +39,16 @@ final class PageFetchBackend implements JsFetchBackend, ResourceLoad {
     }
 
     @Override
-    public CompletableFuture<JsFetchResponse> fetch(URI uri) {
-        Objects.requireNonNull(uri, "uri");
+    public CompletableFuture<JsFetchResponse> fetch(JsFetchRequest request) {
+        Objects.requireNonNull(request, "request");
+        URI uri = request.uri();
         if (cancelled) {
             return CompletableFuture.failedFuture(
                     new IOException("Die Seite wurde geschlossen"));
         }
         FetchResourceLoad load;
         try {
-            load = loader.fetchAsync(uri);
+            load = loader.fetchAsync(toHttpRequest(request));
         } catch (RuntimeException invalidRequest) {
             return CompletableFuture.failedFuture(invalidRequest);
         }
@@ -55,6 +59,29 @@ final class PageFetchBackend implements JsFetchBackend, ResourceLoad {
         return load.future()
                 .whenComplete((resource, failure) -> activeLoads.remove(load))
                 .thenApply(resource -> toResponse(uri, resource));
+    }
+
+
+    private static HttpRequest toHttpRequest(JsFetchRequest request) {
+        HttpHeaders headers = new HttpHeaders();
+        for (JsFetchRequest.Header header : request.headers()) {
+            if (!isForbiddenRequestHeader(header.name())) {
+                headers.add(header.name(), header.value());
+            }
+        }
+        return new HttpRequest(request.method(), request.uri(), headers, request.body());
+    }
+
+    private static boolean isForbiddenRequestHeader(String name) {
+        String normalized = name.toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "accept-charset", "accept-encoding", "access-control-request-headers",
+                    "access-control-request-method", "connection", "content-length",
+                    "cookie", "cookie2", "date", "dnt", "expect", "host",
+                    "keep-alive", "origin", "referer", "te", "trailer",
+                    "transfer-encoding", "upgrade", "user-agent", "via" -> true;
+            default -> normalized.startsWith("proxy-") || normalized.startsWith("sec-");
+        };
     }
 
     @Override

@@ -63,6 +63,7 @@ import javax.swing.BorderFactory;
 import javax.swing.JViewport;
 import javax.swing.JPanel;
 import javax.swing.Scrollable;
+import javax.swing.SwingUtilities;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
@@ -76,6 +77,8 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private static final int MAX_BACKGROUND_IMAGE_DIMENSION = 8192;
     private static final long MAX_BACKGROUND_IMAGE_PIXELS = 32_000_000L;
 
+    private static final System.Logger LOGGER = System.getLogger(DomViewPanel.class.getName());
+
     private final Document document;
     private final PageRuntime runtime;
     private final ImageResourceRegistry images;
@@ -83,14 +86,21 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private final FontResourceRegistry fonts;
     private final Map<URI, Optional<BufferedImage>> backgroundImages = new ConcurrentHashMap<>();
     private final Map<String, Optional<SVGDocument>> svgDocuments = new ConcurrentHashMap<>();
-    private RenderTree renderTree;
     private Element pressedTarget;
     private List<Element> hoveredElements = List.of();
     private final RenderLayoutEngine layoutEngine;
-    private LayoutResult layoutResult;
-    private int layoutWidth = -1;
-    private int renderViewportWidth = -1;
-    private int renderViewportHeight = -1;
+
+    private final java.util.concurrent.ExecutorService renderExecutor;
+    private final Object renderLock = new Object();
+    private InvalidationType pendingInvalidation;
+    private boolean renderPassRunning;
+    private boolean disposed;
+    private volatile RenderSnapshot snapshot;
+    private volatile Boolean hoverStylesPresent;
+
+    private record RenderSnapshot(RenderTree tree, LayoutResult layout,
+                                  int viewportWidth, int viewportHeight) {
+    }
 
     public DomViewPanel(Document document) {
         this(document, PageRuntime.closed(), new ImageResourceRegistry(),
@@ -117,21 +127,26 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         this.fonts = fonts;
         this.layoutEngine = new RenderLayoutEngine(fonts::resolve);
         this.styleSheets = styleSheets;
+        this.renderExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, "browicy-render");
+            thread.setDaemon(true);
+            return thread;
+        });
         setLayout(null);
         setOpaque(true);
         setFocusable(true);
         setBackground(UiTheme.BACKGROUND);
         setBorder(BorderFactory.createEmptyBorder(
                 CONTENT_PADDING, CONTENT_PADDING, CONTENT_PADDING, CONTENT_PADDING));
-        rebuildRenderTree();
+        requestRender(InvalidationType.STYLE);
 
         addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent event) {
-                if (layoutWidth != getWidth() || renderViewportHeight != currentViewportHeight()) {
-                    invalidateReflow();
-                    revalidate();
-                    repaint();
+                RenderSnapshot current = snapshot;
+                if (current == null || current.viewportWidth() != getWidth()
+                        || current.viewportHeight() != currentViewportHeight()) {
+                    requestRender(InvalidationType.LAYOUT);
                 }
             }
         });
@@ -200,43 +215,139 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     }
 
     private void applyInvalidation(InvalidationType invalidation) {
-        if (invalidation.requires(InvalidationType.RENDER_TREE)) {
-            rebuildRenderTree();
-            revalidate();
-            repaint();
-        } else if (invalidation.requires(InvalidationType.LAYOUT)) {
-            invalidateReflow();
-            revalidate();
-            repaint();
+        if (invalidation.requires(InvalidationType.STYLE)
+                || invalidation.requires(InvalidationType.RENDER_TREE)) {
+            hoverStylesPresent = null;
+        }
+        if (invalidation.requires(InvalidationType.LAYOUT)) {
+            requestRender(invalidation);
         } else {
             repaint();
         }
     }
 
-    private void rebuildRenderTree() {
-        rebuildRenderTree(currentLayoutWidth(), currentViewportHeight());
+    private void requestRender(InvalidationType invalidation) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            synchronized (renderLock) {
+                if (disposed) {
+                    return;
+                }
+            }
+            renderPass(invalidation);
+            return;
+        }
+        synchronized (renderLock) {
+            if (disposed) {
+                return;
+            }
+            pendingInvalidation = pendingInvalidation == null
+                    ? invalidation : pendingInvalidation.merge(invalidation);
+            if (renderPassRunning) {
+                return;
+            }
+            renderPassRunning = true;
+        }
+        try {
+            renderExecutor.execute(this::drainRenderRequests);
+        } catch (java.util.concurrent.RejectedExecutionException alreadyDisposed) {
+            synchronized (renderLock) {
+                renderPassRunning = false;
+            }
+        }
     }
 
-    private void rebuildRenderTree(int viewportWidth, int viewportHeight) {
-        synchronized (document) {
-            StyleApplicator applicator = new StyleApplicator();
-            if (styleSheets == null) applicator.apply(document, viewportWidth, viewportHeight);
-            else applicator.apply(document, styleSheets, viewportWidth, viewportHeight);
-            renderTree = new RenderTreeBuilder(element -> images.find(element)
-                    .map(com.browicy.engine.net.BinaryResource::content)
-                    .orElse(null)).build(document, viewportWidth, viewportHeight);
+    private void drainRenderRequests() {
+        while (true) {
+            InvalidationType invalidation;
+            synchronized (renderLock) {
+                invalidation = pendingInvalidation;
+                pendingInvalidation = null;
+                if (invalidation == null || disposed) {
+                    renderPassRunning = false;
+                    return;
+                }
+            }
+            try {
+                renderPass(invalidation);
+            } catch (RuntimeException failure) {
+                LOGGER.log(System.Logger.Level.WARNING,
+                        "Render-Durchlauf fehlgeschlagen", failure);
+            }
         }
-        renderViewportWidth = viewportWidth;
-        renderViewportHeight = viewportHeight;
-        invalidateReflow();
+    }
+
+    private void renderPass(InvalidationType invalidation) {
+        RenderSnapshot current = snapshot;
+        int width = Math.max(1, currentLayoutWidth());
+        int viewportHeight = Math.max(1, currentViewportHeight());
+        boolean sizeChanged = current == null
+                || current.viewportWidth() != width
+                || current.viewportHeight() != viewportHeight;
+        if (!sizeChanged && !invalidation.requires(InvalidationType.LAYOUT)) {
+            repaint();
+            return;
+        }
+
+        RenderTree tree;
+        if (sizeChanged || invalidation.requires(InvalidationType.RENDER_TREE)) {
+            synchronized (document) {
+                StyleApplicator applicator = new StyleApplicator();
+                if (styleSheets == null) applicator.apply(document, width, viewportHeight);
+                else applicator.apply(document, styleSheets, width, viewportHeight);
+                tree = new RenderTreeBuilder(element -> images.find(element)
+                        .map(com.browicy.engine.net.BinaryResource::content)
+                        .orElse(null)).build(document, width, viewportHeight);
+            }
+        } else {
+            tree = current.tree();
+        }
+
+        LayoutResult layout;
+        BufferedImage metricsImage = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = metricsImage.createGraphics();
+        try {
+            configureGraphics(graphics);
+            layout = layoutEngine.layout(tree, width, getInsets(), graphics);
+        } finally {
+            graphics.dispose();
+        }
+
+        boolean heightChanged = current == null || current.layout().height() != layout.height();
+        snapshot = new RenderSnapshot(tree, layout, width, viewportHeight);
+        if (heightChanged) {
+            revalidate();
+        }
+        repaint();
+    }
+
+    private RenderSnapshot currentSnapshot() {
+        RenderSnapshot current = snapshot;
+        int width = Math.max(1, currentLayoutWidth());
+        if (current == null || current.viewportWidth() != width) {
+            if (SwingUtilities.isEventDispatchThread()) {
+                requestRender(InvalidationType.LAYOUT);
+            } else {
+                renderPass(InvalidationType.STYLE);
+                current = snapshot;
+            }
+        }
+        return current;
+    }
+
+    public void dispose() {
+        synchronized (renderLock) {
+            disposed = true;
+            pendingInvalidation = null;
+        }
+        renderExecutor.shutdownNow();
     }
 
     private Element hitTest(int x, int y) {
-        ensureLayoutForHitTesting();
-        if (layoutResult == null) {
-            return null;
+        RenderSnapshot current = currentSnapshot();
+        if (current == null) {
+            return document.getBody();
         }
-        List<PaintFragment> fragments = layoutResult.fragments();
+        List<PaintFragment> fragments = current.layout().fragments();
         for (int index = fragments.size() - 1; index >= 0; index--) {
             PaintFragment fragment = fragments.get(index);
             Element source = null;
@@ -272,21 +383,6 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         return document.getBody();
     }
 
-    private void ensureLayoutForHitTesting() {
-        int width = Math.max(1, currentLayoutWidth());
-        if (layoutWidth == width && layoutResult != null) {
-            return;
-        }
-        BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D graphics = image.createGraphics();
-        try {
-            configureGraphics(graphics);
-            ensureLayout(width, graphics);
-        } finally {
-            graphics.dispose();
-        }
-    }
-
     private void dispatchDomEvent(Element target, String type, boolean bubbles, boolean cancelable) {
         if (target != null && !runtime.isClosed()) {
             runtime.dispatchEvent(target, new Event(type, bubbles, cancelable));
@@ -305,19 +401,34 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         hoveredElements.forEach(element -> element.setHovered(false));
         next.forEach(element -> element.setHovered(true));
         hoveredElements = List.copyOf(next);
-        synchronized (document) {
-            StyleApplicator applicator = new StyleApplicator();
-            if (styleSheets == null) applicator.apply(
-                    document, currentLayoutWidth(), currentViewportHeight());
-            else applicator.apply(document, styleSheets, currentLayoutWidth(), currentViewportHeight());
+        if (hoverStylesPresent()) {
+            requestRender(InvalidationType.STYLE);
         }
-        rebuildRenderTree();
-        revalidate();
-        repaint();
         if (previousTarget != target) {
             dispatchDomEvent(previousTarget, "mouseout", true, false);
             dispatchDomEvent(target, "mouseover", true, false);
         }
+    }
+
+    private boolean hoverStylesPresent() {
+        Boolean cached = hoverStylesPresent;
+        if (cached == null) {
+            cached = computeHoverStylesPresent();
+            hoverStylesPresent = cached;
+        }
+        return cached;
+    }
+
+    private boolean computeHoverStylesPresent() {
+        if (styleSheets == null) {
+            return true;
+        }
+        for (com.browicy.engine.css.CssRule rule : styleSheets.rules()) {
+            if (rule.selector().toString().contains(":hover")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void updateCursor(Element target) {
@@ -339,16 +450,15 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     @Override
     protected void paintComponent(Graphics graphics) {
         super.paintComponent(graphics);
+        RenderSnapshot current = currentSnapshot();
+        if (current == null) {
+            return;
+        }
         Graphics2D g2d = (Graphics2D) graphics.create();
         try {
             configureGraphics(g2d);
-            boolean heightChanged = ensureLayout(Math.max(1, getWidth()), g2d);
-            if (heightChanged) {
-                revalidate();
-            }
-
             Rectangle clip = g2d.getClipBounds();
-            for (PaintFragment fragment : layoutResult.fragments()) {
+            for (PaintFragment fragment : current.layout().fragments()) {
                 if (clip != null && (fragment.bottom() <= clip.y
                         || fragment.top() >= clip.y + clip.height)) {
                     continue;
@@ -396,20 +506,6 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         if (fragment instanceof InlineBoxFragment box) return box.box().style().opacity();
         if (fragment instanceof ImageFragment image) return image.image().style().opacity();
         return ((TextFragment) fragment).opacity();
-    }
-
-    private boolean ensureLayout(int width, Graphics2D graphics) {
-        int viewportHeight = currentViewportHeight();
-        if (renderViewportWidth != width || renderViewportHeight != viewportHeight) {
-            rebuildRenderTree(width, viewportHeight);
-        }
-        if (layoutWidth == width && layoutResult != null) {
-            return false;
-        }
-        float oldHeight = layoutResult == null ? -1 : layoutResult.height();
-        layoutResult = layoutEngine.layout(renderTree, width, getInsets(), graphics);
-        layoutWidth = width;
-        return oldHeight != layoutResult.height();
     }
 
     private void paintBox(Graphics2D graphics, BoxFragment fragment) {
@@ -634,11 +730,6 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         graphics.fill(new Rectangle2D.Float(x, y, width, height));
     }
 
-    private void invalidateReflow() {
-        layoutWidth = -1;
-        layoutResult = null;
-    }
-
     private int currentLayoutWidth() {
         if (getWidth() > 0) {
             return getWidth();
@@ -667,21 +758,16 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     @Override
     public Dimension getPreferredSize() {
         int width = currentLayoutWidth();
-        if (layoutWidth != width || layoutResult == null) {
-            BufferedImage metricsImage = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D metricsGraphics = metricsImage.createGraphics();
-            try {
-                configureGraphics(metricsGraphics);
-                ensureLayout(width, metricsGraphics);
-            } finally {
-                metricsGraphics.dispose();
-            }
+        RenderSnapshot current = currentSnapshot();
+        if (current == null) {
+            return new Dimension(width, DEFAULT_VIEWPORT_HEIGHT);
         }
-        return new Dimension(width, Math.max(1, (int) Math.ceil(layoutResult.height())));
+        return new Dimension(width, Math.max(1, (int) Math.ceil(current.layout().height())));
     }
 
     RenderTree renderTreeForTesting() {
-        return renderTree;
+        RenderSnapshot current = snapshot;
+        return current == null ? null : current.tree();
     }
 
     LayoutResult layoutForTesting(int width) {

@@ -10,6 +10,8 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+import java.util.Set;
 import java.util.zip.GZIPInputStream;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
@@ -24,6 +26,9 @@ public final class HttpClient {
     private static final int MAX_HEADER_COUNT = 200;
     private static final int MAX_LINE_LENGTH = 16 * 1024;
     private static final int MAX_BODY_BYTES = 32 * 1024 * 1024;
+    private static final Set<String> GENERATED_REQUEST_HEADERS = Set.of(
+            "host", "content-length", "transfer-encoding", "connection");
+    private static final String TOKEN_SEPARATORS = "()<>@,;:\\\"/[]?={} \t";
 
     public HttpResponse get(URI url) throws IOException {
         return get(url, "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
@@ -34,7 +39,27 @@ public final class HttpClient {
     }
 
     HttpResponse get(URI url, String accept, DownloadBudget budget) throws IOException {
-        String scheme = url.getScheme() == null ? "" : url.getScheme().toLowerCase();
+        return request(HttpRequest.get(url, accept), budget);
+    }
+
+    /**
+     * Führt eine HTTP-Anfrage mit optionalem Body und Request-Headern aus.
+     * {@code Content-Length}, {@code Host} und {@code Connection} werden vom
+     * Client selbst erzeugt und können nicht durch Aufrufer überschrieben werden.
+     */
+    public HttpResponse request(String method, URI url, byte[] body, HttpHeaders headers)
+            throws IOException {
+        return request(new HttpRequest(method, url, headers, body));
+    }
+
+    public HttpResponse request(HttpRequest request) throws IOException {
+        return request(request, null);
+    }
+
+    HttpResponse request(HttpRequest request, DownloadBudget budget) throws IOException {
+        URI url = request.uri();
+        String scheme = url.getScheme() == null
+                ? "" : url.getScheme().toLowerCase(Locale.ROOT);
         if (!scheme.equals("http") && !scheme.equals("https")) {
             throw new IOException("Nicht unterstütztes URL-Schema: " + url);
         }
@@ -42,17 +67,28 @@ public final class HttpClient {
         if (host == null) {
             throw new IOException("URL ohne Host: " + url);
         }
+        byte[] requestBody = request.body();
+        if (requestBody != null && requestBody.length > MAX_BODY_BYTES) {
+            throw new IOException("Request-Body zu groß: " + requestBody.length + " Bytes");
+        }
+
         boolean secure = scheme.equals("https");
         int defaultPort = secure ? 443 : 80;
         int port = url.getPort() != -1 ? url.getPort() : defaultPort;
 
+        String requestHead = buildRequestHead(request, host, port, defaultPort, requestBody);
         try (Socket socket = openSocket(host, port, secure)) {
             socket.setSoTimeout(READ_TIMEOUT_MS);
             OutputStream out = socket.getOutputStream();
-            out.write(buildRequest(url, host, port, defaultPort, accept).getBytes(StandardCharsets.ISO_8859_1));
+            out.write(requestHead.getBytes(StandardCharsets.ISO_8859_1));
+            if (requestBody != null) {
+                out.write(requestBody);
+            }
             out.flush();
             return readResponse(new BufferedInputStream(
-                    new DeadlineInputStream(socket.getInputStream(), MAX_RESPONSE_DURATION_MS)), budget);
+                            new DeadlineInputStream(
+                                    socket.getInputStream(), MAX_RESPONSE_DURATION_MS)),
+                    budget, request.method());
         }
     }
 
@@ -76,29 +112,82 @@ public final class HttpClient {
         }
     }
 
-    private static String buildRequest(URI url, String host, int port, int defaultPort, String accept) {
-        String path = url.getRawPath() == null || url.getRawPath().isEmpty() ? "/" : url.getRawPath();
+    private static String buildRequestHead(HttpRequest request,
+                                           String host,
+                                           int port,
+                                           int defaultPort,
+                                           byte[] body) {
+        URI url = request.uri();
+        String path = url.getRawPath() == null || url.getRawPath().isEmpty()
+                ? "/" : url.getRawPath();
         String target = url.getRawQuery() == null ? path : path + "?" + url.getRawQuery();
-        String hostHeader = port == defaultPort ? host : host + ":" + port;
-        return "GET " + target + " HTTP/1.1\r\n"
-                + "Host: " + hostHeader + "\r\n"
-                + "User-Agent: " + USER_AGENT + "\r\n"
-                + "Accept: " + sanitizeHeaderValue(accept) + "\r\n"
-                + "Accept-Encoding: gzip\r\n"
-                + "Connection: close\r\n"
-                + "\r\n";
+        String formattedHost = host.indexOf(':') >= 0 ? "[" + host + "]" : host;
+        String hostHeader = port == defaultPort ? formattedHost : formattedHost + ":" + port;
+        HttpHeaders headers = request.headers();
+
+        StringBuilder result = new StringBuilder()
+                .append(request.method()).append(' ').append(target).append(" HTTP/1.1\r\n")
+                .append("Host: ").append(hostHeader).append("\r\n");
+        appendDefaultHeader(result, headers, "User-Agent", USER_AGENT);
+        appendDefaultHeader(result, headers, "Accept", "*/*");
+        appendDefaultHeader(result, headers, "Accept-Encoding", "gzip");
+
+        int headerCount = 4;
+        for (String name : headers.names()) {
+            if (GENERATED_REQUEST_HEADERS.contains(name)) {
+                continue;
+            }
+            validateHeaderName(name);
+            for (String value : headers.all(name)) {
+                if (++headerCount > MAX_HEADER_COUNT) {
+                    throw new IllegalArgumentException("Zu viele Header in der Anfrage");
+                }
+                result.append(name).append(": ")
+                        .append(sanitizeHeaderValue(value)).append("\r\n");
+            }
+        }
+        if (body != null) {
+            result.append("Content-Length: ").append(body.length).append("\r\n");
+        }
+        return result.append("Connection: close\r\n\r\n").toString();
     }
 
+    private static void appendDefaultHeader(StringBuilder target,
+                                            HttpHeaders headers,
+                                            String name,
+                                            String defaultValue) {
+        if (!headers.contains(name)) {
+            target.append(name).append(": ").append(defaultValue).append("\r\n");
+        }
+    }
+
+    private static void validateHeaderName(String name) {
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("HTTP-Headername darf nicht leer sein");
+        }
+        for (int index = 0; index < name.length(); index++) {
+            char character = name.charAt(index);
+            if (character <= 0x20 || character >= 0x7f
+                    || TOKEN_SEPARATORS.indexOf(character) >= 0) {
+                throw new IllegalArgumentException("Ungültiger HTTP-Headername: " + name);
+            }
+        }
+    }
 
     private static String sanitizeHeaderValue(String value) {
-        String normalized = value == null || value.isBlank() ? "*/*" : value.strip();
-        if (normalized.indexOf('\r') >= 0 || normalized.indexOf('\n') >= 0) {
-            throw new IllegalArgumentException("Ungültiger HTTP-Headerwert");
+        String normalized = value == null ? "" : value.strip();
+        for (int index = 0; index < normalized.length(); index++) {
+            char character = normalized.charAt(index);
+            if ((character < 0x20 && character != '\t') || character == 0x7f) {
+                throw new IllegalArgumentException("Ungültiger HTTP-Headerwert");
+            }
         }
         return normalized;
     }
 
-    private static HttpResponse readResponse(InputStream in, DownloadBudget budget) throws IOException {
+    private static HttpResponse readResponse(InputStream in,
+                                             DownloadBudget budget,
+                                             String requestMethod) throws IOException {
         String statusLine = readLine(in);
         if (statusLine == null || statusLine.isEmpty()) {
             throw new IOException("Leere Antwort vom Server");
@@ -116,7 +205,7 @@ public final class HttpClient {
         String reasonPhrase = parts.length == 3 ? parts[2] : "";
 
         HttpHeaders headers = readHeaders(in);
-        byte[] body = readBody(in, statusCode, headers, budget);
+        byte[] body = readBody(in, statusCode, headers, budget, requestMethod);
         body = decodeContentEncoding(body, headers, budget);
         return new HttpResponse(statusCode, reasonPhrase, headers, body);
     }
@@ -138,9 +227,13 @@ public final class HttpClient {
         return headers;
     }
 
-    private static byte[] readBody(InputStream in, int statusCode, HttpHeaders headers,
-                                   DownloadBudget budget) throws IOException {
-        boolean bodyless = statusCode / 100 == 1 || statusCode == 204 || statusCode == 304;
+    private static byte[] readBody(InputStream in,
+                                   int statusCode,
+                                   HttpHeaders headers,
+                                   DownloadBudget budget,
+                                   String requestMethod) throws IOException {
+        boolean bodyless = requestMethod.equals("HEAD")
+                || statusCode / 100 == 1 || statusCode == 204 || statusCode == 304;
         if (bodyless) {
             return new byte[0];
         }
@@ -215,11 +308,13 @@ public final class HttpClient {
         throw new IOException("Nicht unterstütztes Content-Encoding: " + encoding);
     }
 
-    private static byte[] readFully(InputStream in, int length, DownloadBudget budget) throws IOException {
+    private static byte[] readFully(InputStream in, int length, DownloadBudget budget)
+            throws IOException {
         byte[] data = in.readNBytes(length);
         if (budget != null) budget.consumeTransfer(data.length);
         if (data.length < length) {
-            throw new IOException("Verbindung endete vorzeitig: " + data.length + " von " + length + " Bytes");
+            throw new IOException("Verbindung endete vorzeitig: " + data.length
+                    + " von " + length + " Bytes");
         }
         return data;
     }

@@ -22,6 +22,7 @@ public final class PageSession implements AutoCloseable {
     private final CompletableFuture<Void> resourcesLoaded;
     private final List<ResourceLoad> cancellableLoads;
     private final DocumentUpdateCoordinator updateCoordinator;
+    private final PageLoadProgress progress;
     private final Runnable onClose;
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -34,6 +35,7 @@ public final class PageSession implements AutoCloseable {
                 CompletableFuture<Void> resourcesLoaded,
                 List<ResourceLoad> cancellableLoads,
                 DocumentUpdateCoordinator updateCoordinator,
+                PageLoadProgress progress,
                 Runnable onClose) {
         this.document = Objects.requireNonNull(document, "document");
         this.runtime = Objects.requireNonNull(runtime, "runtime");
@@ -44,12 +46,15 @@ public final class PageSession implements AutoCloseable {
         this.resourcesLoaded = Objects.requireNonNull(resourcesLoaded, "resourcesLoaded");
         this.cancellableLoads = List.copyOf(cancellableLoads);
         this.updateCoordinator = updateCoordinator;
+        this.progress = progress == null ? new PageLoadProgress() : progress;
         this.onClose = Objects.requireNonNull(onClose, "onClose");
     }
 
     public static PageSession completed(Document document) {
         Objects.requireNonNull(document, "document")
                 .transitionTo(DocumentReadyState.COMPLETE);
+        PageLoadProgress progress = new PageLoadProgress();
+        progress.phase(PageLoadProgress.Phase.COMPLETE, "");
         return new PageSession(
                 document,
                 PageRuntime.closed(),
@@ -60,6 +65,7 @@ public final class PageSession implements AutoCloseable {
                 CompletableFuture.completedFuture(null),
                 List.of(),
                 null,
+                progress,
                 () -> { });
     }
 
@@ -89,6 +95,10 @@ public final class PageSession implements AutoCloseable {
 
     public CompletableFuture<Void> resourcesLoaded() {
         return resourcesLoaded;
+    }
+
+    public PageLoadProgress progress() {
+        return progress;
     }
 
     public void awaitResources() {

@@ -224,6 +224,46 @@ public final class JavaScriptEngine {
     static final String FETCH_BOOTSTRAP = """
             (() => {
               'use strict';
+              const METHOD_PATTERN = /^[A-Za-z!#$%&'*+.^_`|~0-9-]+$/;
+              const FORBIDDEN_METHODS = new Set(['CONNECT', 'TRACE', 'TRACK']);
+              const FORBIDDEN_REQUEST_HEADERS = new Set([
+                'accept-charset', 'accept-encoding', 'access-control-request-headers',
+                'access-control-request-method', 'connection', 'content-length', 'cookie',
+                'cookie2', 'date', 'dnt', 'expect', 'host', 'keep-alive', 'origin',
+                'referer', 'te', 'trailer', 'transfer-encoding', 'upgrade',
+                'user-agent', 'via'
+              ]);
+              const normalizeHeaderName = name => {
+                name = String(name).trim().toLowerCase();
+                if (name.length === 0 || !METHOD_PATTERN.test(name)) {
+                  throw new TypeError('Ungültiger HTTP-Headername: ' + name);
+                }
+                return name;
+              };
+              const normalizeHeaderValue = value => {
+                value = String(value).trim();
+                for (let index = 0; index < value.length; index++) {
+                  const code = value.charCodeAt(index);
+                  if ((code < 0x20 && code !== 0x09) || code === 0x7f) {
+                    throw new TypeError('Ungültiger HTTP-Headerwert');
+                  }
+                }
+                return value;
+              };
+              const normalizeMethod = method => {
+                method = String(method == null ? 'GET' : method).trim().toUpperCase();
+                if (method.length === 0 || !METHOD_PATTERN.test(method)) {
+                  throw new TypeError('Ungültige HTTP-Methode: ' + method);
+                }
+                return method;
+              };
+              const isForbiddenRequestHeader = name => {
+                name = String(name).toLowerCase();
+                return FORBIDDEN_REQUEST_HEADERS.has(name)
+                    || name.startsWith('proxy-') || name.startsWith('sec-');
+              };
+              const isForbiddenMethod = method => FORBIDDEN_METHODS.has(method);
+
               class Headers {
                 constructor(init) {
                   this._entries = [];
@@ -231,7 +271,12 @@ public final class JavaScriptEngine {
                   if (init instanceof Headers) {
                     for (const entry of init._entries) this.append(entry[0], entry[1]);
                   } else if (Array.isArray(init)) {
-                    for (const pair of init) this.append(pair[0], pair[1]);
+                    for (const pair of init) {
+                      if (pair == null || pair.length !== 2) {
+                        throw new TypeError('Ungültiges Header-Paar');
+                      }
+                      this.append(pair[0], pair[1]);
+                    }
                   } else if (typeof init === 'object') {
                     for (const name of Object.keys(init)) this.append(name, init[name]);
                   } else {
@@ -239,15 +284,17 @@ public final class JavaScriptEngine {
                   }
                 }
                 append(name, value) {
-                  this._entries.push([String(name).toLowerCase(), String(value).trim()]);
+                  this._entries.push([
+                    normalizeHeaderName(name), normalizeHeaderValue(value)
+                  ]);
                 }
                 set(name, value) { this.delete(name); this.append(name, value); }
                 delete(name) {
-                  name = String(name).toLowerCase();
+                  name = normalizeHeaderName(name);
                   this._entries = this._entries.filter(entry => entry[0] !== name);
                 }
                 get(name) {
-                  name = String(name).toLowerCase();
+                  name = normalizeHeaderName(name);
                   const values = [];
                   for (const entry of this._entries) if (entry[0] === name) values.push(entry[1]);
                   return values.length === 0 ? null : values.join(', ');
@@ -265,6 +312,48 @@ public final class JavaScriptEngine {
                 *values() { for (const entry of this.entries()) yield entry[1]; }
                 [Symbol.iterator]() { return this.entries(); }
               }
+
+              const prepareBody = (body, headers, method, rejectGetBody) => {
+                if (body == null) return null;
+                if (method === 'GET' || method === 'HEAD') {
+                  if (rejectGetBody) {
+                    throw new TypeError('Request-Body ist für ' + method + ' nicht erlaubt');
+                  }
+                  return null;
+                }
+                if (typeof body !== 'string') {
+                  if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+                    if (!headers.has('content-type')) {
+                      headers.set('Content-Type',
+                          'application/x-www-form-urlencoded;charset=UTF-8');
+                    }
+                    return String(body);
+                  }
+                  throw new TypeError(
+                      'Dieser Request-Body-Typ wird noch nicht unterstützt');
+                }
+                if (!headers.has('content-type')) {
+                  headers.set('Content-Type', 'text/plain;charset=UTF-8');
+                }
+                return body;
+              };
+              const requestHeaderPairs = headers => {
+                const pairs = [];
+                for (const [name, value] of headers) {
+                  if (!isForbiddenRequestHeader(name)) pairs.push(name, value);
+                }
+                return pairs;
+              };
+              const requestSupport = Object.freeze({
+                normalizeHeaderName, normalizeHeaderValue, normalizeMethod,
+                isForbiddenMethod, isForbiddenRequestHeader, prepareBody,
+                requestHeaderPairs
+              });
+              Object.defineProperty(globalThis, '__browicyRequestSupport', {
+                value: requestSupport, enumerable: false, writable: false,
+                configurable: false
+              });
+
               class Response {
                 constructor(body, init) {
                   init = init || {};
@@ -304,45 +393,49 @@ public final class JavaScriptEngine {
               globalThis.Response = Response;
               globalThis.fetch = function fetch(input, init) {
                 return new Promise((resolve, reject) => {
-                  let url;
-                  let method = 'GET';
-                  let hasBody = false;
                   try {
-                    url = String(input !== null && typeof input === 'object'
-                        && input.url !== undefined ? input.url : input);
-                    if (init != null) {
-                      if (init.method != null) method = String(init.method).toUpperCase();
-                      hasBody = init.body != null;
+                    const inputObject = input !== null && typeof input === 'object' ? input : null;
+                    const options = init == null ? null : Object(init);
+                    const url = String(inputObject && inputObject.url !== undefined
+                        ? inputObject.url : input);
+                    const method = normalizeMethod(options && options.method != null
+                        ? options.method
+                        : inputObject && inputObject.method != null ? inputObject.method : 'GET');
+                    if (isForbiddenMethod(method)) {
+                      throw new TypeError('fetch: Methode ' + method + ' ist nicht erlaubt');
                     }
-                  } catch (error) {
-                    reject(new TypeError('fetch: ' + String(error && error.message || error)));
-                    return;
-                  }
-                  if (method !== 'GET') {
-                    reject(new TypeError(
-                        'fetch: Methode ' + method + ' wird noch nicht unterstützt'));
-                    return;
-                  }
-                  if (hasBody) {
-                    reject(new TypeError('fetch: Ein Request-Body wird noch nicht unterstützt'));
-                    return;
-                  }
-                  __browicyFetch(url,
-                      (finalUrl, status, statusText, headerPairs, bodyText) => {
-                        try {
-                          const headers = new Headers();
-                          for (let i = 0; i + 1 < headerPairs.length; i += 2) {
-                            headers.append(headerPairs[i], headerPairs[i + 1]);
+                    const headerInit = options && options.headers !== undefined
+                        ? options.headers
+                        : inputObject && inputObject.headers !== undefined
+                            ? inputObject.headers : undefined;
+                    const headers = new Headers(headerInit);
+                    let body = inputObject && inputObject.body !== undefined
+                        ? inputObject.body : null;
+                    if (options && Object.prototype.hasOwnProperty.call(options, 'body')) {
+                      body = options.body;
+                    }
+                    const bodyText = prepareBody(body, headers, method, true);
+                    __browicyFetch(url, method, requestHeaderPairs(headers), bodyText,
+                        (finalUrl, status, statusText, headerPairs, responseBodyText) => {
+                          try {
+                            const responseHeaders = new Headers();
+                            for (let i = 0; i + 1 < headerPairs.length; i += 2) {
+                              responseHeaders.append(headerPairs[i], headerPairs[i + 1]);
+                            }
+                            const response = new Response(responseBodyText,
+                                { status: status, statusText: statusText,
+                                  headers: responseHeaders });
+                            response.url = String(finalUrl);
+                            resolve(response);
+                          } catch (error) {
+                            reject(error);
                           }
-                          const response = new Response(bodyText,
-                              { status: status, statusText: statusText, headers: headers });
-                          response.url = String(finalUrl);
-                          resolve(response);
-                        } catch (error) {
-                          reject(error);
-                        }
-                      },
-                      message => reject(new TypeError(String(message))));
+                        },
+                        message => reject(new TypeError(String(message))));
+                  } catch (error) {
+                    reject(error instanceof TypeError
+                        ? error : new TypeError('fetch: ' + String(error && error.message || error)));
+                  }
                 });
               };
             })();
@@ -351,12 +444,12 @@ public final class JavaScriptEngine {
     static final String XHR_BOOTSTRAP = """
             (() => {
               'use strict';
+              const requestSupport = globalThis.__browicyRequestSupport;
               const UNSENT = 0, OPENED = 1, HEADERS_RECEIVED = 2, LOADING = 3, DONE = 4;
               class XMLHttpRequest {
                 constructor() {
                   this._listeners = new Map();
                   this._generation = 0;
-                  this._requestHeaders = [];
                   this._responseType = '';
                   this._reset();
                   this.timeout = 0;
@@ -383,6 +476,7 @@ public final class JavaScriptEngine {
                   this._responseText = '';
                   this._responseUrl = '';
                   this._headers = [];
+                  this._requestHeaders = [];
                 }
                 get readyState() { return this._state; }
                 get status() { return this._status; }
@@ -406,8 +500,9 @@ public final class JavaScriptEngine {
                 }
                 get response() {
                   if (this._responseType === 'json') {
-                    if (this._state !== DONE) return null;
-                    try { return JSON.parse(this._responseText); } catch (error) { return null; }
+                    if (this._state !== DONE || this._responseText === '') return null;
+                    try { return JSON.parse(this._responseText); }
+                    catch (error) { return null; }
                   }
                   return this.responseText;
                 }
@@ -447,8 +542,8 @@ public final class JavaScriptEngine {
                   }
                 }
                 open(method, url, async) {
-                  method = String(method).toUpperCase();
-                  if (method === 'CONNECT' || method === 'TRACE' || method === 'TRACK') {
+                  method = requestSupport.normalizeMethod(method);
+                  if (requestSupport.isForbiddenMethod(method)) {
                     throw new DOMException(
                         'XMLHttpRequest: Methode ' + method + ' ist nicht erlaubt',
                         'SecurityError');
@@ -467,7 +562,12 @@ public final class JavaScriptEngine {
                         'setRequestHeader: open() wurde noch nicht aufgerufen',
                         'InvalidStateError');
                   }
-                  this._requestHeaders.push([String(name), String(value)]);
+                  name = requestSupport.normalizeHeaderName(name);
+                  value = requestSupport.normalizeHeaderValue(value);
+                  if (requestSupport.isForbiddenRequestHeader(name)) return;
+                  const existing = this._requestHeaders.find(pair => pair[0] === name);
+                  if (existing) existing[1] += ', ' + value;
+                  else this._requestHeaders.push([name, value]);
                 }
                 overrideMimeType(mimeType) {
                   if (this._state >= LOADING) {
@@ -515,20 +615,31 @@ public final class JavaScriptEngine {
                         [String(headerPairs[i]).toLowerCase(), String(headerPairs[i + 1])]);
                   }
                 }
+                _prepareRequest(body) {
+                  const headers = new Headers(this._requestHeaders);
+                  let bodyText;
+                  try {
+                    bodyText = requestSupport.prepareBody(
+                        body, headers, this._method, false);
+                  } catch (error) {
+                    throw new DOMException(
+                        String(error && error.message || error), 'NotSupportedError');
+                  }
+                  return [requestSupport.requestHeaderPairs(headers), bodyText];
+                }
                 send(body) {
                   if (this._state !== OPENED || this._sent) {
                     throw new DOMException(
                         'send: XMLHttpRequest ist nicht geöffnet', 'InvalidStateError');
                   }
-                  if (this._method !== 'GET') {
-                    throw new DOMException(
-                        'XMLHttpRequest: Methode ' + this._method + ' wird noch nicht unterstützt',
-                        'NotSupportedError');
-                  }
+                  const request = this._prepareRequest(body);
+                  const requestHeaders = request[0];
+                  const requestBody = request[1];
                   this._sent = true;
                   const generation = this._generation;
                   if (!this._async) {
-                    const result = __browicyFetchSync(this._url);
+                    const result = __browicyFetchSync(
+                        this._url, this._method, requestHeaders, requestBody);
                     if (!result[0]) {
                       this._state = DONE;
                       this._sent = false;
@@ -559,7 +670,7 @@ public final class JavaScriptEngine {
                     }, timeoutMillis);
                   }
                   const stillCurrent = () => generation === this._generation && !timedOut;
-                  __browicyFetch(this._url,
+                  __browicyFetch(this._url, this._method, requestHeaders, requestBody,
                       (finalUrl, status, statusText, headerPairs, bodyText) => {
                         if (!stillCurrent()) return;
                         if (timerId) clearTimeout(timerId);

@@ -10,6 +10,7 @@ import com.browicy.engine.selectors.SelectorParser;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -42,8 +43,14 @@ final class GraalPageRuntime implements PageRuntime {
     private static final System.Logger LOGGER = System.getLogger(GraalPageRuntime.class.getName());
     private static final AtomicLong NEXT_RUNTIME_ID = new AtomicLong();
     static final int MAX_FETCH_REQUESTS_PER_PAGE = 256;
+    static final int MAX_REQUEST_HEADERS = 200;
 
     static final long SYNC_FETCH_TIMEOUT_MILLIS = 30_000;
+
+    static final long TASK_TIME_BUDGET_MILLIS =
+            Long.getLong("browicy.js.taskBudgetMillis", 10_000);
+
+    private static final long INTERRUPT_GRACE_MILLIS = 5_000;
 
     private final Document document;
     private final long statementLimit;
@@ -64,6 +71,10 @@ final class GraalPageRuntime implements PageRuntime {
     private final Map<Long, TimerRegistration> timers = new HashMap<>();
 
     private volatile Context context;
+    private volatile long taskTimeBudgetMillis = TASK_TIME_BUDGET_MILLIS;
+    private volatile String currentTaskDescription;
+    private volatile long currentTaskStartNanos;
+    private volatile long taskSequence;
     private JsDocument jsDocument;
     private JsMutationObserverRegistry mutationObservers;
     private JsConsole console;
@@ -295,14 +306,13 @@ final class GraalPageRuntime implements PageRuntime {
     }
 
     private Object startFetch(Value[] args) {
-        String url = args.length == 0 ? "" : asText(args[0]);
-        Value resolve = requireCallback(args, 1, "fetch");
-        Value reject = requireCallback(args, 2, "fetch");
-        URI target;
+        Value resolve = requireCallback(args, 4, "fetch");
+        Value reject = requireCallback(args, 5, "fetch");
+        JsFetchRequest request;
         try {
-            target = resolveFetchUri(url);
-        } catch (IllegalArgumentException invalidUrl) {
-            executeCallback(reject, new Object[]{"fetch: " + invalidUrl.getMessage()});
+            request = createFetchRequest(args);
+        } catch (IllegalArgumentException invalidRequest) {
+            executeCallback(reject, new Object[]{"fetch: " + invalidRequest.getMessage()});
             return null;
         }
         if (startedFetchRequests >= MAX_FETCH_REQUESTS_PER_PAGE) {
@@ -315,7 +325,7 @@ final class GraalPageRuntime implements PageRuntime {
         CompletableFuture<JsFetchResponse> pending;
         try {
             pending = Objects.requireNonNull(
-                    fetchBackend.fetch(target), "fetchBackend lieferte null");
+                    fetchBackend.fetch(request), "fetchBackend lieferte null");
         } catch (RuntimeException backendFailure) {
             pending = CompletableFuture.failedFuture(backendFailure);
         }
@@ -325,12 +335,12 @@ final class GraalPageRuntime implements PageRuntime {
     }
 
     private Object fetchSync(Value[] args) {
-        String url = args.length == 0 ? "" : asText(args[0]);
-        URI target;
+        JsFetchRequest request;
         try {
-            target = resolveFetchUri(url);
-        } catch (IllegalArgumentException invalidUrl) {
-            return ProxyArray.fromArray(false, "XMLHttpRequest: " + invalidUrl.getMessage());
+            request = createFetchRequest(args);
+        } catch (IllegalArgumentException invalidRequest) {
+            return ProxyArray.fromArray(false,
+                    "XMLHttpRequest: " + invalidRequest.getMessage());
         }
         if (startedFetchRequests >= MAX_FETCH_REQUESTS_PER_PAGE) {
             return ProxyArray.fromArray(false,
@@ -340,7 +350,8 @@ final class GraalPageRuntime implements PageRuntime {
         startedFetchRequests++;
         JsFetchResponse response;
         try {
-            response = Objects.requireNonNull(fetchBackend.fetch(target), "fetchBackend lieferte null")
+            response = Objects.requireNonNull(
+                            fetchBackend.fetch(request), "fetchBackend lieferte null")
                     .get(SYNC_FETCH_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
@@ -359,6 +370,48 @@ final class GraalPageRuntime implements PageRuntime {
         }
         return ProxyArray.fromArray(true, response.url(), response.status(),
                 response.statusText(), ProxyArray.fromArray(headerPairs), response.bodyText());
+    }
+
+    private JsFetchRequest createFetchRequest(Value[] args) {
+        String url = args.length == 0 ? "" : asText(args[0]);
+        String method = args.length <= 1 ? "GET" : asText(args[1]);
+        List<JsFetchRequest.Header> headers = args.length <= 2
+                ? List.of() : requestHeaders(args[2]);
+        byte[] body = null;
+        if (args.length > 3 && !args[3].isNull()) {
+            body = asText(args[3]).getBytes(StandardCharsets.UTF_8);
+        }
+        URI target = resolveFetchUri(url);
+        JsFetchRequest request = new JsFetchRequest(target, method, headers, body);
+        if (request.hasBody()
+                && (request.method().equals("GET") || request.method().equals("HEAD"))) {
+            throw new IllegalArgumentException(
+                    "Request-Body ist für " + request.method() + " nicht erlaubt");
+        }
+        return request;
+    }
+
+    private static List<JsFetchRequest.Header> requestHeaders(Value headerPairs) {
+        if (headerPairs == null || headerPairs.isNull()) {
+            return List.of();
+        }
+        if (!headerPairs.hasArrayElements()) {
+            throw new IllegalArgumentException("Ungültige Request-Header");
+        }
+        long size = headerPairs.getArraySize();
+        if ((size & 1) != 0) {
+            throw new IllegalArgumentException("Unvollständige Request-Header");
+        }
+        if (size / 2 > MAX_REQUEST_HEADERS) {
+            throw new IllegalArgumentException("Zu viele Request-Header");
+        }
+        List<JsFetchRequest.Header> headers = new ArrayList<>((int) (size / 2));
+        for (long index = 0; index < size; index += 2) {
+            headers.add(new JsFetchRequest.Header(
+                    asText(headerPairs.getArrayElement(index)),
+                    asText(headerPairs.getArrayElement(index + 1))));
+        }
+        return List.copyOf(headers);
     }
 
     private URI resolveFetchUri(String url) {
@@ -440,7 +493,11 @@ final class GraalPageRuntime implements PageRuntime {
     private void processTurn(Envelope<?> envelope) {
         Object result = null;
         Throwable taskFailure = null;
+        long sequence = ++taskSequence;
+        currentTaskDescription = describe(envelope.task());
+        currentTaskStartNanos = System.nanoTime();
         executingTask.set(true);
+        ScheduledFuture<?> watchdog = scheduleTaskWatchdog(sequence, currentTaskDescription);
         try {
             result = process(envelope.task());
             drainMicrotasks();
@@ -448,7 +505,11 @@ final class GraalPageRuntime implements PageRuntime {
             markContextIfFatal(failure);
             taskFailure = failure;
         } finally {
+            if (watchdog != null) {
+                watchdog.cancel(false);
+            }
             executingTask.set(false);
+            currentTaskDescription = null;
             notifyObserver(envelope.task());
         }
         if (taskFailure == null) {
@@ -456,6 +517,66 @@ final class GraalPageRuntime implements PageRuntime {
         } else {
             envelope.fail(taskFailure);
         }
+    }
+
+    void taskTimeBudgetMillisForTesting(long budgetMillis) {
+        this.taskTimeBudgetMillis = budgetMillis;
+    }
+
+    private ScheduledFuture<?> scheduleTaskWatchdog(long sequence, String description) {
+        long budgetMillis = taskTimeBudgetMillis;
+        if (budgetMillis <= 0 || scheduler.isShutdown()) {
+            return null;
+        }
+        try {
+            return scheduler.schedule(() -> interruptOverdueTask(sequence, description),
+                    budgetMillis, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException shuttingDown) {
+            return null;
+        }
+    }
+
+    private void interruptOverdueTask(long sequence, String description) {
+        if (taskSequence != sequence || !executingTask.get()) {
+            return;
+        }
+        Context activeContext = context;
+        if (activeContext == null) {
+            return;
+        }
+        LOGGER.log(System.Logger.Level.WARNING,
+                "JavaScript-Task überschreitet das Zeitbudget von " + taskTimeBudgetMillis
+                        + " ms und wird unterbrochen: " + description);
+        try {
+            activeContext.interrupt(java.time.Duration.ofMillis(INTERRUPT_GRACE_MILLIS));
+        } catch (java.util.concurrent.TimeoutException stuck) {
+            LOGGER.log(System.Logger.Level.ERROR,
+                    "Unterbrechung griff nicht innerhalb von " + INTERRUPT_GRACE_MILLIS
+                            + " ms – GraalJS-Kontext wird hart abgebrochen: " + description);
+            activeContext.close(true);
+        } catch (RuntimeException alreadyClosing) {
+            LOGGER.log(System.Logger.Level.DEBUG,
+                    "Watchdog konnte den Kontext nicht unterbrechen", alreadyClosing);
+        }
+    }
+
+    private static String describe(PageTask task) {
+        return switch (task) {
+            case PageTask.Script script -> "Skript " + script.source().sourceName();
+            case PageTask.DomEvent domEvent -> "DOM-Event '" + domEvent.event().getType() + "'";
+            case PageTask.Timer timer -> "Timer-Callback #" + timer.timerId();
+            case PageTask.Callback ignored -> "interner Callback";
+        };
+    }
+
+    @Override
+    public PageRuntimeDiagnostics diagnostics() {
+        String task = currentTaskDescription;
+        long startNanos = currentTaskStartNanos;
+        long runningMillis = task == null ? 0
+                : Math.max(0, (System.nanoTime() - startNanos) / 1_000_000);
+        return new PageRuntimeDiagnostics(isClosed(), contextUsable, tasks.size(),
+                task, runningMillis);
     }
 
     private void drainMicrotasks() {
@@ -643,6 +764,11 @@ final class GraalPageRuntime implements PageRuntime {
             var location = exception.getSourceLocation();
             detail += " (" + location.getSource().getName() + ":"
                     + location.getStartLine() + ":" + location.getStartColumn() + ")";
+        }
+        if (exception.isInterrupted()) {
+            detail = "Skript wurde nach Überschreitung des Zeitbudgets von "
+                    + taskTimeBudgetMillis + " ms unterbrochen (mögliche Endlosschleife): "
+                    + detail;
         }
         errors.add(detail);
         if (exception.isCancelled() || exception.isResourceExhausted()) {

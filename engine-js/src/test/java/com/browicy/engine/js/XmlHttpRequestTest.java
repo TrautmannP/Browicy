@@ -4,6 +4,7 @@ import com.browicy.engine.dom.Document;
 import com.browicy.engine.html.HtmlParser;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -51,6 +52,42 @@ public class XmlHttpRequestTest {
         assertEquals("1,2,3,4|200|OK|Hallo XHR|https://daten.example/gruss.txt",
                 output(document));
         assertEquals(List.of(URI.create("https://daten.example/gruss.txt")), backend.requests);
+    }
+
+    @Test
+    public void asyncPostForwardsHeadersAndUtf8Body() {
+        Document document = parse();
+        RecordingBackend backend = RecordingBackend.completingRequest(request ->
+                response(request.uri(), 201, "Created", "angenommen"));
+
+        try (PageRuntime runtime = engine.createPageRuntime(
+                document, PageRuntimeObserver.NO_OP, backend)) {
+            runtime.execute(new JavaScriptSource("""
+                    const xhr = new XMLHttpRequest();
+                    xhr.onload = () => {
+                      document.getElementById('out').textContent =
+                          xhr.status + '|' + xhr.responseText;
+                    };
+                    xhr.open('POST', '/api/eintrag');
+                    xhr.setRequestHeader('X-Test', 'eins');
+                    xhr.setRequestHeader('x-test', 'zwei');
+                    xhr.setRequestHeader('Content-Length', '999');
+                    xhr.send('Grüße');
+                    """, null, "xhr-post.js"));
+            runtime.awaitIdle();
+        }
+
+        assertEquals("201|angenommen", output(document));
+        JsFetchRequest request = backend.requestDetails.getFirst();
+        assertEquals("POST", request.method());
+        assertEquals("Grüße", new String(request.body(), StandardCharsets.UTF_8));
+        assertTrue(request.headers().stream().anyMatch(header ->
+                header.name().equals("x-test") && header.value().equals("eins, zwei")));
+        assertTrue(request.headers().stream().anyMatch(header ->
+                header.name().equals("content-type")
+                        && header.value().equals("text/plain;charset=UTF-8")));
+        assertFalse(request.headers().stream().anyMatch(header ->
+                header.name().equals("content-length")));
     }
 
     @Test
@@ -183,6 +220,29 @@ public class XmlHttpRequestTest {
     }
 
     @Test
+    public void synchronousPutForwardsBodyInline() {
+        Document document = parse();
+        RecordingBackend backend = RecordingBackend.completingRequest(request ->
+                response(request.uri(), 200, "OK", "synchron gespeichert"));
+
+        try (PageRuntime runtime = engine.createPageRuntime(
+                document, PageRuntimeObserver.NO_OP, backend)) {
+            runtime.execute(new JavaScriptSource("""
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('PUT', '/api/direkt', false);
+                    xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.send('{"wert":42}');
+                    document.getElementById('out').textContent = xhr.responseText;
+                    """, null, "xhr-sync-put.js"));
+        }
+
+        assertEquals("synchron gespeichert", output(document));
+        JsFetchRequest request = backend.requestDetails.getFirst();
+        assertEquals("PUT", request.method());
+        assertEquals("{\"wert\":42}", new String(request.body(), StandardCharsets.UTF_8));
+    }
+
+    @Test
     public void synchronousFailuresThrowNetworkError() {
         Document document = parse();
         RecordingBackend backend = RecordingBackend.failing(
@@ -207,7 +267,7 @@ public class XmlHttpRequestTest {
     }
 
     @Test
-    public void invalidStatesAndUnsupportedMethodsThrow() {
+    public void invalidStatesAndForbiddenMethodsThrow() {
         Document document = parse();
         RecordingBackend backend = RecordingBackend.completing(uri ->
                 response(uri, 200, "OK", ""));
@@ -218,9 +278,6 @@ public class XmlHttpRequestTest {
                     const meldungen = [];
                     const ohneOpen = new XMLHttpRequest();
                     try { ohneOpen.send(); } catch (error) { meldungen.push(error.name); }
-                    const post = new XMLHttpRequest();
-                    post.open('POST', 'https://daten.example/');
-                    try { post.send('daten'); } catch (error) { meldungen.push(error.name); }
                     try { new XMLHttpRequest().open('TRACE', '/x'); }
                     catch (error) { meldungen.push(error.name); }
                     document.getElementById('out').textContent = meldungen.join('|');
@@ -228,7 +285,7 @@ public class XmlHttpRequestTest {
             runtime.awaitIdle();
         }
 
-        assertEquals("InvalidStateError|NotSupportedError|SecurityError", output(document));
+        assertEquals("InvalidStateError|SecurityError", output(document));
         assertTrue(backend.requests.isEmpty());
     }
 
@@ -360,25 +417,33 @@ public class XmlHttpRequestTest {
     private static final class RecordingBackend implements JsFetchBackend {
 
         private final List<URI> requests = new CopyOnWriteArrayList<>();
-        private final Function<URI, CompletableFuture<JsFetchResponse>> responder;
+        private final List<JsFetchRequest> requestDetails = new CopyOnWriteArrayList<>();
+        private final Function<JsFetchRequest, CompletableFuture<JsFetchResponse>> responder;
 
-        private RecordingBackend(Function<URI, CompletableFuture<JsFetchResponse>> responder) {
+        private RecordingBackend(
+                Function<JsFetchRequest, CompletableFuture<JsFetchResponse>> responder) {
             this.responder = responder;
         }
 
         static RecordingBackend completing(Function<URI, JsFetchResponse> responder) {
-            return new RecordingBackend(uri ->
-                    CompletableFuture.completedFuture(responder.apply(uri)));
+            return completingRequest(request -> responder.apply(request.uri()));
+        }
+
+        static RecordingBackend completingRequest(
+                Function<JsFetchRequest, JsFetchResponse> responder) {
+            return new RecordingBackend(request ->
+                    CompletableFuture.completedFuture(responder.apply(request)));
         }
 
         static RecordingBackend failing(Exception failure) {
-            return new RecordingBackend(uri -> CompletableFuture.failedFuture(failure));
+            return new RecordingBackend(request -> CompletableFuture.failedFuture(failure));
         }
 
         @Override
-        public CompletableFuture<JsFetchResponse> fetch(URI uri) {
-            requests.add(uri);
-            return responder.apply(uri);
+        public CompletableFuture<JsFetchResponse> fetch(JsFetchRequest request) {
+            requests.add(request.uri());
+            requestDetails.add(request);
+            return responder.apply(request);
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.browicy.engine;
 
 import com.browicy.engine.js.JsCookieStore;
+import com.browicy.engine.js.JsFetchRequest;
 import com.browicy.engine.js.JsFetchResponse;
 import com.browicy.engine.net.LocalTestServer;
 import com.browicy.engine.net.SubResourceLoader;
@@ -11,10 +12,12 @@ import org.junit.Test;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -65,6 +68,62 @@ public class PageFetchBackendTest {
 
         assertEquals(200, response.status());
         assertEquals("lokal", response.bodyText());
+    }
+
+    @Test
+    public void postRequestReachesNetworkWithHeadersAndBody() throws Exception {
+        AtomicReference<String> method = new AtomicReference<>();
+        AtomicReference<String> body = new AtomicReference<>();
+        AtomicReference<String> contentType = new AtomicReference<>();
+        server.on("/api/eintrag", exchange -> {
+            method.set(exchange.getRequestMethod());
+            contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            LocalTestServer.respond(exchange, 201, "text/plain",
+                    "gespeichert".getBytes(StandardCharsets.UTF_8));
+        });
+        PageFetchBackend backend = new PageFetchBackend(loader, serverOriginUrl("/index.html"));
+        JsFetchRequest request = new JsFetchRequest(
+                URI.create(serverOriginUrl("/api/eintrag")),
+                "POST",
+                List.of(new JsFetchRequest.Header(
+                        "Content-Type", "application/json; charset=utf-8")),
+                "{\"wert\":42}".getBytes(StandardCharsets.UTF_8));
+
+        JsFetchResponse response = backend.fetch(request).get(5, TimeUnit.SECONDS);
+
+        assertEquals(201, response.status());
+        assertEquals("gespeichert", response.bodyText());
+        assertEquals("POST", method.get());
+        assertEquals("application/json; charset=utf-8", contentType.get());
+        assertEquals("{\"wert\":42}", body.get());
+    }
+
+    @Test
+    public void temporaryRedirectPreservesPostMethodAndBody() throws Exception {
+        AtomicReference<String> method = new AtomicReference<>();
+        AtomicReference<String> body = new AtomicReference<>();
+        server.on("/weiter", exchange -> {
+            exchange.getResponseHeaders().set("Location", "/ziel");
+            exchange.sendResponseHeaders(307, -1);
+            exchange.close();
+        });
+        server.on("/ziel", exchange -> {
+            method.set(exchange.getRequestMethod());
+            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            LocalTestServer.respond(exchange, 200, "text/plain",
+                    "ok".getBytes(StandardCharsets.UTF_8));
+        });
+        PageFetchBackend backend = new PageFetchBackend(loader, serverOriginUrl("/index.html"));
+        JsFetchRequest request = new JsFetchRequest(
+                URI.create(serverOriginUrl("/weiter")), "POST", List.of(),
+                "nutzlast".getBytes(StandardCharsets.UTF_8));
+
+        JsFetchResponse response = backend.fetch(request).get(5, TimeUnit.SECONDS);
+
+        assertEquals(200, response.status());
+        assertEquals("POST", method.get());
+        assertEquals("nutzlast", body.get());
     }
 
     @Test

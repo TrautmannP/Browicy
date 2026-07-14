@@ -60,6 +60,46 @@ public class HttpClientTest {
     }
 
     @Test
+    public void sendsPostBodyHeadersAndCalculatedContentLength() throws IOException {
+        AtomicReference<String> method = new AtomicReference<>();
+        AtomicReference<String> body = new AtomicReference<>();
+        AtomicReference<com.sun.net.httpserver.Headers> headers = new AtomicReference<>();
+        server.on("/api", exchange -> {
+            method.set(exchange.getRequestMethod());
+            headers.set(exchange.getRequestHeaders());
+            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            LocalTestServer.respond(exchange, 201, "text/plain",
+                    "ok".getBytes(StandardCharsets.UTF_8));
+        });
+        HttpHeaders requestHeaders = new HttpHeaders();
+        requestHeaders.set("Content-Type", "application/json; charset=utf-8");
+        requestHeaders.set("X-Test", "ja");
+        requestHeaders.set("Content-Length", "999");
+        byte[] requestBody = "{\"name\":\"Grüße\"}".getBytes(StandardCharsets.UTF_8);
+
+        HttpResponse response = client.request(
+                "POST", URI.create(server.url("/api")), requestBody, requestHeaders);
+
+        assertEquals(201, response.statusCode());
+        assertEquals("POST", method.get());
+        assertEquals("{\"name\":\"Grüße\"}", body.get());
+        assertEquals("application/json; charset=utf-8",
+                headers.get().getFirst("Content-Type"));
+        assertEquals("ja", headers.get().getFirst("X-Test"));
+        assertEquals(String.valueOf(requestBody.length),
+                headers.get().getFirst("Content-Length"));
+    }
+
+    @Test
+    public void rejectsRequestHeaderInjection() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("X-Test", "wert\r\nInjected: true");
+
+        assertThrows(IllegalArgumentException.class, () -> client.request(
+                "POST", URI.create(server.url("/")), new byte[0], headers));
+    }
+
+    @Test
     public void readsChunkedResponses() throws IOException {
         server.on("/chunked", exchange -> {
             exchange.sendResponseHeaders(200, 0);
