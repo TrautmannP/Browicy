@@ -25,11 +25,17 @@ public record RenderStyle(
         BoxEdges borderWidth,
         BoxColors borderColor,
         BoxBorders borderStyle,
+        BorderCollapse borderCollapse,
         TextAlign textAlign,
         Overflow overflow,
         VerticalAlign verticalAlign) {
 
-    public enum Display { BLOCK, INLINE, INLINE_BLOCK, NONE }
+    public enum Display {
+        BLOCK, INLINE, INLINE_BLOCK, NONE,
+        TABLE, INLINE_TABLE, TABLE_ROW_GROUP, TABLE_HEADER_GROUP, TABLE_FOOTER_GROUP,
+        TABLE_ROW, TABLE_CELL, TABLE_COLUMN_GROUP, TABLE_COLUMN, TABLE_CAPTION
+    }
+    public enum BorderCollapse { SEPARATE, COLLAPSE }
     public enum Position { STATIC, RELATIVE, ABSOLUTE }
     public enum TextAlign { LEFT, CENTER, RIGHT }
     public enum BoxSizing { CONTENT_BOX, BORDER_BOX }

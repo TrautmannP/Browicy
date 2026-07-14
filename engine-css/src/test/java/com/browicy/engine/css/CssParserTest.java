@@ -4,6 +4,7 @@ import com.browicy.engine.selectors.ComplexSelector;
 import com.browicy.engine.selectors.CompoundSelector;
 import com.browicy.engine.selectors.Specificity;
 import java.util.List;
+import java.util.Map;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -224,5 +225,19 @@ public class CssParserTest {
         assertEquals(2, rules.size());
         assertEquals("div > p", rules.get(0).selector().toString());
         assertEquals("main .notice", rules.get(1).selector().toString());
+    }
+
+    @Test
+    public void parsesTableDisplayRolesAndCollapsedBorders() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                display: table-cell;
+                border-collapse: collapse;
+                """);
+
+        assertEquals("table-cell", declarations.get("display"));
+        assertEquals("collapse", declarations.get("border-collapse"));
+        assertTrue(parser.supports("display", "table-row"));
+        assertTrue(parser.supports("border-collapse", "separate"));
     }
 }

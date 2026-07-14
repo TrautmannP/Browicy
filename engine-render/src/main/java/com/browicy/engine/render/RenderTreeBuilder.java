@@ -77,6 +77,7 @@ public final class RenderTreeBuilder {
                 BoxEdges.ZERO,
                 BoxColors.CURRENT_COLOR,
                 BoxBorders.NONE,
+                RenderStyle.BorderCollapse.SEPARATE,
                 RenderStyle.TextAlign.LEFT,
                 RenderStyle.Overflow.VISIBLE,
                 RenderStyle.VerticalAlign.BASELINE);
@@ -155,14 +156,23 @@ public final class RenderTreeBuilder {
                         element, style, imageData.apply(element),
                         positiveIntegerAttribute(element, "width"),
                         positiveIntegerAttribute(element, "height")));
-            } else if (style.display() == RenderStyle.Display.BLOCK) {
+            } else if (isBlockContainer(style.display())) {
                 output.add(buildBox(element, style));
-            } else if (style.display() == RenderStyle.Display.INLINE_BLOCK) {
+            } else if (style.display() == RenderStyle.Display.INLINE_BLOCK
+                    || style.display() == RenderStyle.Display.INLINE_TABLE) {
                 output.add(buildInlineBlock(element, style));
             } else {
                 output.add(buildInlineBox(element, style));
             }
         }
+    }
+
+    private static boolean isBlockContainer(RenderStyle.Display display) {
+        return switch (display) {
+            case BLOCK, TABLE, TABLE_ROW_GROUP, TABLE_HEADER_GROUP, TABLE_FOOTER_GROUP,
+                 TABLE_ROW, TABLE_CELL, TABLE_COLUMN_GROUP, TABLE_COLUMN, TABLE_CAPTION -> true;
+            default -> false;
+        };
     }
 
     private static Integer positiveIntegerAttribute(Element element, String name) {
@@ -236,6 +246,7 @@ public final class RenderTreeBuilder {
                 BoxEdges.ZERO,
                 BoxColors.CURRENT_COLOR,
                 BoxBorders.NONE,
+                inherited.borderCollapse(),
                 inherited.textAlign(),
                 RenderStyle.Overflow.VISIBLE,
                 RenderStyle.VerticalAlign.BASELINE);
@@ -269,6 +280,7 @@ public final class RenderTreeBuilder {
         BoxEdges borderWidth = BoxEdges.ZERO;
         BoxColors borderColor = BoxColors.CURRENT_COLOR;
         BoxBorders borderStyle = BoxBorders.NONE;
+        RenderStyle.BorderCollapse borderCollapse = RenderStyle.BorderCollapse.SEPARATE;
         RenderStyle.TextAlign textAlign = parent.textAlign();
         RenderStyle.Overflow overflow = RenderStyle.Overflow.VISIBLE;
         RenderStyle.VerticalAlign verticalAlign = RenderStyle.VerticalAlign.BASELINE;
@@ -278,8 +290,21 @@ public final class RenderTreeBuilder {
                 case "block" -> RenderStyle.Display.BLOCK;
                 case "inline-block" -> RenderStyle.Display.INLINE_BLOCK;
                 case "none" -> RenderStyle.Display.NONE;
+                case "table" -> RenderStyle.Display.TABLE;
+                case "inline-table" -> RenderStyle.Display.INLINE_TABLE;
+                case "table-row-group" -> RenderStyle.Display.TABLE_ROW_GROUP;
+                case "table-header-group" -> RenderStyle.Display.TABLE_HEADER_GROUP;
+                case "table-footer-group" -> RenderStyle.Display.TABLE_FOOTER_GROUP;
+                case "table-row" -> RenderStyle.Display.TABLE_ROW;
+                case "table-cell" -> RenderStyle.Display.TABLE_CELL;
+                case "table-column-group" -> RenderStyle.Display.TABLE_COLUMN_GROUP;
+                case "table-column" -> RenderStyle.Display.TABLE_COLUMN;
+                case "table-caption" -> RenderStyle.Display.TABLE_CAPTION;
                 default -> RenderStyle.Display.INLINE;
             };
+        }
+        if ("collapse".equals(declarations.get("border-collapse"))) {
+            borderCollapse = RenderStyle.BorderCollapse.COLLAPSE;
         }
         position = switch (declarations.getOrDefault("position", "static")) {
             case "relative" -> RenderStyle.Position.RELATIVE;
@@ -351,7 +376,7 @@ public final class RenderTreeBuilder {
         return new RenderStyle(display, position, top, right, bottom, left,
                 fontSize, fontWeight, italic, color, background,
                 width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
-                autoMargins, padding, borderWidth, borderColor, borderStyle, textAlign,
+                autoMargins, padding, borderWidth, borderColor, borderStyle, borderCollapse, textAlign,
                 overflow, verticalAlign);
     }
 
@@ -359,7 +384,19 @@ public final class RenderTreeBuilder {
         if (HIDDEN_TAGS.contains(tag)) {
             return RenderStyle.Display.NONE;
         }
-        return BLOCK_TAGS.contains(tag) ? RenderStyle.Display.BLOCK : RenderStyle.Display.INLINE;
+        return switch (tag) {
+            case "table" -> RenderStyle.Display.TABLE;
+            case "thead" -> RenderStyle.Display.TABLE_HEADER_GROUP;
+            case "tbody" -> RenderStyle.Display.TABLE_ROW_GROUP;
+            case "tfoot" -> RenderStyle.Display.TABLE_FOOTER_GROUP;
+            case "tr" -> RenderStyle.Display.TABLE_ROW;
+            case "td", "th" -> RenderStyle.Display.TABLE_CELL;
+            case "colgroup" -> RenderStyle.Display.TABLE_COLUMN_GROUP;
+            case "col" -> RenderStyle.Display.TABLE_COLUMN;
+            case "caption" -> RenderStyle.Display.TABLE_CAPTION;
+            default -> BLOCK_TAGS.contains(tag)
+                    ? RenderStyle.Display.BLOCK : RenderStyle.Display.INLINE;
+        };
     }
 
     private static float defaultFontSize(String tag, float inherited) {
@@ -552,7 +589,7 @@ public final class RenderTreeBuilder {
                 style.minWidth(), style.maxWidth(), style.minHeight(), style.maxHeight(),
                 style.boxSizing(), style.margin(), style.autoMargins(), style.padding(),
                 style.borderWidth(),
-                style.borderColor(), style.borderStyle(), style.textAlign(), style.overflow(),
+                style.borderColor(), style.borderStyle(), style.borderCollapse(), style.textAlign(), style.overflow(),
                 style.verticalAlign());
     }
 }

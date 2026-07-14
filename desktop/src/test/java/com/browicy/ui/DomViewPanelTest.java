@@ -762,6 +762,39 @@ public class DomViewPanelTest {
         assertEquals(92f, logo.height(), 0.001f);
     }
 
+    @Test
+    public void laysOutTableCellsInSharedColumnsAndRows() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><table id="table" style="border-collapse:collapse">
+                  <tbody><tr id="row-one">
+                    <td id="a" style="width:100px;padding:2px">short</td>
+                    <td id="b" style="width:60px;padding:2px">one<br>two</td>
+                  </tr><tr id="row-two">
+                    <td id="c">a much wider first-column value</td>
+                    <td id="d">last</td>
+                  </tr></tbody>
+                </table></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(500);
+        BoxFragment table = boxById(layout, "table");
+        BoxFragment rowOne = boxById(layout, "row-one");
+        BoxFragment rowTwo = boxById(layout, "row-two");
+        BoxFragment a = boxById(layout, "a");
+        BoxFragment b = boxById(layout, "b");
+        BoxFragment c = boxById(layout, "c");
+        BoxFragment d = boxById(layout, "d");
+
+        assertEquals(a.y(), b.y(), 0.001f);
+        assertEquals(c.y(), d.y(), 0.001f);
+        assertEquals(a.x(), c.x(), 0.001f);
+        assertEquals(b.x(), d.x(), 0.001f);
+        assertEquals(a.x() + a.width(), b.x(), 0.001f);
+        assertEquals(rowOne.y() + rowOne.height(), rowTwo.y(), 0.001f);
+        assertEquals(table.width(), rowOne.width(), 0.001f);
+        assertTrue(rowOne.height() > a.box().style().fontSizePx());
+    }
+
     private static Document parse(String html) {
         return new HtmlParser().parse(html);
     }

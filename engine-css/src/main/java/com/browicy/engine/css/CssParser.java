@@ -155,6 +155,7 @@ public final class CssParser {
             case "text-align" -> supports(normalized, "left");
             case "overflow" -> supports(normalized, "visible");
             case "vertical-align" -> supports(normalized, "baseline");
+            case "border-collapse" -> supports(normalized, "separate");
             case "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
                  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
                  "border", "border-width", "border-top-width", "border-right-width",
@@ -185,7 +186,17 @@ public final class CssParser {
             }
             case "display" -> {
                 if (value.equals("block") || value.equals("inline")
-                        || value.equals("inline-block") || value.equals("none")) {
+                        || value.equals("inline-block") || value.equals("none")
+                        || value.equals("table") || value.equals("inline-table")
+                        || value.equals("table-row-group") || value.equals("table-header-group")
+                        || value.equals("table-footer-group") || value.equals("table-row")
+                        || value.equals("table-cell") || value.equals("table-column-group")
+                        || value.equals("table-column") || value.equals("table-caption")) {
+                    target.put(property, value);
+                }
+            }
+            case "border-collapse" -> {
+                if (value.equals("separate") || value.equals("collapse")) {
                     target.put(property, value);
                 }
             }
