@@ -62,8 +62,10 @@ public final class RenderTreeBuilder {
                 RenderStyle.Clear.NONE,
                 RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO,
                 DEFAULT_FONT_SIZE,
+                "sans-serif",
                 400,
                 false,
+                0,
                 DEFAULT_COLOR,
                 null,
                 RenderLength.AUTO,
@@ -233,8 +235,10 @@ public final class RenderTreeBuilder {
                 RenderStyle.Clear.NONE,
                 RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO,
                 inherited.fontSizePx(),
+                inherited.fontFamily(),
                 inherited.fontWeight(),
                 inherited.italic(),
+                inherited.lineHeight(),
                 inherited.color(),
                 null,
                 RenderLength.AUTO,
@@ -269,8 +273,10 @@ public final class RenderTreeBuilder {
         RenderOffset bottom = RenderOffset.AUTO;
         RenderOffset left = RenderOffset.AUTO;
         float fontSize = defaultFontSize(tag, parent.fontSizePx());
+        String fontFamily = parent.fontFamily();
         int fontWeight = defaultFontWeight(tag, parent.fontWeight());
         boolean italic = defaultItalic(tag, parent.italic());
+        float lineHeight = parent.lineHeight();
         CssColor color = parent.color();
         CssColor background = null;
         RenderLength width = RenderLength.AUTO;
@@ -339,6 +345,12 @@ public final class RenderTreeBuilder {
         if (declarations.containsKey("font-style")) {
             italic = !"normal".equals(declarations.get("font-style"));
         }
+        if (declarations.containsKey("font-family")) {
+            fontFamily = firstFontFamily(declarations.get("font-family"));
+        }
+        if (declarations.containsKey("line-height")) {
+            lineHeight = resolveLineHeight(declarations.get("line-height"), fontSize);
+        }
         width = resolveDimension(declarations.get("width"), fontSize);
         height = resolveDimension(declarations.get("height"), fontSize);
         minWidth = resolveDimension(declarations.get("min-width"), fontSize);
@@ -391,7 +403,7 @@ public final class RenderTreeBuilder {
         borderWidth = effectiveBorderWidths(borderWidth, borderStyle);
 
         return new RenderStyle(display, position, floatMode, clear, top, right, bottom, left,
-                fontSize, fontWeight, italic, color, background,
+                fontSize, fontFamily, fontWeight, italic, lineHeight, color, background,
                 width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderCollapse, textAlign,
                 overflow, verticalAlign);
@@ -555,6 +567,31 @@ public final class RenderTreeBuilder {
         }
     }
 
+    private float resolveLineHeight(String value, float fontSize) {
+        if (value == null || value.equals("normal")) return 0;
+        try {
+            if (value.endsWith("%")) {
+                return -Float.parseFloat(value.substring(0, value.length() - 1)) / 100f;
+            }
+            if (value.matches("(?:\\d+(?:\\.\\d+)?|\\.\\d+)")) {
+                return -Float.parseFloat(value);
+            }
+            return resolveLength(value, fontSize, rootFontSizePx, 0);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private static String firstFontFamily(String value) {
+        if (value == null || value.isBlank()) return "sans-serif";
+        String family = value.split(",", 2)[0].strip();
+        if (family.length() >= 2 && (family.startsWith("\"") && family.endsWith("\"")
+                || family.startsWith("'") && family.endsWith("'"))) {
+            family = family.substring(1, family.length() - 1);
+        }
+        return family;
+    }
+
     private RenderOffset resolveOffset(String value, float emBase) {
         if (value == null || "auto".equals(value)) return RenderOffset.AUTO;
         if ("0".equals(value)) return new RenderOffset(0, RenderOffset.Unit.PX);
@@ -601,7 +638,7 @@ public final class RenderTreeBuilder {
 
     private static RenderStyle copyWithDisplay(RenderStyle style, RenderStyle.Display display) {
         return new RenderStyle(display, style.position(), style.floatMode(), style.clear(), style.top(), style.right(),
-                style.bottom(), style.left(), style.fontSizePx(), style.fontWeight(), style.italic(),
+                style.bottom(), style.left(), style.fontSizePx(), style.fontFamily(), style.fontWeight(), style.italic(), style.lineHeight(),
                 style.color(), style.backgroundColor(), style.width(), style.height(),
                 style.minWidth(), style.maxWidth(), style.minHeight(), style.maxHeight(),
                 style.boxSizing(), style.margin(), style.autoMargins(), style.padding(),

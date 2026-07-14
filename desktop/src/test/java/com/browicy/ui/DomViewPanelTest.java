@@ -817,6 +817,27 @@ public class DomViewPanelTest {
         assertEquals(368f, clear.width(), 0.001f);
     }
 
+    @Test
+    public void appliesFontShorthandFamilyAndLineHeightToTextLayout() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div style="font:italic bold 20px/40px monospace">Text</div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(300);
+        TextFragment text = layout.fragments().stream()
+                .filter(TextFragment.class::isInstance)
+                .map(TextFragment.class::cast)
+                .filter(fragment -> fragment.text().equals("Text"))
+                .findFirst().orElseThrow();
+        LineBox line = layout.lineBoxes().getFirst();
+
+        assertEquals(20, text.font().getSize());
+        assertTrue(text.font().isBold());
+        assertTrue(text.font().isItalic());
+        assertEquals(java.awt.Font.MONOSPACED, text.font().getFamily());
+        assertEquals(40f, line.height(), 0.001f);
+    }
+
     private static Document parse(String html) {
         return new HtmlParser().parse(html);
     }

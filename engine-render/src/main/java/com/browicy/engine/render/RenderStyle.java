@@ -10,8 +10,10 @@ public record RenderStyle(
         RenderOffset bottom,
         RenderOffset left,
         float fontSizePx,
+        String fontFamily,
         int fontWeight,
         boolean italic,
+        float lineHeight,
         CssColor color,
         CssColor backgroundColor,
         RenderLength width,
@@ -57,5 +59,9 @@ public record RenderStyle(
 
     public boolean bold() {
         return fontWeight >= 600;
+    }
+
+    public float usedLineHeightPx() {
+        return lineHeight < 0 ? -lineHeight * fontSizePx : lineHeight;
     }
 }

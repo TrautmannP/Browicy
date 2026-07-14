@@ -249,4 +249,16 @@ public class CssParserTest {
         assertEquals("right", declarations.get("float"));
         assertEquals("both", declarations.get("clear"));
     }
+
+    @Test
+    public void expandsFontShorthandAndParsesLineHeight() {
+        Map<String, String> declarations = new CssParser().parseDeclarations(
+                "font:italic bold 20px/1.5 monospace");
+
+        assertEquals("italic", declarations.get("font-style"));
+        assertEquals("bold", declarations.get("font-weight"));
+        assertEquals("20px", declarations.get("font-size"));
+        assertEquals("1.5", declarations.get("line-height"));
+        assertEquals("monospace", declarations.get("font-family"));
+    }
 }

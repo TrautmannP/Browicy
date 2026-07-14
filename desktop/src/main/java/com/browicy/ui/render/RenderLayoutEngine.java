@@ -1175,13 +1175,13 @@ public final class RenderLayoutEngine {
             while (offset < word.length()) {
                 float finalWidth = metrics.stringWidth(word.substring(offset));
                 if (finalWidth + trailingDecorationWidth <= width - line.width()) {
-                    line.addText(word.substring(offset), font, metrics, style.color());
+                    line.addText(word.substring(offset), font, metrics, style);
                     return;
                 }
 
                 float remaining = Math.max(1, width - line.width());
                 int end = longestFittingEnd(word, offset, metrics, remaining);
-                line.addText(word.substring(offset, end), font, metrics, style.color());
+                line.addText(word.substring(offset, end), font, metrics, style);
                 offset = end;
                 if (offset < word.length()) {
                     flushLine(false, null);
@@ -1214,7 +1214,7 @@ public final class RenderLayoutEngine {
             if (pendingSpace && line.hasPlacedContent() && pendingSpaceStyle != null) {
                 Font font = fontFor(pendingSpaceStyle);
                 FontMetrics metrics = graphics.getFontMetrics(font);
-                line.addText(" ", font, metrics, pendingSpaceStyle.color());
+                line.addText(" ", font, metrics, pendingSpaceStyle);
             }
             pendingSpace = false;
             pendingSpaceStyle = null;
@@ -1223,7 +1223,7 @@ public final class RenderLayoutEngine {
         private void flushLine(boolean force, RenderStyle fallbackStyle) {
             if (!line.hasContent()) {
                 if (force && fallbackStyle != null) {
-                    line.addStrut(fontFor(fallbackStyle));
+                    line.addStrut(fontFor(fallbackStyle), fallbackStyle);
                 } else {
                     line = new LineBuilder(graphics, activeBoxes, width, containingHeight);
                     return;
@@ -1253,7 +1253,14 @@ public final class RenderLayoutEngine {
             if (style.italic()) {
                 awtStyle |= Font.ITALIC;
             }
-            return new Font(Font.SANS_SERIF, awtStyle, Math.max(1, Math.round(style.fontSizePx())));
+            String family = switch (style.fontFamily().toLowerCase(java.util.Locale.ROOT)) {
+                case "serif" -> Font.SERIF;
+                case "sans-serif" -> Font.SANS_SERIF;
+                case "monospace" -> Font.MONOSPACED;
+                case "cursive", "fantasy", "system-ui" -> Font.DIALOG;
+                default -> style.fontFamily();
+            };
+            return new Font(family, awtStyle, Math.max(1, Math.round(style.fontSizePx())));
         }
 
         private static int longestFittingEnd(String text,
@@ -1315,14 +1322,25 @@ public final class RenderLayoutEngine {
                             float width,
                             Font font,
                             FontMetrics metrics,
-                            CssColor color) implements LineItem {
-        @Override public float ascent() { return metrics.getAscent(); }
-        @Override public float descent() { return metrics.getDescent() + metrics.getLeading(); }
+                            CssColor color,
+                            float usedLineHeight) implements LineItem {
+        private float adjustment() {
+            return usedLineHeight <= 0 ? 0 : (usedLineHeight - metrics.getHeight()) / 2f;
+        }
+        @Override public float ascent() { return Math.max(0, metrics.getAscent() + adjustment()); }
+        @Override public float descent() {
+            return Math.max(0, metrics.getDescent() + metrics.getLeading() + adjustment());
+        }
     }
 
-    private record StrutItem(FontMetrics metrics) implements LineItem {
-        @Override public float ascent() { return metrics.getAscent(); }
-        @Override public float descent() { return metrics.getDescent() + metrics.getLeading(); }
+    private record StrutItem(FontMetrics metrics, float usedLineHeight) implements LineItem {
+        private float adjustment() {
+            return usedLineHeight <= 0 ? 0 : (usedLineHeight - metrics.getHeight()) / 2f;
+        }
+        @Override public float ascent() { return Math.max(0, metrics.getAscent() + adjustment()); }
+        @Override public float descent() {
+            return Math.max(0, metrics.getDescent() + metrics.getLeading() + adjustment());
+        }
     }
 
     private record AtomicItem(AtomicLayout layout, float x) implements LineItem {
@@ -1464,15 +1482,16 @@ public final class RenderLayoutEngine {
         void addText(String text,
                      Font font,
                      FontMetrics metrics,
-                     CssColor color) {
+                     RenderStyle style) {
             float itemWidth = metrics.stringWidth(text);
-            addItem(new TextItem(text, width, itemWidth, font, metrics, color));
+            addItem(new TextItem(text, width, itemWidth, font, metrics, style.color(),
+                    style.usedLineHeightPx()));
             width += itemWidth;
             placedContent = true;
         }
 
-        void addStrut(Font font) {
-            addItem(new StrutItem(graphics.getFontMetrics(font)));
+        void addStrut(Font font, RenderStyle style) {
+            addItem(new StrutItem(graphics.getFontMetrics(font), style.usedLineHeightPx()));
             placedContent = true;
         }
 

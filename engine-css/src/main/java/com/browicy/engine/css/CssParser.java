@@ -33,6 +33,12 @@ public final class CssParser {
     private static final Pattern FONT_SIZE = Pattern.compile(
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_WEIGHT = Pattern.compile("[1-9]00");
+    private static final Pattern LINE_HEIGHT = Pattern.compile(
+            "(?:normal|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:(?:px|em|rem|vw|vh|%)?))",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern FONT_SHORTHAND = Pattern.compile(
+            "^(.*?)(" + FONT_SIZE.pattern() + ")(?:\\s*/\\s*(" + LINE_HEIGHT.pattern()
+                    + "))?\\s+(.+)$", Pattern.CASE_INSENSITIVE);
     private static final List<String> SIDES = List.of("top", "right", "bottom", "left");
 
     public List<CssRule> parse(String css) {
@@ -144,6 +150,8 @@ public final class CssParser {
         return switch (normalized) {
             case "color", "background", "background-color" -> supports(normalized, "black");
             case "font-size" -> supports(normalized, "16px");
+            case "font", "font-family" -> supports(normalized, "16px sans-serif");
+            case "line-height" -> supports(normalized, "normal");
             case "font-weight" -> supports(normalized, "normal");
             case "font-style" -> supports(normalized, "normal");
             case "display" -> supports(normalized, "block");
@@ -175,6 +183,11 @@ public final class CssParser {
             case "color", "background-color" -> putColor(target, property, value);
             case "background" -> putColor(target, "background-color", value);
             case "font-size" -> putIfMatches(target, property, value, FONT_SIZE);
+            case "font-family" -> {
+                if (!value.isBlank()) target.put(property, value);
+            }
+            case "line-height" -> putIfMatches(target, property, value, LINE_HEIGHT);
+            case "font" -> expandFont(target, value);
             case "font-weight" -> {
                 if (value.equals("normal") || value.equals("bold") || value.equals("bolder")
                         || value.equals("lighter") || FONT_WEIGHT.matcher(value).matches()) {
@@ -256,6 +269,34 @@ public final class CssParser {
             case "border" -> expandBorder(target, null, value);
             default -> parseLonghand(target, property, value);
         }
+    }
+
+    private static void expandFont(Map<String, String> target, String value) {
+        var matcher = FONT_SHORTHAND.matcher(value.strip());
+        if (!matcher.matches()) return;
+        String prefix = matcher.group(1).strip();
+        String fontStyle = "normal";
+        String fontWeight = "normal";
+        if (!prefix.isEmpty()) {
+            for (String token : prefix.split("\\s+")) {
+                if (token.equals("italic") || token.equals("oblique")) {
+                    fontStyle = token;
+                } else if (token.equals("normal")) {
+                    fontStyle = "normal";
+                    fontWeight = "normal";
+                } else if (token.equals("bold") || token.equals("bolder")
+                        || token.equals("lighter") || FONT_WEIGHT.matcher(token).matches()) {
+                    fontWeight = token;
+                } else {
+                    return;
+                }
+            }
+        }
+        target.put("font-style", fontStyle);
+        target.put("font-weight", fontWeight);
+        target.put("font-size", matcher.group(2));
+        target.put("line-height", matcher.group(3) == null ? "normal" : matcher.group(3));
+        target.put("font-family", matcher.group(4).strip());
     }
 
     private static void parseLonghand(Map<String, String> target, String property, String value) {
