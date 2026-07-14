@@ -128,6 +128,18 @@ public class HttpClientTest {
     }
 
     @Test
+    public void enforcesSharedTransferBudgetBeforeReadingKnownBody() {
+        server.on("/large", exchange -> LocalTestServer.respond(exchange, 200,
+                "application/octet-stream", new byte[1024]));
+        DownloadBudget budget = new DownloadBudget(100, 100);
+
+        IOException failure = assertThrows(IOException.class, () -> client.get(
+                URI.create(server.url("/large")), "*/*", budget));
+
+        assertTrue(failure.getMessage().contains("Transferbudget"));
+    }
+
+    @Test
     public void rejectsUnsupportedSchemes() {
         IOException e = assertThrows(IOException.class,
                 () -> client.get(URI.create("ftp://example.org/")));

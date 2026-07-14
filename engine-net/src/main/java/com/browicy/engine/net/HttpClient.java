@@ -30,6 +30,10 @@ public final class HttpClient {
     }
 
     public HttpResponse get(URI url, String accept) throws IOException {
+        return get(url, accept, null);
+    }
+
+    HttpResponse get(URI url, String accept, DownloadBudget budget) throws IOException {
         String scheme = url.getScheme() == null ? "" : url.getScheme().toLowerCase();
         if (!scheme.equals("http") && !scheme.equals("https")) {
             throw new IOException("Nicht unterstütztes URL-Schema: " + url);
@@ -48,7 +52,7 @@ public final class HttpClient {
             out.write(buildRequest(url, host, port, defaultPort, accept).getBytes(StandardCharsets.ISO_8859_1));
             out.flush();
             return readResponse(new BufferedInputStream(
-                    new DeadlineInputStream(socket.getInputStream(), MAX_RESPONSE_DURATION_MS)));
+                    new DeadlineInputStream(socket.getInputStream(), MAX_RESPONSE_DURATION_MS)), budget);
         }
     }
 
@@ -94,7 +98,7 @@ public final class HttpClient {
         return normalized;
     }
 
-    private static HttpResponse readResponse(InputStream in) throws IOException {
+    private static HttpResponse readResponse(InputStream in, DownloadBudget budget) throws IOException {
         String statusLine = readLine(in);
         if (statusLine == null || statusLine.isEmpty()) {
             throw new IOException("Leere Antwort vom Server");
@@ -112,8 +116,8 @@ public final class HttpClient {
         String reasonPhrase = parts.length == 3 ? parts[2] : "";
 
         HttpHeaders headers = readHeaders(in);
-        byte[] body = readBody(in, statusCode, headers);
-        body = decodeContentEncoding(body, headers);
+        byte[] body = readBody(in, statusCode, headers, budget);
+        body = decodeContentEncoding(body, headers, budget);
         return new HttpResponse(statusCode, reasonPhrase, headers, body);
     }
 
@@ -134,13 +138,14 @@ public final class HttpClient {
         return headers;
     }
 
-    private static byte[] readBody(InputStream in, int statusCode, HttpHeaders headers) throws IOException {
+    private static byte[] readBody(InputStream in, int statusCode, HttpHeaders headers,
+                                   DownloadBudget budget) throws IOException {
         boolean bodyless = statusCode / 100 == 1 || statusCode == 204 || statusCode == 304;
         if (bodyless) {
             return new byte[0];
         }
         if (headers.hasValue("Transfer-Encoding", "chunked")) {
-            return readChunkedBody(in);
+            return readChunkedBody(in, budget);
         }
         String contentLength = headers.first("Content-Length");
         if (contentLength != null) {
@@ -150,15 +155,19 @@ public final class HttpClient {
             } catch (NumberFormatException e) {
                 throw new IOException("Ungültige Content-Length: " + contentLength);
             }
+            if (length < 0) {
+                throw new IOException("Ungültige Content-Length: " + contentLength);
+            }
             if (length > MAX_BODY_BYTES) {
                 throw new IOException("Antwort zu groß: " + length + " Bytes");
             }
-            return readFully(in, (int) length);
+            if (budget != null) budget.consumeTransfer(length);
+            return readFully(in, (int) length, null);
         }
-        return readUntilEof(in);
+        return readUntilEof(in, budget);
     }
 
-    private static byte[] readChunkedBody(InputStream in) throws IOException {
+    private static byte[] readChunkedBody(InputStream in, DownloadBudget budget) throws IOException {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         while (true) {
             String sizeLine = readLine(in);
@@ -185,41 +194,50 @@ public final class HttpClient {
             if (body.size() + size > MAX_BODY_BYTES) {
                 throw new IOException("Antwort zu groß (chunked)");
             }
-            body.write(readFully(in, size));
+            if (budget != null) budget.consumeTransfer(size);
+            body.write(readFully(in, size, null));
             readLine(in);
         }
     }
 
-    private static byte[] decodeContentEncoding(byte[] body, HttpHeaders headers) throws IOException {
+    private static byte[] decodeContentEncoding(byte[] body, HttpHeaders headers,
+                                                DownloadBudget budget) throws IOException {
         String encoding = headers.first("Content-Encoding");
         if (encoding == null || encoding.equalsIgnoreCase("identity") || body.length == 0) {
+            if (budget != null) budget.consumeDecoded(body.length);
             return body;
         }
         if (encoding.equalsIgnoreCase("gzip") || encoding.equalsIgnoreCase("x-gzip")) {
             try (GZIPInputStream gzip = new GZIPInputStream(new ByteArrayInputStream(body))) {
-                return readLimited(gzip, "Antwort zu groß (entpackt)");
+                return readLimited(gzip, "Antwort zu groß (entpackt)", budget, true);
             }
         }
         throw new IOException("Nicht unterstütztes Content-Encoding: " + encoding);
     }
 
-    private static byte[] readFully(InputStream in, int length) throws IOException {
+    private static byte[] readFully(InputStream in, int length, DownloadBudget budget) throws IOException {
         byte[] data = in.readNBytes(length);
+        if (budget != null) budget.consumeTransfer(data.length);
         if (data.length < length) {
             throw new IOException("Verbindung endete vorzeitig: " + data.length + " von " + length + " Bytes");
         }
         return data;
     }
 
-    private static byte[] readUntilEof(InputStream in) throws IOException {
-        return readLimited(in, "Antwort zu groß");
+    private static byte[] readUntilEof(InputStream in, DownloadBudget budget) throws IOException {
+        return readLimited(in, "Antwort zu groß", budget, false);
     }
 
-    private static byte[] readLimited(InputStream in, String tooLargeMessage) throws IOException {
+    private static byte[] readLimited(InputStream in, String tooLargeMessage,
+                                      DownloadBudget budget, boolean decoded) throws IOException {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         byte[] buffer = new byte[8192];
         int read;
         while ((read = in.read(buffer)) != -1) {
+            if (budget != null) {
+                if (decoded) budget.consumeDecoded(read);
+                else budget.consumeTransfer(read);
+            }
             if (body.size() + read > MAX_BODY_BYTES) {
                 throw new IOException(tooLargeMessage);
             }
@@ -245,11 +263,6 @@ public final class HttpClient {
         return text.endsWith("\r") ? text.substring(0, text.length() - 1) : text;
     }
 
-    /**
-     * Erzwingt eine Obergrenze für die Gesamtdauer einer Antwort. Das Socket-Read-Timeout
-     * greift nur pro read()-Aufruf, sodass ein Server, der dauerhaft tröpfelnd Bytes sendet,
-     * eine Verbindung sonst unbegrenzt offen halten könnte.
-     */
     private static final class DeadlineInputStream extends InputStream {
 
         private final InputStream delegate;

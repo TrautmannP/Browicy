@@ -688,15 +688,7 @@ public final class RenderTreeBuilder {
 
     private static String backgroundImageUrl(String value) {
         if (value == null || value.equalsIgnoreCase("none")) return null;
-        int open = value.indexOf('(');
-        int close = value.lastIndexOf(')');
-        if (open < 0 || close <= open) return null;
-        String url = value.substring(open + 1, close).strip();
-        if (url.length() >= 2 && (url.startsWith("\"") && url.endsWith("\"")
-                || url.startsWith("'") && url.endsWith("'"))) {
-            url = url.substring(1, url.length() - 1);
-        }
-        return url.isBlank() ? null : url;
+        return CssUrl.parseSingle(value);
     }
 
     private RenderOffset resolveOffset(String value, float emBase) {

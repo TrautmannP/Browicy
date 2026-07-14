@@ -17,9 +17,8 @@ public final class CssParser {
     private static final Pattern COMMENTS = Pattern.compile("/\\*.*?\\*/", Pattern.DOTALL);
     private static final Pattern FONT_FACE = Pattern.compile(
             "@font-face\\s*\\{([^}]*)}", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-    private static final Pattern FONT_SOURCE = Pattern.compile(
-            "url\\(\\s*(['\"]?)(.*?)\\1\\s*\\)(?:\\s*format\\(\\s*(['\"]?)(.*?)\\3\\s*\\))?",
-            Pattern.CASE_INSENSITIVE);
+    private static final Pattern FONT_FORMAT = Pattern.compile(
+            "^\\s*format\\(\\s*(['\"]?)(.*?)\\1\\s*\\)", Pattern.CASE_INSENSITIVE);
     private static final String LENGTH_UNIT = "(?:px|em|rem|vw|vh)";
     private static final Pattern POSITIVE_LENGTH = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)" + LENGTH_UNIT + "|0)", Pattern.CASE_INSENSITIVE);
@@ -89,11 +88,15 @@ public final class CssParser {
             }
             List<CssFontFace.Source> sources = new ArrayList<>();
             if (src != null) {
-                var sourceMatcher = FONT_SOURCE.matcher(src);
-                while (sourceMatcher.find()) {
+                var urlTokens = com.browicy.engine.render.CssUrl.tokens(src);
+                for (int index = 0; index < urlTokens.size(); index++) {
+                    var token = urlTokens.get(index);
+                    int next = index + 1 < urlTokens.size()
+                            ? urlTokens.get(index + 1).start() : src.length();
+                    var formatMatcher = FONT_FORMAT.matcher(src.substring(token.end(), next));
                     sources.add(new CssFontFace.Source(
-                            sourceMatcher.group(2), sourceMatcher.group(4) == null
-                                    ? "" : sourceMatcher.group(4).toLowerCase(Locale.ROOT)));
+                            token.source(), formatMatcher.find()
+                                    ? formatMatcher.group(2).toLowerCase(Locale.ROOT) : ""));
                 }
             }
             if (family != null && !family.isBlank() && !sources.isEmpty()) {
@@ -397,7 +400,7 @@ public final class CssParser {
             target.put("background-image", "none");
             return;
         }
-        if (stripped.matches("(?is)url\\(\\s*(?:'[^']*'|\"[^\"]*\"|[^)]*)\\s*\\)")) {
+        if (com.browicy.engine.render.CssUrl.parseSingle(stripped) != null) {
             target.put("background-image", stripped);
         }
     }

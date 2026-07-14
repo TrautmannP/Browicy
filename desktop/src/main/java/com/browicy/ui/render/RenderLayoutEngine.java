@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.WeakHashMap;
+import java.util.function.Function;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
@@ -38,8 +39,17 @@ public final class RenderLayoutEngine {
     private float rootFontSizePx = 16f;
     private float viewportWidth = 800f;
     private float viewportHeight = 600f;
+    private final Function<String, Font> webFontResolver;
     private final Map<com.browicy.engine.dom.Element, Optional<BufferedImage>> decodedImages =
             java.util.Collections.synchronizedMap(new WeakHashMap<>());
+
+    public RenderLayoutEngine() {
+        this(ignored -> null);
+    }
+
+    public RenderLayoutEngine(Function<String, Font> webFontResolver) {
+        this.webFontResolver = java.util.Objects.requireNonNull(webFontResolver, "webFontResolver");
+    }
 
     public LayoutResult layout(RenderTree tree, int viewportWidth, Insets insets, Graphics2D graphics) {
         rootFontSizePx = tree.rootFontSizePx();
@@ -738,7 +748,7 @@ public final class RenderLayoutEngine {
                                                float percentageBase,
                                                Graphics2D graphics) {
         if (node instanceof RenderTextRun run) {
-            FontMetrics metrics = graphics.getFontMetrics(InlineLayouter.fontFor(run.style()));
+            FontMetrics metrics = graphics.getFontMetrics(fontFor(run.style()));
             String collapsed = run.text().trim().replaceAll("\\s+", " ");
             float preferred = metrics.stringWidth(collapsed);
             float minimum = 0;
@@ -971,6 +981,24 @@ public final class RenderLayoutEngine {
     }
 
     private record ImageToken(RenderImage image) implements InlineToken {
+    }
+
+    private Font fontFor(RenderStyle style) {
+        int awtStyle = Font.PLAIN;
+        if (style.bold()) awtStyle |= Font.BOLD;
+        if (style.italic()) awtStyle |= Font.ITALIC;
+        Font webFont = webFontResolver.apply(style.fontFamily());
+        if (webFont != null) {
+            return webFont.deriveFont(awtStyle, Math.max(1f, style.fontSizePx()));
+        }
+        String family = switch (style.fontFamily().toLowerCase(java.util.Locale.ROOT)) {
+            case "serif" -> Font.SERIF;
+            case "sans-serif" -> Font.SANS_SERIF;
+            case "monospace" -> Font.MONOSPACED;
+            case "cursive", "fantasy", "system-ui" -> Font.DIALOG;
+            default -> style.fontFamily();
+        };
+        return new Font(family, awtStyle, Math.max(1, Math.round(style.fontSizePx())));
     }
 
     private final class InlineLayouter {
@@ -1254,24 +1282,6 @@ public final class RenderLayoutEngine {
             line = new LineBuilder(graphics, activeBoxes, width, containingHeight);
         }
 
-        private static Font fontFor(RenderStyle style) {
-            int awtStyle = Font.PLAIN;
-            if (style.bold()) {
-                awtStyle |= Font.BOLD;
-            }
-            if (style.italic()) {
-                awtStyle |= Font.ITALIC;
-            }
-            String family = switch (style.fontFamily().toLowerCase(java.util.Locale.ROOT)) {
-                case "serif" -> Font.SERIF;
-                case "sans-serif" -> Font.SANS_SERIF;
-                case "monospace" -> Font.MONOSPACED;
-                case "cursive", "fantasy", "system-ui" -> Font.DIALOG;
-                default -> style.fontFamily();
-            };
-            return new Font(family, awtStyle, Math.max(1, Math.round(style.fontSizePx())));
-        }
-
         private static int longestFittingEnd(String text,
                                              int start,
                                              FontMetrics metrics,
@@ -1384,7 +1394,7 @@ public final class RenderLayoutEngine {
         @Override public float height() { return layout.height(); }
     }
 
-    private static final class BoxItem implements LineItem {
+    private final class BoxItem implements LineItem {
         private final RenderInlineBox box;
         private final float x;
         private final boolean firstFragment;
@@ -1407,7 +1417,7 @@ public final class RenderLayoutEngine {
         }
 
         void calculateMetrics(Graphics2D graphics) {
-            FontMetrics ownMetrics = graphics.getFontMetrics(InlineLayouter.fontFor(box.style()));
+            FontMetrics ownMetrics = graphics.getFontMetrics(fontFor(box.style()));
             float contentAscent = ownMetrics.getAscent();
             float contentDescent = ownMetrics.getDescent() + ownMetrics.getLeading();
             for (LineItem child : children) {

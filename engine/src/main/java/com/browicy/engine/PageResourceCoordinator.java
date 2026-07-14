@@ -16,12 +16,16 @@ import com.browicy.engine.js.PageRuntime;
 import com.browicy.engine.net.NetworkResourceType;
 import com.browicy.engine.net.BinaryResource;
 import com.browicy.engine.net.BinarySubResourceLoad;
+import com.browicy.engine.net.DownloadBudget;
 import com.browicy.engine.net.ResourceLoad;
 import com.browicy.engine.net.SubResourceLoad;
 import com.browicy.engine.net.SubResourceLoader;
 import com.browicy.engine.net.TextResource;
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
 import java.net.URI;
+import java.awt.Font;
+import java.awt.FontFormatException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -30,9 +34,6 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 final class PageResourceCoordinator {
 
@@ -41,8 +42,6 @@ final class PageResourceCoordinator {
 
     private static final int MAX_IMAGE_LOADS_PER_PAGE = 256;
     private static final long MAX_TOTAL_IMAGE_BYTES = 128L * 1024 * 1024;
-    private static final Pattern CSS_URL = Pattern.compile(
-            "url\\(\\s*(['\"]?)(.*?)\\1\\s*\\)", Pattern.CASE_INSENSITIVE);
     private static final int MAX_FONT_LOADS_PER_PAGE = 32;
     private static final long MAX_TOTAL_FONT_BYTES = 32L * 1024 * 1024;
 
@@ -89,6 +88,11 @@ final class PageResourceCoordinator {
         cancellableLoads.add(fetchBackend);
         ImageResourceRegistry images = new ImageResourceRegistry();
         FontResourceRegistry fonts = new FontResourceRegistry();
+        URI pageUri = documentUri(document);
+        DownloadBudget imageBudget = new DownloadBudget(
+                MAX_TOTAL_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES);
+        DownloadBudget fontBudget = new DownloadBudget(
+                MAX_TOTAL_FONT_BYTES, MAX_TOTAL_FONT_BYTES);
 
         try {
             StyleLoadPlan styleLoads = startStyleLoads(
@@ -112,11 +116,11 @@ final class PageResourceCoordinator {
             updates.enableNotifications();
 
             List<CompletableFuture<Void>> imageLoads = new ArrayList<>(startImageLoads(
-                    resources, images, updates, cancellableLoads));
+                    resources, images, updates, cancellableLoads, pageUri, imageBudget));
             imageLoads.addAll(startCssImageLoads(
-                    document, images, updates, cancellableLoads));
+                    document, images, updates, cancellableLoads, pageUri, imageBudget));
             List<CompletableFuture<Void>> fontLoads = startFontLoads(
-                    styleSheets, fonts, updates, cancellableLoads);
+                    styleSheets, fonts, updates, cancellableLoads, pageUri, fontBudget);
 
             List<CompletableFuture<Void>> allResources = new ArrayList<>(styleLoads.allTasks());
             allResources.addAll(imageLoads);
@@ -165,10 +169,12 @@ final class PageResourceCoordinator {
             DocumentResources resources,
             ImageResourceRegistry images,
             DocumentUpdateCoordinator updates,
-            List<ResourceLoad> cancellableLoads) {
+            List<ResourceLoad> cancellableLoads,
+            URI pageUri,
+            DownloadBudget budget) {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
+        if (pageUri == null) return List.of();
         Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
-        AtomicLong totalImageBytes = new AtomicLong();
         for (ImageResource image : resources.images()) {
             CompletableFuture<BinaryResource> shared = loadsByUri.get(image.uri());
             if (shared == null) {
@@ -177,15 +183,12 @@ final class PageResourceCoordinator {
                 }
                 BinarySubResourceLoad load;
                 try {
-                    load = resourceLoader.loadImageAsync(image.uri());
+                    load = resourceLoader.loadImageAsync(image.uri(), pageUri, budget);
                 } catch (IllegalArgumentException invalidUri) {
                     continue;
                 }
                 cancellableLoads.add(load);
-                shared = load.future().thenApply(resource ->
-                        totalImageBytes.addAndGet(resource.sizeBytes()) <= MAX_TOTAL_IMAGE_BYTES
-                                ? resource
-                                : null);
+                shared = load.future();
                 loadsByUri.put(image.uri(), shared);
             }
             CompletableFuture<Void> task = shared
@@ -205,32 +208,26 @@ final class PageResourceCoordinator {
             Document document,
             ImageResourceRegistry images,
             DocumentUpdateCoordinator updates,
-            List<ResourceLoad> cancellableLoads) {
+            List<ResourceLoad> cancellableLoads,
+            URI pageUri,
+            DownloadBudget budget) {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
+        if (pageUri == null) return List.of();
         Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
-        AtomicLong totalImageBytes = new AtomicLong();
-        URI documentUri;
-        try {
-            documentUri = URI.create(document.getUrl());
-        } catch (IllegalArgumentException invalidDocumentUri) {
-            return List.of();
-        }
         for (com.browicy.engine.dom.Element element : document.getElementsByTagName("*")) {
             URI uri = cssImageUri(
-                    element.getComputedStyles().get("background-image"), documentUri);
+                    element.getComputedStyles().get("background-image"), pageUri);
             if (uri == null || loadsByUri.size() >= MAX_IMAGE_LOADS_PER_PAGE) continue;
             CompletableFuture<BinaryResource> shared = loadsByUri.get(uri);
             if (shared == null) {
                 BinarySubResourceLoad load;
                 try {
-                    load = resourceLoader.loadImageAsync(uri);
+                    load = resourceLoader.loadImageAsync(uri, pageUri, budget);
                 } catch (IllegalArgumentException invalidUri) {
                     continue;
                 }
                 cancellableLoads.add(load);
-                shared = load.future().thenApply(resource ->
-                        totalImageBytes.addAndGet(resource.sizeBytes()) <= MAX_TOTAL_IMAGE_BYTES
-                                ? resource : null);
+                shared = load.future();
                 loadsByUri.put(uri, shared);
             }
             CompletableFuture<Void> task = shared.thenAccept(resource -> {
@@ -246,10 +243,10 @@ final class PageResourceCoordinator {
 
     private static URI cssImageUri(String value, URI base) {
         if (value == null) return null;
-        Matcher matcher = CSS_URL.matcher(value);
-        if (!matcher.matches()) return null;
+        String source = com.browicy.engine.render.CssUrl.parseSingle(value);
+        if (source == null) return null;
         try {
-            return base.resolve(matcher.group(2));
+            return base.resolve(source);
         } catch (IllegalArgumentException invalidUri) {
             return null;
         }
@@ -259,10 +256,12 @@ final class PageResourceCoordinator {
             StyleSheetRegistry styleSheets,
             FontResourceRegistry fonts,
             DocumentUpdateCoordinator updates,
-            List<ResourceLoad> cancellableLoads) {
+            List<ResourceLoad> cancellableLoads,
+            URI pageUri,
+            DownloadBudget budget) {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
+        if (pageUri == null) return List.of();
         Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
-        AtomicLong totalBytes = new AtomicLong();
         for (CssFontFace face : styleSheets.fontFaces()) {
             if (tasks.size() >= MAX_FONT_LOADS_PER_PAGE) break;
             CssFontFace.Source source = preferredFontSource(face.sources());
@@ -277,19 +276,19 @@ final class PageResourceCoordinator {
             if (shared == null) {
                 BinarySubResourceLoad load;
                 try {
-                    load = resourceLoader.loadFontAsync(uri);
+                    load = resourceLoader.loadFontAsync(uri, pageUri, budget);
                 } catch (IllegalArgumentException invalidUri) {
                     continue;
                 }
                 cancellableLoads.add(load);
-                shared = load.future().thenApply(resource ->
-                        totalBytes.addAndGet(resource.sizeBytes()) <= MAX_TOTAL_FONT_BYTES
-                                ? resource : null);
+                shared = load.future();
                 loadsByUri.put(uri, shared);
             }
             CompletableFuture<Void> task = shared.thenAccept(resource -> {
-                if (resource != null) {
-                    fonts.register(face.family(), resource);
+                if (resource != null && corsAllows(pageUri, resource)) {
+                    Font parsed = parseFont(resource);
+                    if (parsed == null) return;
+                    fonts.register(face.family(), resource, parsed);
                     updates.invalidate(InvalidationType.LAYOUT);
                 }
             }).exceptionally(failure -> null);
@@ -326,22 +325,55 @@ final class PageResourceCoordinator {
     }
 
     private static String absolutizeCssUrls(String css, URI base) {
-        Matcher matcher = CSS_URL.matcher(css);
-        StringBuffer result = new StringBuffer();
-        while (matcher.find()) {
-            String source = matcher.group(2).strip();
-            String replacement = matcher.group();
+        return com.browicy.engine.render.CssUrl.rewrite(css, source -> {
             try {
                 URI uri = URI.create(source);
                 if (!uri.isAbsolute() && !source.startsWith("#") && !source.startsWith("data:")) {
-                    replacement = "url(\"" + base.resolve(uri) + "\")";
+                    return base.resolve(uri).toString();
                 }
             } catch (IllegalArgumentException ignored) {
             }
-            matcher.appendReplacement(result, Matcher.quoteReplacement(replacement));
+            return source;
+        });
+    }
+
+    private static Font parseFont(BinaryResource resource) {
+        try {
+            return Font.createFont(Font.TRUETYPE_FONT,
+                    new ByteArrayInputStream(resource.content()));
+        } catch (FontFormatException | IOException | RuntimeException invalidFont) {
+            return null;
         }
-        matcher.appendTail(result);
-        return result.toString();
+    }
+
+    static boolean corsAllows(URI pageUri, BinaryResource resource) {
+        if (sameOrigin(pageUri, resource.uri())) return true;
+        String allowed = resource.corsAllowOrigin();
+        if (allowed == null) return false;
+        String pageOrigin = origin(pageUri);
+        allowed = allowed.strip();
+        return allowed.equals("*") || allowed.equalsIgnoreCase(pageOrigin);
+    }
+
+    private static boolean sameOrigin(URI first, URI second) {
+        String firstOrigin = origin(first);
+        return !firstOrigin.isEmpty() && firstOrigin.equalsIgnoreCase(origin(second));
+    }
+
+    private static String origin(URI uri) {
+        if (uri == null || uri.getScheme() == null || uri.getHost() == null) return "";
+        int defaultPort = "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+        String port = uri.getPort() >= 0 && uri.getPort() != defaultPort
+                ? ":" + uri.getPort() : "";
+        return uri.getScheme() + "://" + uri.getHost() + port;
+    }
+
+    private static URI documentUri(Document document) {
+        try {
+            return URI.create(document.getUrl());
+        } catch (IllegalArgumentException invalid) {
+            return null;
+        }
     }
 
     private static void registerStyleSheets(DocumentResources resources,

@@ -34,12 +34,25 @@ final class HttpResourceFetcher {
                              BooleanSupplier cancelled,
                              RedirectListener redirectListener,
                              boolean blockInsecureRedirects) throws IOException {
+        return fetch(client, initialUri, accept, cancelled, redirectListener,
+                blockInsecureRedirects, null, ignored -> { });
+    }
+
+    static FetchResult fetch(HttpClient client,
+                             URI initialUri,
+                             String accept,
+                             BooleanSupplier cancelled,
+                             RedirectListener redirectListener,
+                             boolean blockInsecureRedirects,
+                             DownloadBudget budget,
+                             UriValidator validator) throws IOException {
         URI uri = initialUri;
         for (int redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
             if (cancelled.getAsBoolean()) {
                 throw new CancellationException("Ladevorgang abgebrochen: " + initialUri);
             }
-            HttpResponse response = client.get(uri, accept);
+            validator.validate(uri);
+            HttpResponse response = client.get(uri, accept, budget);
             String location = response.location();
             if (response.isRedirect() && location != null) {
                 URI target;
@@ -61,5 +74,10 @@ final class HttpResourceFetcher {
             return new FetchResult(uri, response);
         }
         throw new IOException("Zu viele Weiterleitungen (mehr als " + MAX_REDIRECTS + "): " + initialUri);
+    }
+
+    @FunctionalInterface
+    interface UriValidator {
+        void validate(URI uri) throws IOException;
     }
 }

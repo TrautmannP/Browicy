@@ -894,6 +894,29 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void refusesOversizedCssBackgroundBeforePixelAllocation() throws Exception {
+        URI uri = URI.create("https://example.test/oversized-background.png");
+        Document document = parse("""
+                <body><div id="box" style="width:20px;height:20px;background-color:blue;
+                  background-image:url('https://example.test/oversized-background.png')"></div></body>
+                """);
+        BufferedImage oversized = new BufferedImage(9000, 1, BufferedImage.TYPE_INT_ARGB);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(oversized, "png", bytes);
+        ImageResourceRegistry images = new ImageResourceRegistry();
+        images.register(uri, new BinaryResource(
+                uri, 200, bytes.toByteArray(), NetworkResourceType.IMAGE));
+        DomViewPanel panel = new DomViewPanel(document, PageRuntime.closed(), images);
+        panel.setSize(100, 1);
+
+        BufferedImage painted = paint(panel);
+        BoxFragment box = boxById(panel.layoutForTesting(100), "box");
+
+        assertColor(painted, Math.round(box.x() + 5), Math.round(box.y() + 5),
+                CssColor.rgb(0x0000ff));
+    }
+
+    @Test
     public void paintsRoundedBackgroundWithoutFillingItsCorner() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body><div id="box" style="width:40px;height:40px;background-color:red;

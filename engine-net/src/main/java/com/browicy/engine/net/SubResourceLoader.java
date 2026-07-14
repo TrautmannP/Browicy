@@ -70,14 +70,23 @@ public final class SubResourceLoader implements AutoCloseable {
     }
 
     public BinarySubResourceLoad loadImageAsync(URI uri) {
-        return loadBinaryAsync(uri, NetworkResourceType.IMAGE);
+        return loadBinaryAsync(uri, NetworkResourceType.IMAGE, null, null);
     }
 
     public BinarySubResourceLoad loadFontAsync(URI uri) {
-        return loadBinaryAsync(uri, NetworkResourceType.FONT);
+        return loadBinaryAsync(uri, NetworkResourceType.FONT, null, null);
     }
 
-    private BinarySubResourceLoad loadBinaryAsync(URI uri, NetworkResourceType resourceType) {
+    public BinarySubResourceLoad loadImageAsync(URI uri, URI pageUri, DownloadBudget budget) {
+        return loadBinaryAsync(uri, NetworkResourceType.IMAGE, pageUri, budget);
+    }
+
+    public BinarySubResourceLoad loadFontAsync(URI uri, URI pageUri, DownloadBudget budget) {
+        return loadBinaryAsync(uri, NetworkResourceType.FONT, pageUri, budget);
+    }
+
+    private BinarySubResourceLoad loadBinaryAsync(URI uri, NetworkResourceType resourceType,
+                                                  URI pageUri, DownloadBudget budget) {
         Objects.requireNonNull(uri, "uri");
         validateHttpUri(uri);
 
@@ -100,7 +109,7 @@ public final class SubResourceLoader implements AutoCloseable {
                 requestId, Instant.now(), uri.toString(), resourceType));
 
         try {
-            executor.execute(() -> fetchBinary(load));
+            executor.execute(() -> fetchBinary(load, pageUri, budget));
         } catch (RuntimeException rejected) {
             load.completeFailed(rejected);
         }
@@ -223,7 +232,7 @@ public final class SubResourceLoader implements AutoCloseable {
         }
     }
 
-    private void fetchBinary(BinarySubResourceLoad load) {
+    private void fetchBinary(BinarySubResourceLoad load, URI pageUri, DownloadBudget budget) {
         try {
             imageFetchPermits.acquire();
         } catch (InterruptedException interrupted) {
@@ -240,14 +249,16 @@ public final class SubResourceLoader implements AutoCloseable {
                     (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
                             load.id(), Instant.now(), from, to, statusCode,
                             load.resourceType())),
-                    true);
+                    true,
+                    budget,
+                    uri -> SubresourceAccessPolicy.validate(uri, pageUri));
             HttpResponse response = result.response();
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IOException("HTTP " + response.statusCode() + " für " + result.uri());
             }
             load.completeLoaded(new BinaryResource(
                     result.uri(), response.statusCode(), response.body(),
-                    load.resourceType()));
+                    load.resourceType(), response.headers().first("Access-Control-Allow-Origin")));
         } catch (CancellationException cancellation) {
             load.cancel();
         } catch (Exception exception) {
