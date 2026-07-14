@@ -189,7 +189,7 @@ public final class Document extends Node implements ParentNode {
     private static void collect(Node node, String tag, List<Element> result) {
         for (Node child : node.getChildren()) {
             if (child instanceof Element element) {
-                if (tag == null || element.getTagName().equals(tag)) {
+                if (tag == null || "*".equals(tag) || element.getTagName().equals(tag)) {
                     result.add(element);
                 }
                 collect(element, tag, result);

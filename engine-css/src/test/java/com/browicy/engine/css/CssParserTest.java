@@ -261,4 +261,19 @@ public class CssParserTest {
         assertEquals("1.5", declarations.get("line-height"));
         assertEquals("monospace", declarations.get("font-family"));
     }
+
+    @Test
+    public void parsesBackgroundImageRepeatAndPosition() {
+        Map<String, String> declarations = new CssParser().parseDeclarations("""
+                background-image:url("https://example.test/CaseSensitive.png");
+                background-repeat:no-repeat;
+                background-position:center right;
+                """);
+
+        assertEquals("url(\"https://example.test/CaseSensitive.png\")",
+                declarations.get("background-image"));
+        assertEquals("no-repeat", declarations.get("background-repeat"));
+        assertEquals("right", declarations.get("background-position-x"));
+        assertEquals("center", declarations.get("background-position-y"));
+    }
 }

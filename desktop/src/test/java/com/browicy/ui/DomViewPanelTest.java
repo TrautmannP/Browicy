@@ -864,6 +864,35 @@ public class DomViewPanelTest {
         assertEquals("red", document.getElementById("link").getComputedStyles().get("color"));
     }
 
+    @Test
+    public void paintsPositionedNonRepeatingCssBackgroundImages() throws Exception {
+        URI uri = URI.create("https://example.test/background.png");
+        Document document = parse("""
+                <body><div id="box" style="width:20px;height:20px;background-color:blue;
+                  background-image:url('https://example.test/background.png');
+                  background-repeat:no-repeat;background-position:right bottom"></div></body>
+                """);
+        BufferedImage source = new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D sourceGraphics = source.createGraphics();
+        sourceGraphics.setColor(java.awt.Color.RED);
+        sourceGraphics.fillRect(0, 0, 2, 2);
+        sourceGraphics.dispose();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(source, "png", bytes);
+        ImageResourceRegistry images = new ImageResourceRegistry();
+        images.register(uri, new BinaryResource(
+                uri, 200, bytes.toByteArray(), NetworkResourceType.IMAGE));
+        DomViewPanel panel = new DomViewPanel(document, PageRuntime.closed(), images);
+        panel.setSize(100, 1);
+        BoxFragment box = boxById(panel.layoutForTesting(100), "box");
+
+        BufferedImage painted = paint(panel);
+
+        assertColor(painted, Math.round(box.x()), Math.round(box.y()), CssColor.rgb(0x0000ff));
+        assertColor(painted, Math.round(box.x() + box.width() - 1),
+                Math.round(box.y() + box.height() - 1), CssColor.rgb(0xff0000));
+    }
+
     private static Document parse(String html) {
         return new HtmlParser().parse(html);
     }

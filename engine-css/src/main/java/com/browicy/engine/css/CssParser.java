@@ -129,8 +129,13 @@ public final class CssParser {
                 continue;
             }
             String property = declaration.substring(0, separator).trim().toLowerCase(Locale.ROOT);
-            String value = declaration.substring(separator + 1).trim().toLowerCase(Locale.ROOT);
-            parseDeclaration(declarations, property, value);
+            String rawValue = declaration.substring(separator + 1).trim();
+            String value = rawValue.toLowerCase(Locale.ROOT);
+            if (property.equals("background-image")) {
+                putBackgroundImage(declarations, rawValue);
+            } else {
+                parseDeclaration(declarations, property, value);
+            }
         }
         return declarations;
     }
@@ -149,6 +154,9 @@ public final class CssParser {
         String normalized = property.strip().toLowerCase(Locale.ROOT);
         return switch (normalized) {
             case "color", "background", "background-color" -> supports(normalized, "black");
+            case "background-image" -> supports(normalized, "url(example.png)");
+            case "background-repeat" -> supports(normalized, "repeat");
+            case "background-position" -> supports(normalized, "left top");
             case "font-size" -> supports(normalized, "16px");
             case "font", "font-family" -> supports(normalized, "16px sans-serif");
             case "line-height" -> supports(normalized, "normal");
@@ -182,6 +190,13 @@ public final class CssParser {
         switch (property) {
             case "color", "background-color" -> putColor(target, property, value);
             case "background" -> putColor(target, "background-color", value);
+            case "background-repeat" -> {
+                if (value.equals("repeat") || value.equals("repeat-x")
+                        || value.equals("repeat-y") || value.equals("no-repeat")) {
+                    target.put(property, value);
+                }
+            }
+            case "background-position" -> putBackgroundPosition(target, value);
             case "font-size" -> putIfMatches(target, property, value, FONT_SIZE);
             case "font-family" -> {
                 if (!value.isBlank()) target.put(property, value);
@@ -269,6 +284,38 @@ public final class CssParser {
             case "border" -> expandBorder(target, null, value);
             default -> parseLonghand(target, property, value);
         }
+    }
+
+    private static void putBackgroundImage(Map<String, String> target, String value) {
+        String stripped = value.strip();
+        if (stripped.equalsIgnoreCase("none")) {
+            target.put("background-image", "none");
+            return;
+        }
+        if (stripped.matches("(?is)url\\(\\s*(?:'[^']*'|\"[^\"]*\"|[^)]*)\\s*\\)")) {
+            target.put("background-image", stripped);
+        }
+    }
+
+    private static void putBackgroundPosition(Map<String, String> target, String value) {
+        String[] tokens = value.strip().split("\\s+");
+        String x = "center";
+        String y = "center";
+        if (tokens.length == 1) {
+            if (tokens[0].equals("left") || tokens[0].equals("right")) x = tokens[0];
+            else if (tokens[0].equals("top") || tokens[0].equals("bottom")) y = tokens[0];
+            else if (!tokens[0].equals("center")) return;
+        } else if (tokens.length == 2) {
+            for (String token : tokens) {
+                if (token.equals("left") || token.equals("right")) x = token;
+                else if (token.equals("top") || token.equals("bottom")) y = token;
+                else if (!token.equals("center")) return;
+            }
+        } else {
+            return;
+        }
+        target.put("background-position-x", x);
+        target.put("background-position-y", y);
     }
 
     private static void expandFont(Map<String, String> target, String value) {

@@ -81,6 +81,14 @@ public final class BrowserInspector {
         Map<String, Object> css = new LinkedHashMap<>();
         css.put("stylesheets", session.styleSheets().size());
         css.put("acceptedRules", session.styleSheets().rules().size());
+        css.put("backgroundImages", document.getElementsByTagName("*").stream()
+                .filter(element -> element.getComputedStyles().containsKey("background-image"))
+                .map(element -> Map.of(
+                        "tag", element.getTagName(),
+                        "id", element.getAttribute("id") == null
+                                ? "" : element.getAttribute("id"),
+                        "value", element.getComputedStyles().get("background-image")))
+                .toList());
 
         Map<String, Object> renderReport = new LinkedHashMap<>();
         renderReport.put("nodes", render.nodes);

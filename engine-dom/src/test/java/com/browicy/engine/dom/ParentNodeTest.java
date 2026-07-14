@@ -8,6 +8,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 public class ParentNodeTest {
 
@@ -112,6 +113,15 @@ public class ParentNodeTest {
             assertEquals("SyntaxError", exception.getDomName());
             assertEquals(DomException.SYNTAX_ERR, exception.getCode());
         }
+    }
+
+    @Test
+    public void documentTagLookupSupportsWildcard() {
+        Fixture fixture = fixture();
+
+        assertEquals(fixture.document.querySelectorAll("*").size(),
+                fixture.document.getElementsByTagName("*").size());
+        assertTrue(fixture.document.getElementsByTagName("*").contains(fixture.secondNote));
     }
 
     private static Fixture fixture() {

@@ -30,6 +30,8 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class PageResourceCoordinator {
 
@@ -38,6 +40,8 @@ final class PageResourceCoordinator {
 
     private static final int MAX_IMAGE_LOADS_PER_PAGE = 256;
     private static final long MAX_TOTAL_IMAGE_BYTES = 128L * 1024 * 1024;
+    private static final Pattern CSS_URL = Pattern.compile(
+            "url\\(\\s*(['\"]?)(.*?)\\1\\s*\\)", Pattern.CASE_INSENSITIVE);
 
     private final DocumentResourceScanner scanner;
     private final SubResourceLoader resourceLoader;
@@ -96,12 +100,17 @@ final class PageResourceCoordinator {
             PageLifecycleCoordinator lifecycle = new PageLifecycleCoordinator(document, runtime);
             lifecycle.markInteractive();
             awaitRenderBlocking(styleLoads.renderBlockingTasks());
+            synchronized (document) {
+                styleApplicator.apply(document, styleSheets);
+            }
             lifecycle.markComplete();
             runtime.awaitIdle();
             updates.enableNotifications();
 
-            List<CompletableFuture<Void>> imageLoads = startImageLoads(
-                    resources, images, updates, cancellableLoads);
+            List<CompletableFuture<Void>> imageLoads = new ArrayList<>(startImageLoads(
+                    resources, images, updates, cancellableLoads));
+            imageLoads.addAll(startCssImageLoads(
+                    document, images, updates, cancellableLoads));
 
             List<CompletableFuture<Void>> allResources = new ArrayList<>(styleLoads.allTasks());
             allResources.addAll(imageLoads);
@@ -185,6 +194,60 @@ final class PageResourceCoordinator {
         return List.copyOf(tasks);
     }
 
+    private List<CompletableFuture<Void>> startCssImageLoads(
+            Document document,
+            ImageResourceRegistry images,
+            DocumentUpdateCoordinator updates,
+            List<ResourceLoad> cancellableLoads) {
+        List<CompletableFuture<Void>> tasks = new ArrayList<>();
+        Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
+        AtomicLong totalImageBytes = new AtomicLong();
+        URI documentUri;
+        try {
+            documentUri = URI.create(document.getUrl());
+        } catch (IllegalArgumentException invalidDocumentUri) {
+            return List.of();
+        }
+        for (com.browicy.engine.dom.Element element : document.getElementsByTagName("*")) {
+            URI uri = cssImageUri(
+                    element.getComputedStyles().get("background-image"), documentUri);
+            if (uri == null || loadsByUri.size() >= MAX_IMAGE_LOADS_PER_PAGE) continue;
+            CompletableFuture<BinaryResource> shared = loadsByUri.get(uri);
+            if (shared == null) {
+                BinarySubResourceLoad load;
+                try {
+                    load = resourceLoader.loadImageAsync(uri);
+                } catch (IllegalArgumentException invalidUri) {
+                    continue;
+                }
+                cancellableLoads.add(load);
+                shared = load.future().thenApply(resource ->
+                        totalImageBytes.addAndGet(resource.sizeBytes()) <= MAX_TOTAL_IMAGE_BYTES
+                                ? resource : null);
+                loadsByUri.put(uri, shared);
+            }
+            CompletableFuture<Void> task = shared.thenAccept(resource -> {
+                if (resource != null) {
+                    images.register(uri, resource);
+                    updates.invalidate(InvalidationType.PAINT);
+                }
+            }).exceptionally(failure -> null);
+            tasks.add(task);
+        }
+        return List.copyOf(tasks);
+    }
+
+    private static URI cssImageUri(String value, URI base) {
+        if (value == null) return null;
+        Matcher matcher = CSS_URL.matcher(value);
+        if (!matcher.matches()) return null;
+        try {
+            return base.resolve(matcher.group(2));
+        } catch (IllegalArgumentException invalidUri) {
+            return null;
+        }
+    }
+
     private static CompletableFuture<Void> applyStyleSheet(
             TextResource resource,
             StyleSheetResource.External external,
@@ -196,9 +259,29 @@ final class PageResourceCoordinator {
         }
         return runtime.submitTask(() -> {
             styleSheets.register(external.sourceOrder(), external.element(),
-                    resource.uri().toString(), resource.content());
+                    resource.uri().toString(),
+                    absolutizeCssUrls(resource.content(), resource.uri()));
             updates.stylesheetChanged(resource.uri());
         }).exceptionally(failure -> null);
+    }
+
+    private static String absolutizeCssUrls(String css, URI base) {
+        Matcher matcher = CSS_URL.matcher(css);
+        StringBuffer result = new StringBuffer();
+        while (matcher.find()) {
+            String source = matcher.group(2).strip();
+            String replacement = matcher.group();
+            try {
+                URI uri = URI.create(source);
+                if (!uri.isAbsolute() && !source.startsWith("#") && !source.startsWith("data:")) {
+                    replacement = "url(\"" + base.resolve(uri) + "\")";
+                }
+            } catch (IllegalArgumentException ignored) {
+            }
+            matcher.appendReplacement(result, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(result);
+        return result.toString();
     }
 
     private static void registerStyleSheets(DocumentResources resources,

@@ -39,12 +39,19 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.net.URI;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.ArrayList;
 import javax.swing.BorderFactory;
 import javax.swing.JViewport;
 import javax.swing.JPanel;
 import javax.swing.Scrollable;
+import javax.imageio.ImageIO;
 
 public final class DomViewPanel extends JPanel implements Scrollable {
 
@@ -57,6 +64,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private final PageRuntime runtime;
     private final ImageResourceRegistry images;
     private final StyleSheetRegistry styleSheets;
+    private final Map<URI, Optional<BufferedImage>> backgroundImages = new ConcurrentHashMap<>();
     private RenderTree renderTree;
     private Element pressedTarget;
     private List<Element> hoveredElements = List.of();
@@ -344,12 +352,12 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         return oldHeight != layoutResult.height();
     }
 
-    private static void paintBox(Graphics2D graphics, BoxFragment fragment) {
+    private void paintBox(Graphics2D graphics, BoxFragment fragment) {
         paintStyledBox(graphics, fragment.box().style(),
                 fragment.x(), fragment.y(), fragment.width(), fragment.height(), true, true);
     }
 
-    private static void paintInlineBox(Graphics2D graphics, InlineBoxFragment fragment) {
+    private void paintInlineBox(Graphics2D graphics, InlineBoxFragment fragment) {
         paintStyledBox(graphics, fragment.box().style(),
                 fragment.x(), fragment.y(), fragment.width(), fragment.height(),
                 fragment.firstFragment(), fragment.lastFragment());
@@ -369,7 +377,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         }
     }
 
-    private static void paintStyledBox(Graphics2D graphics,
+    private void paintStyledBox(Graphics2D graphics,
                                        RenderStyle style,
                                        float x,
                                        float y,
@@ -382,6 +390,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             graphics.setColor(toAwtColor(background));
             graphics.fill(new Rectangle2D.Float(x, y, width, height));
         }
+        paintBackgroundImage(graphics, style, x, y, width, height);
 
         BoxEdges widths = style.borderWidth();
         BoxBorders borders = style.borderStyle();
@@ -403,6 +412,68 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             fillBorder(graphics, style.borderColor().left(), style.color(),
                     x, y, widths.left(), height);
         }
+    }
+
+    private void paintBackgroundImage(Graphics2D graphics,
+                                      RenderStyle style,
+                                      float x,
+                                      float y,
+                                      float width,
+                                      float height) {
+        BufferedImage image = decodedBackground(style.backgroundImageUrl());
+        if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) return;
+        float imageX = switch (style.backgroundPositionX()) {
+            case LEFT -> x;
+            case CENTER -> x + (width - image.getWidth()) / 2f;
+            case RIGHT -> x + width - image.getWidth();
+        };
+        float imageY = switch (style.backgroundPositionY()) {
+            case TOP -> y;
+            case CENTER -> y + (height - image.getHeight()) / 2f;
+            case BOTTOM -> y + height - image.getHeight();
+        };
+        boolean repeatX = style.backgroundRepeat() == RenderStyle.BackgroundRepeat.REPEAT
+                || style.backgroundRepeat() == RenderStyle.BackgroundRepeat.REPEAT_X;
+        boolean repeatY = style.backgroundRepeat() == RenderStyle.BackgroundRepeat.REPEAT
+                || style.backgroundRepeat() == RenderStyle.BackgroundRepeat.REPEAT_Y;
+        float startX = repeatX ? tileStart(imageX, x, image.getWidth()) : imageX;
+        float startY = repeatY ? tileStart(imageY, y, image.getHeight()) : imageY;
+        float endX = repeatX ? x + width : imageX + 1;
+        float endY = repeatY ? y + height : imageY + 1;
+        Graphics2D clipped = (Graphics2D) graphics.create();
+        try {
+            clipped.clip(new Rectangle2D.Float(x, y, width, height));
+            for (float tileY = startY; tileY < endY; tileY += image.getHeight()) {
+                for (float tileX = startX; tileX < endX; tileX += image.getWidth()) {
+                    clipped.drawImage(image, Math.round(tileX), Math.round(tileY), null);
+                }
+            }
+        } finally {
+            clipped.dispose();
+        }
+    }
+
+    private static float tileStart(float origin, float edge, int tileSize) {
+        while (origin > edge) origin -= tileSize;
+        while (origin + tileSize <= edge) origin += tileSize;
+        return origin;
+    }
+
+    private BufferedImage decodedBackground(String source) {
+        if (source == null || source.isBlank()) return null;
+        URI uri;
+        try {
+            uri = URI.create(document.getUrl()).resolve(source);
+        } catch (IllegalArgumentException invalidUri) {
+            return null;
+        }
+        return backgroundImages.computeIfAbsent(uri, key -> images.find(key).map(resource -> {
+            try {
+                return ImageIO.read(new ByteArrayInputStream(resource.content()));
+            } catch (IOException | RuntimeException invalidImage) {
+                return null;
+            }
+        })).orElse(null);
     }
 
     private static void fillBorder(Graphics2D graphics,

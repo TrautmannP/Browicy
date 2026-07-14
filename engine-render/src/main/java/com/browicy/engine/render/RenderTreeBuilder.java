@@ -68,6 +68,10 @@ public final class RenderTreeBuilder {
                 0,
                 DEFAULT_COLOR,
                 null,
+                null,
+                RenderStyle.BackgroundRepeat.REPEAT,
+                RenderStyle.BackgroundPositionX.LEFT,
+                RenderStyle.BackgroundPositionY.TOP,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
@@ -241,6 +245,10 @@ public final class RenderTreeBuilder {
                 inherited.lineHeight(),
                 inherited.color(),
                 null,
+                null,
+                RenderStyle.BackgroundRepeat.REPEAT,
+                RenderStyle.BackgroundPositionX.LEFT,
+                RenderStyle.BackgroundPositionY.TOP,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
@@ -279,6 +287,10 @@ public final class RenderTreeBuilder {
         float lineHeight = parent.lineHeight();
         CssColor color = parent.color();
         CssColor background = null;
+        String backgroundImageUrl = null;
+        RenderStyle.BackgroundRepeat backgroundRepeat = RenderStyle.BackgroundRepeat.REPEAT;
+        RenderStyle.BackgroundPositionX backgroundPositionX = RenderStyle.BackgroundPositionX.LEFT;
+        RenderStyle.BackgroundPositionY backgroundPositionY = RenderStyle.BackgroundPositionY.TOP;
         RenderLength width = RenderLength.AUTO;
         RenderLength height = RenderLength.AUTO;
         RenderLength minWidth = RenderLength.AUTO;
@@ -391,6 +403,23 @@ public final class RenderTreeBuilder {
         if (declaredBackground != null && !declaredBackground.isTransparent()) {
             background = declaredBackground;
         }
+        backgroundImageUrl = backgroundImageUrl(declarations.get("background-image"));
+        backgroundRepeat = switch (declarations.getOrDefault("background-repeat", "repeat")) {
+            case "repeat-x" -> RenderStyle.BackgroundRepeat.REPEAT_X;
+            case "repeat-y" -> RenderStyle.BackgroundRepeat.REPEAT_Y;
+            case "no-repeat" -> RenderStyle.BackgroundRepeat.NO_REPEAT;
+            default -> RenderStyle.BackgroundRepeat.REPEAT;
+        };
+        backgroundPositionX = switch (declarations.getOrDefault("background-position-x", "left")) {
+            case "center" -> RenderStyle.BackgroundPositionX.CENTER;
+            case "right" -> RenderStyle.BackgroundPositionX.RIGHT;
+            default -> RenderStyle.BackgroundPositionX.LEFT;
+        };
+        backgroundPositionY = switch (declarations.getOrDefault("background-position-y", "top")) {
+            case "center" -> RenderStyle.BackgroundPositionY.CENTER;
+            case "bottom" -> RenderStyle.BackgroundPositionY.BOTTOM;
+            default -> RenderStyle.BackgroundPositionY.TOP;
+        };
 
         margin = resolveEdges(declarations, "margin", fontSize, margin);
         autoMargins = new HorizontalAutoMargins(
@@ -404,6 +433,7 @@ public final class RenderTreeBuilder {
 
         return new RenderStyle(display, position, floatMode, clear, top, right, bottom, left,
                 fontSize, fontFamily, fontWeight, italic, lineHeight, color, background,
+                backgroundImageUrl, backgroundRepeat, backgroundPositionX, backgroundPositionY,
                 width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderCollapse, textAlign,
                 overflow, verticalAlign);
@@ -592,6 +622,19 @@ public final class RenderTreeBuilder {
         return family;
     }
 
+    private static String backgroundImageUrl(String value) {
+        if (value == null || value.equalsIgnoreCase("none")) return null;
+        int open = value.indexOf('(');
+        int close = value.lastIndexOf(')');
+        if (open < 0 || close <= open) return null;
+        String url = value.substring(open + 1, close).strip();
+        if (url.length() >= 2 && (url.startsWith("\"") && url.endsWith("\"")
+                || url.startsWith("'") && url.endsWith("'"))) {
+            url = url.substring(1, url.length() - 1);
+        }
+        return url.isBlank() ? null : url;
+    }
+
     private RenderOffset resolveOffset(String value, float emBase) {
         if (value == null || "auto".equals(value)) return RenderOffset.AUTO;
         if ("0".equals(value)) return new RenderOffset(0, RenderOffset.Unit.PX);
@@ -639,7 +682,9 @@ public final class RenderTreeBuilder {
     private static RenderStyle copyWithDisplay(RenderStyle style, RenderStyle.Display display) {
         return new RenderStyle(display, style.position(), style.floatMode(), style.clear(), style.top(), style.right(),
                 style.bottom(), style.left(), style.fontSizePx(), style.fontFamily(), style.fontWeight(), style.italic(), style.lineHeight(),
-                style.color(), style.backgroundColor(), style.width(), style.height(),
+                style.color(), style.backgroundColor(), style.backgroundImageUrl(),
+                style.backgroundRepeat(), style.backgroundPositionX(), style.backgroundPositionY(),
+                style.width(), style.height(),
                 style.minWidth(), style.maxWidth(), style.minHeight(), style.maxHeight(),
                 style.boxSizing(), style.margin(), style.autoMargins(), style.padding(),
                 style.borderWidth(),

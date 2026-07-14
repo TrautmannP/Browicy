@@ -16,6 +16,10 @@ public record RenderStyle(
         float lineHeight,
         CssColor color,
         CssColor backgroundColor,
+        String backgroundImageUrl,
+        BackgroundRepeat backgroundRepeat,
+        BackgroundPositionX backgroundPositionX,
+        BackgroundPositionY backgroundPositionY,
         RenderLength width,
         RenderLength height,
         RenderLength minWidth,
@@ -40,6 +44,9 @@ public record RenderStyle(
         TABLE_ROW, TABLE_CELL, TABLE_COLUMN_GROUP, TABLE_COLUMN, TABLE_CAPTION
     }
     public enum BorderCollapse { SEPARATE, COLLAPSE }
+    public enum BackgroundRepeat { REPEAT, REPEAT_X, REPEAT_Y, NO_REPEAT }
+    public enum BackgroundPositionX { LEFT, CENTER, RIGHT }
+    public enum BackgroundPositionY { TOP, CENTER, BOTTOM }
     public enum Position { STATIC, RELATIVE, ABSOLUTE }
     public enum FloatMode { NONE, LEFT, RIGHT }
     public enum Clear { NONE, LEFT, RIGHT, BOTH }
