@@ -224,6 +224,42 @@ public class StyleApplicatorTest {
     }
 
     @Test
+    public void cascadesGeneratedContentSeparatelyFromTheOriginatingElement() {
+        Document document = parse("""
+                .badge::before { content:"New "; color:red; }
+                .badge::after { content:attr(data-suffix); color:blue; }
+                """, "<span class=\"badge\" data-suffix=\"!\">Item</span>");
+        Element badge = document.getBody().findFirst("span");
+
+        assertNull(badge.getComputedStyles().get("content"));
+        assertEquals("\"New \"", badge.getPseudoComputedStyles("before").get("content"));
+        assertEquals("red", badge.getPseudoComputedStyles("before").get("color"));
+        assertEquals("attr(data-suffix)", badge.getPseudoComputedStyles("after").get("content"));
+    }
+
+    @Test
+    public void reappliesFocusAndActivePseudoClassStylesWhenStateChanges() {
+        Document document = parse("""
+                button { color:black; background-color:white; }
+                button:focus { color:red; }
+                button:active { background-color:blue; }
+                """, "<button>Go</button>");
+        Element button = document.getBody().findFirst("button");
+
+        document.setFocusedElement(button);
+        document.setActiveElement(button);
+        new StyleApplicator().apply(document);
+        assertEquals("red", button.getComputedStyles().get("color"));
+        assertEquals("blue", button.getComputedStyles().get("background-color"));
+
+        document.setFocusedElement(null);
+        document.setActiveElement(null);
+        new StyleApplicator().apply(document);
+        assertEquals("black", button.getComputedStyles().get("color"));
+        assertEquals("white", button.getComputedStyles().get("background-color"));
+    }
+
+    @Test
     public void resolvesInheritedCustomPropertiesFallbacksAndNestedVariables() {
         Document document = parse("""
                 html { --brand:#4285f4; --button:var(--brand); }

@@ -279,6 +279,8 @@ public final class CssParser {
                 if (!rawValue.isEmpty()) declarations.put(property, rawValue);
             } else if (containsVarFunction(rawValue) && supportsProperty(property)) {
                 declarations.put(property, rawValue);
+            } else if (property.equals("content")) {
+                putContent(declarations, rawValue);
             } else if (property.equals("background-image")) {
                 putBackgroundImage(declarations, rawValue);
             } else {
@@ -286,6 +288,33 @@ public final class CssParser {
             }
         }
         return declarations;
+    }
+
+    private static void putContent(Map<String, String> target, String value) {
+        String stripped = value.strip();
+        String lower = stripped.toLowerCase(Locale.ROOT);
+        if (lower.equals("normal") || lower.equals("none")) {
+            target.put("content", lower);
+        } else if (isQuotedContent(stripped) || isAttrContent(stripped)) {
+            target.put("content", stripped);
+        }
+    }
+
+    private static boolean isQuotedContent(String value) {
+        if (value.length() < 2 || value.charAt(0) != value.charAt(value.length() - 1)
+                || value.charAt(0) != '\'' && value.charAt(0) != '"') return false;
+        int backslashes = 0;
+        for (int index = value.length() - 2; index >= 0 && value.charAt(index) == '\\'; index--) {
+            backslashes++;
+        }
+        return backslashes % 2 == 0;
+    }
+
+    private static boolean isAttrContent(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (!lower.startsWith("attr(") || !value.endsWith(")")) return false;
+        String name = value.substring(5, value.length() - 1).strip();
+        return name.matches("[A-Za-z_][A-Za-z0-9_-]*");
     }
 
     public boolean supports(String property, String value) {
@@ -308,6 +337,7 @@ public final class CssParser {
             case "font-size" -> supports(normalized, "16px");
             case "font", "font-family" -> supports(normalized, "16px sans-serif");
             case "line-height" -> supports(normalized, "normal");
+            case "content" -> supports(normalized, "\"text\"");
             case "font-weight" -> supports(normalized, "normal");
             case "font-style" -> supports(normalized, "normal");
             case "display" -> supports(normalized, "block");
@@ -353,6 +383,12 @@ public final class CssParser {
 
     private static void parseDeclaration(Map<String, String> target, String property, String value) {
         switch (property) {
+            case "content" -> {
+                if (value.equals("normal") || value.equals("none")
+                        || isQuotedContent(value) || isAttrContent(value)) {
+                    target.put(property, value);
+                }
+            }
             case "color" -> {
                 if (value.equals("inherit")) target.put(property, value);
                 else putColor(target, property, value);
@@ -410,7 +446,8 @@ public final class CssParser {
             }
             case "align-items" -> {
                 if (value.equals("stretch") || value.equals("flex-start")
-                        || value.equals("center") || value.equals("flex-end")) {
+                        || value.equals("center") || value.equals("flex-end")
+                        || value.equals("baseline")) {
                     target.put(property, value);
                 }
             }

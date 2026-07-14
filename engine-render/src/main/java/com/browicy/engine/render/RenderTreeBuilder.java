@@ -158,6 +158,9 @@ public final class RenderTreeBuilder {
     }
 
     private void collectChildren(Node parent, RenderStyle parentStyle, List<RenderNode> output) {
+        if (parent instanceof Element element) {
+            collectGeneratedContent(element, "before", parentStyle, output);
+        }
         for (Node child : parent.getChildren()) {
             if (child instanceof TextNode text) {
                 if (!text.getData().isEmpty()) {
@@ -210,6 +213,75 @@ public final class RenderTreeBuilder {
                 output.add(buildInlineBox(element, style));
             }
         }
+        if (parent instanceof Element element) {
+            collectGeneratedContent(element, "after", parentStyle, output);
+        }
+    }
+
+    private void collectGeneratedContent(Element element,
+                                         String pseudo,
+                                         RenderStyle parentStyle,
+                                         List<RenderNode> output) {
+        Map<String, String> declarations = element.getPseudoComputedStyles(pseudo);
+        String text = generatedContent(element, declarations.get("content"));
+        if (text == null) return;
+        RenderStyle style = resolveStyle("span", false, declarations, parentStyle);
+        if (style.display() == RenderStyle.Display.NONE) return;
+        RenderTextRun run = new RenderTextRun(null, text, style);
+        if (isFlexContainer(parentStyle.display())) {
+            RenderStyle itemStyle = switch (style.display()) {
+                case INLINE -> copyWithDisplay(style, RenderStyle.Display.BLOCK);
+                case INLINE_FLEX -> copyWithDisplay(style, RenderStyle.Display.FLEX);
+                default -> style;
+            };
+            output.add(new RenderBox(null, itemStyle, List.of(run)));
+        } else if (isBlockContainer(style.display())) {
+            output.add(new RenderBox(null, style, List.of(run)));
+        } else if (style.display() == RenderStyle.Display.INLINE_BLOCK
+                || style.display() == RenderStyle.Display.INLINE_TABLE
+                || style.display() == RenderStyle.Display.INLINE_FLEX) {
+            output.add(new RenderInlineBlock(new RenderBox(null, style, List.of(run))));
+        } else {
+            output.add(new RenderInlineBox(null, style, List.of(run)));
+        }
+    }
+
+    private static String generatedContent(Element element, String content) {
+        if (content == null || content.equalsIgnoreCase("normal")
+                || content.equalsIgnoreCase("none")) return null;
+        String stripped = content.strip();
+        if (stripped.regionMatches(true, 0, "attr(", 0, 5) && stripped.endsWith(")")) {
+            String value = element.getAttribute(stripped.substring(5, stripped.length() - 1).strip());
+            return value == null ? "" : value;
+        }
+        if (stripped.length() >= 2 && (stripped.charAt(0) == '\'' || stripped.charAt(0) == '"')
+                && stripped.charAt(stripped.length() - 1) == stripped.charAt(0)) {
+            return decodeCssString(stripped.substring(1, stripped.length() - 1));
+        }
+        return null;
+    }
+
+    private static String decodeCssString(String source) {
+        StringBuilder result = new StringBuilder();
+        for (int index = 0; index < source.length();) {
+            char current = source.charAt(index++);
+            if (current != '\\' || index >= source.length()) {
+                result.append(current);
+                continue;
+            }
+            int start = index;
+            int end = start;
+            while (end < source.length() && end - start < 6
+                    && Character.digit(source.charAt(end), 16) >= 0) end++;
+            if (end > start) {
+                result.appendCodePoint(Integer.parseInt(source.substring(start, end), 16));
+                index = end;
+                if (index < source.length() && Character.isWhitespace(source.charAt(index))) index++;
+            } else {
+                result.append(source.charAt(index++));
+            }
+        }
+        return result.toString();
     }
 
     private static boolean isBlockContainer(RenderStyle.Display display) {
@@ -502,8 +574,12 @@ public final class RenderTreeBuilder {
     }
 
     private RenderStyle resolveStyle(Element element, RenderStyle parent) {
-        String tag = element.getTagName();
-        Map<String, String> declarations = element.getComputedStyles();
+        return resolveStyle(element.getTagName(), element == documentElement,
+                element.getComputedStyles(), parent);
+    }
+
+    private RenderStyle resolveStyle(String tag, boolean rootElement,
+                                     Map<String, String> declarations, RenderStyle parent) {
 
         RenderStyle.Display display = defaultDisplay(tag);
         RenderStyle.Position position = RenderStyle.Position.STATIC;
@@ -605,7 +681,7 @@ public final class RenderTreeBuilder {
             default -> RenderStyle.Clear.NONE;
         };
         if (declarations.containsKey("font-size")) {
-            float remBase = element == documentElement ? DEFAULT_FONT_SIZE : rootFontSizePx;
+            float remBase = rootElement ? DEFAULT_FONT_SIZE : rootFontSizePx;
             fontSize = resolveLength(
                     declarations.get("font-size"), parent.fontSizePx(), remBase, fontSize);
         }
@@ -671,6 +747,7 @@ public final class RenderTreeBuilder {
             case "flex-start" -> RenderStyle.AlignItems.FLEX_START;
             case "center" -> RenderStyle.AlignItems.CENTER;
             case "flex-end" -> RenderStyle.AlignItems.FLEX_END;
+            case "baseline" -> RenderStyle.AlignItems.BASELINE;
             default -> RenderStyle.AlignItems.STRETCH;
         };
         if (declarations.containsKey("flex-grow")) {

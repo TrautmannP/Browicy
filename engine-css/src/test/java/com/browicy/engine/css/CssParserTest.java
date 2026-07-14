@@ -205,7 +205,7 @@ public class CssParserTest {
     @Test
     public void invalidSelectorListDiscardsTheWholeCssRule() {
         List<CssRule> rules = new CssParser().parse("""
-                .notice, p:focus { color: red; }
+                .notice, p:visited { color: red; }
                 .notice { color: blue; }
                 """);
 
@@ -222,9 +222,10 @@ public class CssParserTest {
                 main .notice { color: blue; }
                 """);
 
-        assertEquals(2, rules.size());
-        assertEquals("div > p", rules.get(0).selector().toString());
-        assertEquals("main .notice", rules.get(1).selector().toString());
+        assertEquals(3, rules.size());
+        assertEquals("p:focus", rules.get(0).selector().toString());
+        assertEquals("div > p", rules.get(1).selector().toString());
+        assertEquals("main .notice", rules.get(2).selector().toString());
     }
 
     @Test
@@ -351,7 +352,9 @@ public class CssParserTest {
         assertTrue(parser.supports("display", "flex"));
         assertTrue(parser.supportsProperty("flex-grow"));
         assertFalse(parser.supports("flex-grow", "-1"));
-        assertFalse(parser.supports("align-items", "baseline"));
+        assertTrue(parser.supports("align-items", "baseline"));
+        assertEquals("\"New Item\"", parser.parseDeclarations(
+                "content:\"New Item\"").get("content"));
     }
 
     @Test

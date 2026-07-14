@@ -136,6 +136,7 @@ public final class DocumentUpdateCoordinator implements AutoCloseable {
             case DomMutation.ChildListChanged ignored -> InvalidationType.STYLE;
             case DomMutation.AttributeChanged ignored -> InvalidationType.STYLE;
             case DomMutation.CharacterDataChanged ignored -> InvalidationType.RENDER_TREE;
+            case DomMutation.StateChanged ignored -> InvalidationType.STYLE;
         };
     }
 

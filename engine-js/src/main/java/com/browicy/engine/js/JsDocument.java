@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
 final class JsDocument implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "title", "body", "cookie", "documentElement", "forms", "styleSheets", "implementation", "defaultView", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
+            "title", "body", "activeElement", "cookie", "documentElement", "forms", "styleSheets", "implementation", "defaultView", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
             "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild", "hasChildNodes",
             "appendChild", "insertBefore", "replaceChild", "removeChild",
             "compareDocumentPosition", "isSameNode", "isEqualNode",
@@ -205,6 +205,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         return switch (key) {
             case "title" -> document.getTitle();
             case "body" -> wrap(document.getBody());
+            case "activeElement" -> wrap(document.getFocusedElement());
             case "cookie" -> cookieStore == null ? "" : cookieStore.cookiesForScript(documentUri());
             case "documentElement" -> wrap(document.getDocumentElement());
             case "forms" -> new JsHtmlCollection(() -> document.getElementsByTagName("form"), this);

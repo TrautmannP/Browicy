@@ -106,13 +106,28 @@ public class ParentNodeTest {
     public void invalidOrUnsupportedSelectorsThrowSyntaxError() {
         Fixture fixture = fixture();
 
-        for (String selector : List.of("", "div,", "[attr=value]", ":focus",
+        for (String selector : List.of("", "div,", "[attr=value]",
                 ":nth-child(nope)", "div > > p")) {
             DomException exception = assertThrows(DomException.class,
                     () -> fixture.document.querySelector(selector));
             assertEquals("SyntaxError", exception.getDomName());
             assertEquals(DomException.SYNTAX_ERR, exception.getCode());
         }
+    }
+
+    @Test
+    public void queriesFocusAndActiveStateTrackedByTheDocument() {
+        Fixture fixture = fixture();
+
+        fixture.document.setFocusedElement(fixture.firstNote);
+        fixture.document.setActiveElement(fixture.secondNote);
+
+        assertSame(fixture.firstNote, fixture.document.querySelector(":focus"));
+        assertSame(fixture.secondNote, fixture.document.querySelector(":active"));
+        fixture.document.setFocusedElement(null);
+        fixture.document.setActiveElement(null);
+        assertNull(fixture.document.querySelector(":focus, :active"));
+        assertNull(fixture.document.querySelector("p::before"));
     }
 
     @Test

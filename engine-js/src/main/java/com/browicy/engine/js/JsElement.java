@@ -35,7 +35,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             "createCaption", "deleteCaption", "createTHead", "deleteTHead", "createTFoot", "deleteTFoot",
             "insertRow", "deleteRow", "insertCell", "deleteCell", "add", "remove",
             "append", "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
-            "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode", "click",
+            "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode", "click", "focus", "blur",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
             "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
@@ -191,6 +191,14 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "cloneNode" -> (ProxyExecutable) args -> document.wrap(element.cloneNode(
                     args.length > 0 && args[0].asBoolean()));
             case "click" -> JsEventTarget.click(element);
+            case "focus" -> (ProxyExecutable) args -> {
+                if (element.getOwnerDocument() != null) element.getOwnerDocument().setFocusedElement(element);
+                return null;
+            };
+            case "blur" -> (ProxyExecutable) args -> {
+                if (element.isFocused()) element.getOwnerDocument().setFocusedElement(null);
+                return null;
+            };
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(element, document);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(element, document);
             case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(element);

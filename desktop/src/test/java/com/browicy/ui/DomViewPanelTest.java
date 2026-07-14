@@ -569,6 +569,59 @@ public class DomViewPanelTest {
         assertEquals(line.y() + line.height(), bottom.y() + bottom.height(), 0.001f);
     }
 
+    @Test
+    public void usesLastLineOfVisibleInlineBlockAsItsBaseline() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div><span id="multi" style="display:inline-block">first<br>
+                  <span style="font-size:24px">last</span></span><span id="single"
+                  style="display:inline-block">single</span></div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        TextFragment last = textByValue(layout, "last");
+        TextFragment single = textByValue(layout, "single");
+
+        assertEquals(last.baseline(), single.baseline(), 0.001f);
+    }
+
+    @Test
+    public void usesInlineBlockBottomAsBaselineWhenOverflowIsNotVisible() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div><span id="clipped" style="display:inline-block;overflow:hidden">
+                  first<br><span style="font-size:24px">last</span></span><span
+                  style="display:inline-block">single</span></div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment clipped = boxById(layout, "clipped");
+        TextFragment single = textByValue(layout, "single");
+
+        assertEquals(clipped.y() + clipped.height(), single.baseline(), 0.001f);
+    }
+
+    @Test
+    public void alignsFlexItemsOnTheirFirstTextBaselines() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div style="display:flex;align-items:baseline">
+                  <div><span style="font-size:30px">Large</span><br>second</div>
+                  <div style="font-size:12px">Small</div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+
+        assertEquals(textByValue(layout, "Large").baseline(),
+                textByValue(layout, "Small").baseline(), 0.001f);
+    }
+
+    private static TextFragment textByValue(LayoutResult layout, String value) {
+        return layout.fragments().stream()
+                .filter(TextFragment.class::isInstance)
+                .map(TextFragment.class::cast)
+                .filter(fragment -> fragment.text().strip().equals(value))
+                .findFirst().orElseThrow();
+    }
+
     private static BoxFragment boxById(LayoutResult layout, String id) {
         return layout.fragments().stream()
                 .filter(BoxFragment.class::isInstance)

@@ -328,6 +328,18 @@ public final class RenderLayoutEngine {
             layouts.add(layout);
             crossSize = Math.max(crossSize, layout.layout().outerHeight());
         }
+        float sharedBaseline = 0;
+        if (containerStyle.alignItems() == RenderStyle.AlignItems.BASELINE) {
+            for (FlexItemLayout layout : layouts) {
+                sharedBaseline = Math.max(sharedBaseline, flexItemBaseline(layout));
+            }
+            float baselineCrossSize = 0;
+            for (FlexItemLayout layout : layouts) {
+                baselineCrossSize = Math.max(baselineCrossSize, sharedBaseline
+                        + layout.layout().outerHeight() - flexItemBaseline(layout));
+            }
+            crossSize = Math.max(crossSize, baselineCrossSize);
+        }
         if (contentHeight != null) crossSize = contentHeight;
         if (containerStyle.alignItems() == RenderStyle.AlignItems.STRETCH) {
             for (int index = 0; index < items.size(); index++) {
@@ -346,14 +358,21 @@ public final class RenderLayoutEngine {
         for (int index = 0; index < items.size(); index++) {
             if (reverse) cursor -= widths[index];
             FlexItemLayout item = layouts.get(index);
-            float crossOffset = crossOffset(containerStyle.alignItems(), crossSize,
-                    item.layout().outerHeight());
+            float crossOffset = containerStyle.alignItems() == RenderStyle.AlignItems.BASELINE
+                    ? sharedBaseline - flexItemBaseline(item)
+                    : crossOffset(containerStyle.alignItems(), crossSize,
+                            item.layout().outerHeight());
             appendFlexItem(item, contentX + cursor, contentY + crossOffset,
                     fragments, lineBoxes);
             if (reverse) cursor -= spacing.gap();
             else cursor += widths[index] + spacing.gap();
         }
         return new FlexLayout(crossSize, List.copyOf(fragments));
+    }
+
+    private static float flexItemBaseline(FlexItemLayout item) {
+        if (!item.lines().isEmpty()) return item.lines().getFirst().baseline();
+        return item.layout().outerHeight();
     }
 
     private FlexLayout layoutFlexColumn(RenderStyle containerStyle,

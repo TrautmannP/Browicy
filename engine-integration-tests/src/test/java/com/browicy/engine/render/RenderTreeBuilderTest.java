@@ -7,6 +7,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class RenderTreeBuilderTest {
@@ -55,6 +56,23 @@ public class RenderTreeBuilderTest {
         assertEquals(CssColor.parse("#123456"), style.borderColor().top());
         assertTrue(style.borderStyle().left());
         assertEquals(RenderStyle.BoxSizing.BORDER_BOX, style.boxSizing());
+    }
+
+    @Test
+    public void insertsBeforeAndAfterGeneratedContentInTreeOrder() {
+        RenderTree tree = build("""
+                <html><head><style>
+                  .badge::before { content:"New "; color:red }
+                  .badge::after { content:attr(data-suffix); color:blue }
+                </style></head><body><span class="badge" data-suffix="!">Item</span></body></html>
+                """);
+        List<RenderTextRun> runs = textRunsRecursively(tree.root());
+
+        assertEquals(List.of("New ", "Item", "!"), runs.stream().map(RenderTextRun::text).toList());
+        assertEquals(CssColor.parse("red"), runs.getFirst().style().color());
+        assertEquals(CssColor.parse("blue"), runs.getLast().style().color());
+        assertNull(runs.getFirst().source());
+        assertNull(runs.getLast().source());
     }
 
     @Test

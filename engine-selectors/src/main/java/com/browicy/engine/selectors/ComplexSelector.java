@@ -37,6 +37,11 @@ public record ComplexSelector(List<SelectorStep> steps) implements Selector {
         return matchesStep(element, steps.size() - 1, adapter);
     }
 
+    @Override
+    public String pseudoElement() {
+        return steps.getLast().selector().pseudoElement();
+    }
+
     private <N> boolean matchesStep(N element, int index, SelectorNodeAdapter<N> adapter) {
         SelectorStep step = steps.get(index);
         if (!step.selector().matches(element, adapter)) {

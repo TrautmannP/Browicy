@@ -20,6 +20,8 @@ public final class Document extends Node implements ParentNode {
     private final CopyOnWriteArrayList<DocumentMutationListener> mutationListeners =
             new CopyOnWriteArrayList<>();
     private volatile DocumentReadyState readyState = DocumentReadyState.LOADING;
+    private Element focusedElement;
+    private Element activeElement;
 
     public Document(String url) {
         this.url = url == null || url.isBlank() ? FALLBACK_URI.toString() : url;
@@ -41,6 +43,38 @@ public final class Document extends Node implements ParentNode {
 
     public DocumentReadyState getReadyState() {
         return readyState;
+    }
+
+    public Element getFocusedElement() {
+        return focusedElement;
+    }
+
+    public void setFocusedElement(Element element) {
+        requireOwnedElement(element);
+        if (focusedElement == element) return;
+        Element previous = focusedElement;
+        focusedElement = element;
+        dispatchMutation(new DomMutation.StateChanged(
+                element == null ? previous == null ? this : previous : element, "focus"));
+    }
+
+    public Element getActiveElement() {
+        return activeElement;
+    }
+
+    public void setActiveElement(Element element) {
+        requireOwnedElement(element);
+        if (activeElement == element) return;
+        Element previous = activeElement;
+        activeElement = element;
+        dispatchMutation(new DomMutation.StateChanged(
+                element == null ? previous == null ? this : previous : element, "active"));
+    }
+
+    private void requireOwnedElement(Element element) {
+        if (element != null && element.getOwnerDocument() != this) {
+            throw new IllegalArgumentException("Das Element gehört nicht zu diesem Dokument");
+        }
     }
 
     /**

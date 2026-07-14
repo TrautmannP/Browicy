@@ -97,6 +97,8 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private boolean disposed;
     private volatile RenderSnapshot snapshot;
     private volatile Boolean hoverStylesPresent;
+    private volatile Boolean focusStylesPresent;
+    private volatile Boolean activeStylesPresent;
 
     private record RenderSnapshot(RenderTree tree, LayoutResult layout,
                                   int viewportWidth, int viewportHeight) {
@@ -156,6 +158,9 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             public void mousePressed(MouseEvent event) {
                 requestFocusInWindow();
                 pressedTarget = hitTest(event.getX(), event.getY());
+                updateFocus(isFocusable(pressedTarget) ? pressedTarget : null);
+                document.setActiveElement(pressedTarget);
+                if (activeStylesPresent()) requestRender(InvalidationType.STYLE);
                 dispatchDomEvent(pressedTarget, "mousedown", true, true);
             }
 
@@ -166,6 +171,8 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                 if (releasedTarget != null && releasedTarget == pressedTarget) {
                     dispatchDomEvent(releasedTarget, "click", true, true);
                 }
+                document.setActiveElement(null);
+                if (activeStylesPresent()) requestRender(InvalidationType.STYLE);
                 pressedTarget = null;
             }
 
@@ -193,12 +200,12 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent event) {
-                dispatchDomEvent(document.getBody(), "keydown", true, true);
+                dispatchDomEvent(focusedOrBody(), "keydown", true, true);
             }
 
             @Override
             public void keyReleased(KeyEvent event) {
-                dispatchDomEvent(document.getBody(), "keyup", true, true);
+                dispatchDomEvent(focusedOrBody(), "keyup", true, true);
             }
         });
     }
@@ -218,6 +225,8 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         if (invalidation.requires(InvalidationType.STYLE)
                 || invalidation.requires(InvalidationType.RENDER_TREE)) {
             hoverStylesPresent = null;
+            focusStylesPresent = null;
+            activeStylesPresent = null;
         }
         if (invalidation.requires(InvalidationType.LAYOUT)) {
             requestRender(invalidation);
@@ -427,6 +436,56 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             if (rule.selector().toString().contains(":hover")) {
                 return true;
             }
+        }
+        return false;
+    }
+
+    private void updateFocus(Element target) {
+        Element previous = document.getFocusedElement();
+        if (previous == target) return;
+        document.setFocusedElement(target);
+        dispatchDomEvent(previous, "blur", false, false);
+        dispatchDomEvent(target, "focus", false, false);
+        if (focusStylesPresent()) requestRender(InvalidationType.STYLE);
+    }
+
+    private Element focusedOrBody() {
+        Element focused = document.getFocusedElement();
+        return focused == null ? document.getBody() : focused;
+    }
+
+    private static boolean isFocusable(Element element) {
+        if (element == null || element.hasAttribute("disabled")) return false;
+        if (element.hasAttribute("tabindex")) return true;
+        return switch (element.getTagName()) {
+            case "input", "button", "select", "textarea" -> true;
+            case "a" -> element.hasAttribute("href");
+            default -> false;
+        };
+    }
+
+    private boolean focusStylesPresent() {
+        Boolean cached = focusStylesPresent;
+        if (cached == null) {
+            cached = stateStylesPresent(":focus");
+            focusStylesPresent = cached;
+        }
+        return cached;
+    }
+
+    private boolean activeStylesPresent() {
+        Boolean cached = activeStylesPresent;
+        if (cached == null) {
+            cached = stateStylesPresent(":active");
+            activeStylesPresent = cached;
+        }
+        return cached;
+    }
+
+    private boolean stateStylesPresent(String pseudoClass) {
+        if (styleSheets == null) return true;
+        for (com.browicy.engine.css.CssRule rule : styleSheets.rules()) {
+            if (rule.selector().toString().contains(pseudoClass)) return true;
         }
         return false;
     }

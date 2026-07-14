@@ -69,6 +69,8 @@ public final class DomSelectorAdapter implements SelectorNodeAdapter<Element> {
         return switch (state) {
             case "hover" -> element.isHovered();
             case "checked" -> element.isCheckedState();
+            case "focus" -> element.isFocused();
+            case "active" -> element.isActive();
             default -> false;
         };
     }

@@ -5,7 +5,7 @@ import java.util.Objects;
 
 public sealed interface DomMutation
         permits DomMutation.ChildListChanged, DomMutation.AttributeChanged,
-                DomMutation.CharacterDataChanged {
+                DomMutation.CharacterDataChanged, DomMutation.StateChanged {
 
     Node target();
 
@@ -39,6 +39,13 @@ public sealed interface DomMutation
             Objects.requireNonNull(target, "target");
             oldValue = oldValue == null ? "" : oldValue;
             newValue = newValue == null ? "" : newValue;
+        }
+    }
+
+    record StateChanged(Node target, String state) implements DomMutation {
+        public StateChanged {
+            Objects.requireNonNull(target, "target");
+            Objects.requireNonNull(state, "state");
         }
     }
 }

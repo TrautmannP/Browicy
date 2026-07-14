@@ -127,6 +127,8 @@ final class JsMutationObserverRegistry implements AutoCloseable {
                     record.put("oldValue", characterData.oldValue());
                 }
             }
+            case DomMutation.StateChanged ignored ->
+                    throw new IllegalStateException("UI-Zustände sind keine DOM-Mutationen");
         }
         return ProxyObject.fromMap(record);
     }
@@ -183,6 +185,7 @@ final class JsMutationObserverRegistry implements AutoCloseable {
                 case DomMutation.AttributeChanged attribute -> options.attributes()
                         && (options.attributeFilter().isEmpty()
                         || options.attributeFilter().contains(attribute.attributeName()));
+                case DomMutation.StateChanged ignored -> false;
             };
         }
     }

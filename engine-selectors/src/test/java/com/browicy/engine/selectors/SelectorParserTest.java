@@ -136,16 +136,26 @@ public class SelectorParserTest {
 
     @Test
     public void parsesAndMatchesInteractiveStatePseudoClasses() {
-        TestNode hovered = new TestNode("a", null, Set.of("hovered"), null);
+        TestNode hovered = new TestNode("a", null, Set.of("hovered", "focused", "active"), null);
         TestNode checked = new TestNode("input", null, Set.of(), null,
                 Map.of("checked", "checked"));
         TestAdapter adapter = new TestAdapter(hovered, checked);
 
         assertTrue(parser.parse("a:hover").matchesAny(hovered, adapter));
         assertTrue(parser.parse("input:checked").matchesAny(checked, adapter));
+        assertTrue(parser.parse("a:focus:active").matchesAny(hovered, adapter));
         assertFalse(parser.parse("a:checked").matchesAny(hovered, adapter));
         assertEquals(new Specificity(0, 1, 1),
                 parser.parse("a:hover").selectors().getFirst().specificity());
+    }
+
+    @Test
+    public void parsesGeneratedPseudoElementsAndCountsTheirSpecificity() {
+        ComplexSelector selector = parser.parse(".badge:hover::before").selectors().getFirst();
+
+        assertEquals("before", selector.pseudoElement());
+        assertEquals(new Specificity(0, 2, 1), selector.specificity());
+        assertEquals(".badge:hover::before", selector.toString());
     }
 
     @Test
@@ -158,6 +168,9 @@ public class SelectorParserTest {
             assertEquals(source, exception.getSelector());
             assertTrue(exception.getPosition() >= 0);
         }
+        for (String source : List.of("div::marker", "div::before span")) {
+            assertThrows(SelectorParseException.class, () -> parser.parse(source));
+        }
     }
 
     private record TestNode(String tagName, String id, Set<String> classes, TestNode parent,
@@ -165,7 +178,6 @@ public class SelectorParserTest {
         private TestNode(String tagName, String id, Set<String> classes, TestNode parent) {
             this(tagName, id, classes, parent, Map.of());
         }
-
         private TestNode {
             classes = new LinkedHashSet<>(classes);
             attributes = Map.copyOf(attributes);
@@ -242,7 +254,9 @@ public class SelectorParserTest {
         @Override
         public boolean matchesState(TestNode element, String state) {
             return state.equals("hover") && element.classes().contains("hovered")
-                    || state.equals("checked") && element.attributes().containsKey("checked");
+                    || state.equals("checked") && element.attributes().containsKey("checked")
+                    || state.equals("focus") && element.classes().contains("focused")
+                    || state.equals("active") && element.classes().contains("active");
         }
     }
 }

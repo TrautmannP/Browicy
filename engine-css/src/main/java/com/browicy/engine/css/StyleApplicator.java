@@ -54,11 +54,15 @@ public final class StyleApplicator {
         if (node instanceof Element element) {
             element.clearComputedStyles();
             Map<String, DeclarationCandidate> winners = new LinkedHashMap<>();
+            Map<String, Map<String, DeclarationCandidate>> pseudoWinners = new LinkedHashMap<>();
             for (CssRule rule : rules) {
                 if (rule.mediaCondition().matches(viewportWidth, viewportHeight)
                         && rule.selector().matches(element, DomSelectorAdapter.INSTANCE)) {
-                    addCandidates(winners, rule.declarations(),
-                            new CascadePriority(false, rule.specificity(), rule.sourceOrder()));
+                    Map<String, DeclarationCandidate> target = rule.selector().pseudoElement() == null
+                            ? winners : pseudoWinners.computeIfAbsent(
+                                    rule.selector().pseudoElement(), ignored -> new LinkedHashMap<>());
+                    addCandidates(target, rule.declarations(), new CascadePriority(
+                            false, rule.specificity(), rule.sourceOrder()));
                 }
             }
             addCandidates(winners, parser.parseDeclarations(element.getAttribute("style")),
@@ -87,10 +91,41 @@ public final class StyleApplicator {
             }
             resolvedWinners.forEach((property, candidate) ->
                     element.setComputedStyle(property, candidate.value()));
+            pseudoWinners.forEach((pseudo, candidates) -> applyPseudoStyles(
+                    element, pseudo, candidates, variables, parser));
         }
         for (Node child : node.getChildren()) {
             applyToNode(child, rules, parser, childVariables, viewportWidth, viewportHeight);
         }
+    }
+
+    private static void applyPseudoStyles(Element element,
+                                          String pseudo,
+                                          Map<String, DeclarationCandidate> candidates,
+                                          Map<String, String> inheritedVariables,
+                                          CssParser parser) {
+        Map<String, String> variables = new LinkedHashMap<>(inheritedVariables);
+        candidates.forEach((property, candidate) -> {
+            if (property.startsWith("--")) variables.put(property, candidate.value());
+        });
+        variables.forEach((property, value) ->
+                element.setPseudoComputedStyle(pseudo, property, value));
+        Map<String, DeclarationCandidate> resolved = new LinkedHashMap<>();
+        for (Map.Entry<String, DeclarationCandidate> entry : candidates.entrySet()) {
+            if (entry.getKey().startsWith("--")) continue;
+            String value = resolveVariables(entry.getValue().value(), variables,
+                    new HashSet<>(), 0);
+            if (value == null) continue;
+            if (entry.getValue().value().toLowerCase(java.util.Locale.ROOT).contains("var(")) {
+                addCandidates(resolved, parser.parseDeclarations(entry.getKey() + ":" + value),
+                        entry.getValue().priority());
+            } else {
+                addCandidate(resolved, entry.getKey(),
+                        new DeclarationCandidate(value, entry.getValue().priority()));
+            }
+        }
+        resolved.forEach((property, candidate) ->
+                element.setPseudoComputedStyle(pseudo, property, candidate.value()));
     }
 
     private static String resolveVariables(String value, Map<String, String> variables,

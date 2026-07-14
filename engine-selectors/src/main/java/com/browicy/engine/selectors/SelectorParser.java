@@ -47,6 +47,9 @@ public final class SelectorParser {
                 if (atEnd() || peek() == ',') {
                     break;
                 }
+                if (steps.getLast().selector().pseudoElement() != null) {
+                    throw error();
+                }
 
                 Combinator combinator;
                 if (consume('>')) {
@@ -80,6 +83,7 @@ public final class SelectorParser {
             List<StructuralPseudoClass> pseudoClasses = new ArrayList<>();
             List<String> statePseudoClasses = new ArrayList<>();
             List<CompoundSelector> negations = new ArrayList<>();
+            String pseudoElement = null;
 
             if (!atEnd() && consume('*')) {
                 typeName = "*";
@@ -102,7 +106,18 @@ public final class SelectorParser {
                 } else if (peek() == '[') {
                     attributes.add(parseAttributeSelector());
                 } else if (peek() == ':') {
-                    parsePseudoClass(pseudoClasses, statePseudoClasses, negations);
+                    if (position + 1 < source.length() && source.charAt(position + 1) == ':') {
+                        if (pseudoElement != null) throw error();
+                        position += 2;
+                        pseudoElement = readIdentifier().toLowerCase(java.util.Locale.ROOT);
+                        if (!pseudoElement.equals("before") && !pseudoElement.equals("after")) {
+                            throw error();
+                        }
+                        if (!atEnd() && peek() != ',' && !Character.isWhitespace(peek())
+                                && !isCombinator(peek())) throw error();
+                    } else {
+                        parsePseudoClass(pseudoClasses, statePseudoClasses, negations);
+                    }
                 } else {
                     break;
                 }
@@ -110,12 +125,13 @@ public final class SelectorParser {
 
             if (typeName == null && id == null && classes.isEmpty()
                     && attributes.isEmpty() && pseudoClasses.isEmpty()
-                    && statePseudoClasses.isEmpty() && negations.isEmpty()) {
+                    && statePseudoClasses.isEmpty() && negations.isEmpty()
+                    && pseudoElement == null) {
                 throw error();
             }
             return new CompoundSelector(typeName, id, classes, attributes, pseudoClasses,
                     statePseudoClasses,
-                    negations);
+                    negations, pseudoElement);
         }
 
         private AttributeSelector parseAttributeSelector() {
@@ -171,7 +187,8 @@ public final class SelectorParser {
                                       List<CompoundSelector> negations) {
             consume(':');
             String name = readIdentifier().toLowerCase(java.util.Locale.ROOT);
-            if ("hover".equals(name) || "checked".equals(name)) {
+            if ("hover".equals(name) || "checked".equals(name)
+                    || "focus".equals(name) || "active".equals(name)) {
                 statePseudoClasses.add(name);
                 return;
             }
@@ -194,7 +211,8 @@ public final class SelectorParser {
                 skipWhitespace();
                 CompoundSelector negation = parseCompoundSelector();
                 skipWhitespace();
-                if (!consume(')') || !negation.negations().isEmpty()) {
+                if (!consume(')') || !negation.negations().isEmpty()
+                        || negation.pseudoElement() != null) {
                     throw error();
                 }
                 negations.add(negation);

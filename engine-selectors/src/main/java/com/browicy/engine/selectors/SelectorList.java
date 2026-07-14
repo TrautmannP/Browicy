@@ -15,7 +15,7 @@ public record SelectorList(List<ComplexSelector> selectors) {
 
     public <N> boolean matchesAny(N element, SelectorNodeAdapter<N> adapter) {
         for (ComplexSelector selector : selectors) {
-            if (selector.matches(element, adapter)) {
+            if (selector.pseudoElement() == null && selector.matches(element, adapter)) {
                 return true;
             }
         }

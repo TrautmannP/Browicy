@@ -8,16 +8,17 @@ public record CompoundSelector(String typeName, String id, List<String> classes,
                                List<AttributeSelector> attributes,
                                List<StructuralPseudoClass> pseudoClasses,
                                List<String> statePseudoClasses,
-                               List<CompoundSelector> negations) {
+                               List<CompoundSelector> negations,
+                               String pseudoElement) {
 
     public CompoundSelector(String typeName, String id, List<String> classes) {
-        this(typeName, id, classes, List.of(), List.of(), List.of(), List.of());
+        this(typeName, id, classes, List.of(), List.of(), List.of(), List.of(), null);
     }
 
     public CompoundSelector(String typeName, String id, List<String> classes,
                             List<AttributeSelector> attributes,
                             List<StructuralPseudoClass> pseudoClasses) {
-        this(typeName, id, classes, attributes, pseudoClasses, List.of(), List.of());
+        this(typeName, id, classes, attributes, pseudoClasses, List.of(), List.of(), null);
     }
 
     public CompoundSelector {
@@ -27,6 +28,10 @@ public record CompoundSelector(String typeName, String id, List<String> classes,
         statePseudoClasses = List.copyOf(
                 Objects.requireNonNull(statePseudoClasses, "statePseudoClasses"));
         negations = List.copyOf(Objects.requireNonNull(negations, "negations"));
+        if (pseudoElement != null && !pseudoElement.equals("before")
+                && !pseudoElement.equals("after")) {
+            throw new IllegalArgumentException("Nicht unterstütztes Pseudoelement: " + pseudoElement);
+        }
         if (typeName != null && typeName.isBlank()) {
             throw new IllegalArgumentException("Der Elementname darf nicht leer sein");
         }
@@ -38,7 +43,7 @@ public record CompoundSelector(String typeName, String id, List<String> classes,
         }
         if (typeName == null && id == null && classes.isEmpty()
                 && attributes.isEmpty() && pseudoClasses.isEmpty()
-                && statePseudoClasses.isEmpty() && negations.isEmpty()) {
+                && statePseudoClasses.isEmpty() && negations.isEmpty() && pseudoElement == null) {
             throw new IllegalArgumentException("Ein Selektor benötigt mindestens einen Bestandteil");
         }
     }
@@ -48,6 +53,7 @@ public record CompoundSelector(String typeName, String id, List<String> classes,
                 classes.size() + attributes.size() + pseudoClasses.size()
                         + statePseudoClasses.size(),
                 typeName == null || "*".equals(typeName) ? 0 : 1);
+        if (pseudoElement != null) result = result.add(new Specificity(0, 0, 1));
         for (CompoundSelector negation : negations) {
             result = result.add(negation.specificity());
         }
@@ -114,6 +120,7 @@ public record CompoundSelector(String typeName, String id, List<String> classes,
         for (CompoundSelector negation : negations) {
             result.append(":not(").append(negation).append(')');
         }
+        if (pseudoElement != null) result.append("::").append(pseudoElement);
         return result.toString();
     }
 }

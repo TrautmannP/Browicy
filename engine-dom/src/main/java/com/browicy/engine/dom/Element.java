@@ -21,6 +21,7 @@ public final class Element extends Node implements ParentNode {
     private final String localName;
     private final Map<String, String> attributes;
     private final Map<String, String> computedStyles = new LinkedHashMap<>();
+    private final Map<String, Map<String, String>> pseudoComputedStyles = new LinkedHashMap<>();
     private final DOMTokenList classList = new DOMTokenList(this);
     private String valueState;
     private Boolean checkedState;
@@ -66,6 +67,17 @@ public final class Element extends Node implements ParentNode {
 
     public void clearComputedStyles() {
         computedStyles.clear();
+        pseudoComputedStyles.clear();
+    }
+
+    public Map<String, String> getPseudoComputedStyles(String pseudoElement) {
+        Map<String, String> styles = pseudoComputedStyles.get(pseudoElement);
+        return styles == null ? Map.of() : Collections.unmodifiableMap(styles);
+    }
+
+    public void setPseudoComputedStyle(String pseudoElement, String property, String value) {
+        pseudoComputedStyles.computeIfAbsent(pseudoElement, ignored -> new LinkedHashMap<>())
+                .put(property, value);
     }
 
     public String getAttribute(String name) {
@@ -131,6 +143,14 @@ public final class Element extends Node implements ParentNode {
         return hovered;
     }
 
+    public boolean isFocused() {
+        return getOwnerDocument() != null && getOwnerDocument().getFocusedElement() == this;
+    }
+
+    public boolean isActive() {
+        return getOwnerDocument() != null && getOwnerDocument().getActiveElement() == this;
+    }
+
     public void setHovered(boolean hovered) {
         this.hovered = hovered;
     }
@@ -140,6 +160,8 @@ public final class Element extends Node implements ParentNode {
         copy.valueState = valueState;
         copy.checkedState = checkedState;
         copy.computedStyles.putAll(computedStyles);
+        pseudoComputedStyles.forEach((pseudo, styles) ->
+                copy.pseudoComputedStyles.put(pseudo, new LinkedHashMap<>(styles)));
         return copy;
     }
 

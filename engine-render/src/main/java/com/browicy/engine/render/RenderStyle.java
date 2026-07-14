@@ -74,7 +74,7 @@ public record RenderStyle(
     public enum VerticalAlign { BASELINE, TOP, MIDDLE, BOTTOM }
     public enum FlexDirection { ROW, ROW_REVERSE, COLUMN, COLUMN_REVERSE }
     public enum JustifyContent { FLEX_START, CENTER, FLEX_END, SPACE_BETWEEN, SPACE_AROUND, SPACE_EVENLY }
-    public enum AlignItems { STRETCH, FLEX_START, CENTER, FLEX_END }
+    public enum AlignItems { STRETCH, FLEX_START, CENTER, FLEX_END, BASELINE }
 
     public RenderStyle {
         if (fontSizePx <= 0) {
