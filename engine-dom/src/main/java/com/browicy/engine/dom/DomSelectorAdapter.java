@@ -63,4 +63,13 @@ public final class DomSelectorAdapter implements SelectorNodeAdapter<Element> {
     public String attributeValue(Element element, String name) {
         return element.getAttribute(name);
     }
+
+    @Override
+    public boolean matchesState(Element element, String state) {
+        return switch (state) {
+            case "hover" -> element.isHovered();
+            case "checked" -> element.isCheckedState();
+            default -> false;
+        };
+    }
 }

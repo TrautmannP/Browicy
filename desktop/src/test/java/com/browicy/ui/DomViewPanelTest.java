@@ -838,6 +838,32 @@ public class DomViewPanelTest {
         assertEquals(40f, line.height(), 0.001f);
     }
 
+    @Test
+    public void reappliesHoverSelectorsWhenPointerTargetChanges() {
+        Document document = parse("""
+                <html><head><style>
+                  #link:hover { display:block; color:red }
+                </style></head><body><a id="link">Hover me</a></body></html>
+                """);
+        DomViewPanel panel = new DomViewPanel(document);
+        panel.setSize(300, 100);
+        TextFragment text = panel.layoutForTesting(300).fragments().stream()
+                .filter(TextFragment.class::isInstance)
+                .map(TextFragment.class::cast)
+                .filter(fragment -> fragment.text().contains("Hover"))
+                .findFirst().orElseThrow();
+
+        assertEquals("inline", document.getElementById("link").getComputedStyles()
+                .getOrDefault("display", "inline"));
+        panel.dispatchEvent(new java.awt.event.MouseEvent(
+                panel, java.awt.event.MouseEvent.MOUSE_MOVED, 0, 0,
+                Math.round(text.x() + 1), Math.round(text.top() + 1), 0, false));
+
+        assertTrue(document.getElementById("link").isHovered());
+        assertEquals("block", document.getElementById("link").getComputedStyles().get("display"));
+        assertEquals("red", document.getElementById("link").getComputedStyles().get("color"));
+    }
+
     private static Document parse(String html) {
         return new HtmlParser().parse(html);
     }

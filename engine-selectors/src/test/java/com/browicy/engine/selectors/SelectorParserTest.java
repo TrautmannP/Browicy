@@ -135,8 +135,22 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void parsesAndMatchesInteractiveStatePseudoClasses() {
+        TestNode hovered = new TestNode("a", null, Set.of("hovered"), null);
+        TestNode checked = new TestNode("input", null, Set.of(), null,
+                Map.of("checked", "checked"));
+        TestAdapter adapter = new TestAdapter(hovered, checked);
+
+        assertTrue(parser.parse("a:hover").matchesAny(hovered, adapter));
+        assertTrue(parser.parse("input:checked").matchesAny(checked, adapter));
+        assertFalse(parser.parse("a:checked").matchesAny(hovered, adapter));
+        assertEquals(new Specificity(0, 1, 1),
+                parser.parse("a:hover").selectors().getFirst().specificity());
+    }
+
+    @Test
     public void rejectsInvalidAndUnsupportedSelectorsWithPositions() {
-        for (String source : List.of("", "div,", "[attr=value]", ":hover",
+        for (String source : List.of("", "div,", "[attr=value]",
                 ":nth-child(2n+)", ":nth-of-type()", ":not()", ":not(.a, .b)",
                 ":not(:not(.a))", "div > > p")) {
             SelectorParseException exception = assertThrows(
@@ -223,6 +237,12 @@ public class SelectorParserTest {
         @Override
         public String attributeValue(TestNode element, String name) {
             return element.attributes().get(name);
+        }
+
+        @Override
+        public boolean matchesState(TestNode element, String state) {
+            return state.equals("hover") && element.classes().contains("hovered")
+                    || state.equals("checked") && element.attributes().containsKey("checked");
         }
     }
 }

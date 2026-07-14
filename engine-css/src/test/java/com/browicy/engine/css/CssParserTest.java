@@ -205,7 +205,7 @@ public class CssParserTest {
     @Test
     public void invalidSelectorListDiscardsTheWholeCssRule() {
         List<CssRule> rules = new CssParser().parse("""
-                .notice, p:hover { color: red; }
+                .notice, p:focus { color: red; }
                 .notice { color: blue; }
                 """);
 
@@ -217,7 +217,7 @@ public class CssParserTest {
     @Test
     public void supportsCombinatorsAndSkipsUnsupportedSelectors() {
         List<CssRule> rules = new CssParser().parse("""
-                p:hover { color: red; }
+                p:focus { color: red; }
                 div > p { color: green; }
                 main .notice { color: blue; }
                 """);

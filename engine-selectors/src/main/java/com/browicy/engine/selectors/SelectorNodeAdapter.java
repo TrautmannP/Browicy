@@ -19,4 +19,8 @@ public interface SelectorNodeAdapter<N> {
     boolean hasAttribute(N element, String name);
 
     String attributeValue(N element, String name);
+
+    default boolean matchesState(N element, String state) {
+        return false;
+    }
 }

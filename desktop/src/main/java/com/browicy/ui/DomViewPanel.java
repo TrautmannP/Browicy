@@ -4,6 +4,8 @@ import com.browicy.engine.InvalidationType;
 import com.browicy.engine.ImageResourceRegistry;
 import com.browicy.engine.PageSession;
 import com.browicy.engine.PageUpdate;
+import com.browicy.engine.css.StyleApplicator;
+import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Event;
@@ -38,6 +40,7 @@ import java.awt.event.MouseEvent;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.List;
+import java.util.ArrayList;
 import javax.swing.BorderFactory;
 import javax.swing.JViewport;
 import javax.swing.JPanel;
@@ -53,8 +56,10 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private final Document document;
     private final PageRuntime runtime;
     private final ImageResourceRegistry images;
+    private final StyleSheetRegistry styleSheets;
     private RenderTree renderTree;
     private Element pressedTarget;
+    private List<Element> hoveredElements = List.of();
     private final RenderLayoutEngine layoutEngine = new RenderLayoutEngine();
     private LayoutResult layoutResult;
     private int layoutWidth = -1;
@@ -62,17 +67,25 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private int renderViewportHeight = -1;
 
     public DomViewPanel(Document document) {
-        this(document, PageRuntime.closed(), new ImageResourceRegistry());
+        this(document, PageRuntime.closed(), new ImageResourceRegistry(), null);
     }
 
     public DomViewPanel(PageSession session) {
-        this(session.document(), session.runtime(), session.images());
+        this(session.document(), session.runtime(), session.images(), session.styleSheets());
     }
 
     DomViewPanel(Document document, PageRuntime runtime, ImageResourceRegistry images) {
+        this(document, runtime, images, null);
+    }
+
+    private DomViewPanel(Document document,
+                         PageRuntime runtime,
+                         ImageResourceRegistry images,
+                         StyleSheetRegistry styleSheets) {
         this.document = document;
         this.runtime = runtime;
         this.images = images;
+        this.styleSheets = styleSheets;
         setLayout(null);
         setOpaque(true);
         setFocusable(true);
@@ -112,12 +125,19 @@ public final class DomViewPanel extends JPanel implements Scrollable {
 
             @Override
             public void mouseMoved(MouseEvent event) {
-                dispatchDomEvent(hitTest(event.getX(), event.getY()), "mousemove", true, false);
+                Element target = hitTest(event.getX(), event.getY());
+                updateHover(target);
+                dispatchDomEvent(target, "mousemove", true, false);
             }
 
             @Override
             public void mouseDragged(MouseEvent event) {
                 mouseMoved(event);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent event) {
+                updateHover(null);
             }
         };
         addMouseListener(mouseEvents);
@@ -234,6 +254,32 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private void dispatchDomEvent(Element target, String type, boolean bubbles, boolean cancelable) {
         if (target != null && !runtime.isClosed()) {
             runtime.dispatchEvent(target, new Event(type, bubbles, cancelable));
+        }
+    }
+
+    private void updateHover(Element target) {
+        List<Element> next = new ArrayList<>();
+        for (com.browicy.engine.dom.Node node = target;
+             node instanceof Element element;
+             node = node.getParent()) {
+            next.add(element);
+        }
+        if (next.equals(hoveredElements)) return;
+        Element previousTarget = hoveredElements.isEmpty() ? null : hoveredElements.getFirst();
+        hoveredElements.forEach(element -> element.setHovered(false));
+        next.forEach(element -> element.setHovered(true));
+        hoveredElements = List.copyOf(next);
+        synchronized (document) {
+            StyleApplicator applicator = new StyleApplicator();
+            if (styleSheets == null) applicator.apply(document);
+            else applicator.apply(document, styleSheets);
+        }
+        rebuildRenderTree();
+        revalidate();
+        repaint();
+        if (previousTarget != target) {
+            dispatchDomEvent(previousTarget, "mouseout", true, false);
+            dispatchDomEvent(target, "mouseover", true, false);
         }
     }
 

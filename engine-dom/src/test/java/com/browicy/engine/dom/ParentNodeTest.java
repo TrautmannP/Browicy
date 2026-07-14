@@ -105,7 +105,7 @@ public class ParentNodeTest {
     public void invalidOrUnsupportedSelectorsThrowSyntaxError() {
         Fixture fixture = fixture();
 
-        for (String selector : List.of("", "div,", "[attr=value]", ":hover",
+        for (String selector : List.of("", "div,", "[attr=value]", ":focus",
                 ":nth-child(nope)", "div > > p")) {
             DomException exception = assertThrows(DomException.class,
                     () -> fixture.document.querySelector(selector));

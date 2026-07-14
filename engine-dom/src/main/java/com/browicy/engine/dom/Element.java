@@ -24,6 +24,7 @@ public final class Element extends Node implements ParentNode {
     private final DOMTokenList classList = new DOMTokenList(this);
     private String valueState;
     private Boolean checkedState;
+    private boolean hovered;
 
     public Element(String tagName) {
         this(tagName, Map.of());
@@ -124,6 +125,14 @@ public final class Element extends Node implements ParentNode {
 
     public void setCheckedState(boolean checked) {
         checkedState = checked;
+    }
+
+    public boolean isHovered() {
+        return hovered;
+    }
+
+    public void setHovered(boolean hovered) {
+        this.hovered = hovered;
     }
 
     Element copyShallow() {

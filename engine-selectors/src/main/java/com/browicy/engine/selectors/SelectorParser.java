@@ -78,6 +78,7 @@ public final class SelectorParser {
             List<String> classes = new ArrayList<>();
             List<AttributeSelector> attributes = new ArrayList<>();
             List<StructuralPseudoClass> pseudoClasses = new ArrayList<>();
+            List<String> statePseudoClasses = new ArrayList<>();
             List<CompoundSelector> negations = new ArrayList<>();
 
             if (!atEnd() && consume('*')) {
@@ -101,17 +102,19 @@ public final class SelectorParser {
                 } else if (peek() == '[') {
                     attributes.add(parseAttributeSelector());
                 } else if (peek() == ':') {
-                    parsePseudoClass(pseudoClasses, negations);
+                    parsePseudoClass(pseudoClasses, statePseudoClasses, negations);
                 } else {
                     break;
                 }
             }
 
             if (typeName == null && id == null && classes.isEmpty()
-                    && attributes.isEmpty() && pseudoClasses.isEmpty() && negations.isEmpty()) {
+                    && attributes.isEmpty() && pseudoClasses.isEmpty()
+                    && statePseudoClasses.isEmpty() && negations.isEmpty()) {
                 throw error();
             }
             return new CompoundSelector(typeName, id, classes, attributes, pseudoClasses,
+                    statePseudoClasses,
                     negations);
         }
 
@@ -164,9 +167,14 @@ public final class SelectorParser {
         }
 
         private void parsePseudoClass(List<StructuralPseudoClass> pseudoClasses,
+                                      List<String> statePseudoClasses,
                                       List<CompoundSelector> negations) {
             consume(':');
             String name = readIdentifier().toLowerCase(java.util.Locale.ROOT);
+            if ("hover".equals(name) || "checked".equals(name)) {
+                statePseudoClasses.add(name);
+                return;
+            }
             if ("first-child".equals(name)) {
                 pseudoClasses.add(StructuralPseudoClass.firstChild());
                 return;
