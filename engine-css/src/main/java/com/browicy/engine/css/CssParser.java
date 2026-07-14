@@ -148,6 +148,8 @@ public final class CssParser {
             case "font-style" -> supports(normalized, "normal");
             case "display" -> supports(normalized, "block");
             case "position" -> supports(normalized, "static");
+            case "float" -> supports(normalized, "none");
+            case "clear" -> supports(normalized, "none");
             case "top", "right", "bottom", "left" -> supports(normalized, "auto");
             case "width", "height", "min-width", "min-height" -> supports(normalized, "auto");
             case "max-width", "max-height" -> supports(normalized, "none");
@@ -203,6 +205,17 @@ public final class CssParser {
             case "position" -> {
                 if (value.equals("static") || value.equals("relative")
                         || value.equals("absolute")) {
+                    target.put(property, value);
+                }
+            }
+            case "float" -> {
+                if (value.equals("none") || value.equals("left") || value.equals("right")) {
+                    target.put(property, value);
+                }
+            }
+            case "clear" -> {
+                if (value.equals("none") || value.equals("left") || value.equals("right")
+                        || value.equals("both")) {
                     target.put(property, value);
                 }
             }

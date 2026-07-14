@@ -125,12 +125,14 @@ public final class RenderLayoutEngine {
 
         List<PaintFragment> childFragments = new ArrayList<>();
         List<RenderNode> inlineBuffer = new ArrayList<>();
+        List<FloatRegion> floats = new ArrayList<>();
         float currentY = contentY;
         Float previousBottomMargin = null;
 
         for (RenderNode child : box.children()) {
             if (child instanceof RenderBox childBox) {
-                float inlineHeight = flushInline(inlineBuffer, contentX, currentY, contentWidth,
+                FloatArea inlineArea = floatArea(floats, contentX, contentWidth, currentY);
+                float inlineHeight = flushInline(inlineBuffer, inlineArea.x(), currentY, inlineArea.width(),
                         childContainingHeight, style.textAlign(), graphics, childFragments,
                         lineBoxes);
                 currentY += inlineHeight;
@@ -142,12 +144,39 @@ public final class RenderLayoutEngine {
                             new AbsoluteRequest(childBox, contentX, currentY));
                     continue;
                 }
+                currentY = clearedY(floats, currentY, childBox.style().clear());
+                FloatArea blockArea = floatArea(floats, contentX, contentWidth, currentY);
+                if (childBox.style().floatMode() != RenderStyle.FloatMode.NONE) {
+                    int floatFirstLine = lineBoxes.size();
+                    BlockLayout floatLayout = layoutBlock(
+                            childBox, blockArea.x(), currentY, blockArea.width(),
+                            childContainingHeight, true, graphics, lineBoxes,
+                            childPositionedContext);
+                    BoxFragment root = (BoxFragment) floatLayout.fragments().getFirst();
+                    float desiredX = childBox.style().floatMode() == RenderStyle.FloatMode.LEFT
+                            ? blockArea.x() + childBox.style().margin().left()
+                            : blockArea.x() + blockArea.width()
+                                    - childBox.style().margin().right() - root.width();
+                    float dx = desiredX - root.x();
+                    List<PaintFragment> placed = floatLayout.fragments().stream()
+                            .map(fragment -> translate(fragment, dx, 0)).toList();
+                    translateLines(lineBoxes, floatFirstLine, dx, 0);
+                    childFragments.addAll(placed);
+                    floats.add(new FloatRegion(
+                            childBox.style().floatMode(),
+                            desiredX - childBox.style().margin().left(),
+                            currentY,
+                            root.width() + childBox.style().margin().horizontal(),
+                            floatLayout.outerHeight()));
+                    previousBottomMargin = null;
+                    continue;
+                }
                 float collapsedOverlap = previousBottomMargin == null ? 0
                         : previousBottomMargin + childBox.style().margin().top()
                         - Math.max(previousBottomMargin, childBox.style().margin().top());
                 currentY -= collapsedOverlap;
                 BlockLayout childLayout = layoutBlock(
-                        childBox, contentX, currentY, contentWidth, childContainingHeight,
+                        childBox, blockArea.x(), currentY, blockArea.width(), childContainingHeight,
                         false, graphics, lineBoxes, childPositionedContext);
                 childFragments.addAll(childLayout.fragments());
                 currentY += childLayout.outerHeight();
@@ -157,7 +186,8 @@ public final class RenderLayoutEngine {
                 inlineBuffer.add(child);
             }
         }
-        currentY += flushInline(inlineBuffer, contentX, currentY, contentWidth,
+        FloatArea finalArea = floatArea(floats, contentX, contentWidth, currentY);
+        currentY += flushInline(inlineBuffer, finalArea.x(), currentY, finalArea.width(),
                 childContainingHeight, style.textAlign(), graphics, childFragments, lineBoxes);
 
         float naturalContentHeight = Math.max(0, currentY - contentY);
@@ -200,6 +230,41 @@ public final class RenderLayoutEngine {
             translateLines(lineBoxes, firstLine, dx, dy);
         }
         return new BlockLayout(outerHeight, List.copyOf(fragments));
+    }
+
+    private static FloatArea floatArea(List<FloatRegion> floats,
+                                       float contentX,
+                                       float contentWidth,
+                                       float y) {
+        float left = contentX;
+        float right = contentX + contentWidth;
+        for (FloatRegion region : floats) {
+            if (y < region.y() || y >= region.y() + region.height()) continue;
+            if (region.mode() == RenderStyle.FloatMode.LEFT) {
+                left = Math.max(left, region.x() + region.width());
+            } else {
+                right = Math.min(right, region.x());
+            }
+        }
+        return new FloatArea(left, Math.max(1, right - left));
+    }
+
+    private static float clearedY(List<FloatRegion> floats,
+                                  float y,
+                                  RenderStyle.Clear clear) {
+        if (clear == RenderStyle.Clear.NONE) return y;
+        float result = y;
+        for (FloatRegion region : floats) {
+            boolean applies = clear == RenderStyle.Clear.BOTH
+                    || clear == RenderStyle.Clear.LEFT
+                            && region.mode() == RenderStyle.FloatMode.LEFT
+                    || clear == RenderStyle.Clear.RIGHT
+                            && region.mode() == RenderStyle.FloatMode.RIGHT;
+            if (applies && region.y() + region.height() > result) {
+                result = region.y() + region.height();
+            }
+        }
+        return result;
     }
 
     private BlockLayout layoutTable(RenderBox table,
@@ -861,6 +926,16 @@ public final class RenderLayoutEngine {
     }
 
     private record TableRow(RenderBox box, RenderBox group, List<RenderBox> cells) {
+    }
+
+    private record FloatRegion(RenderStyle.FloatMode mode,
+                               float x,
+                               float y,
+                               float width,
+                               float height) {
+    }
+
+    private record FloatArea(float x, float width) {
     }
 
     private sealed interface InlineToken

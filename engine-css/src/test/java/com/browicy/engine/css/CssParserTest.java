@@ -240,4 +240,13 @@ public class CssParserTest {
         assertTrue(parser.supports("display", "table-row"));
         assertTrue(parser.supports("border-collapse", "separate"));
     }
+
+    @Test
+    public void parsesFloatAndClear() {
+        Map<String, String> declarations = new CssParser().parseDeclarations(
+                "float:right;clear:both");
+
+        assertEquals("right", declarations.get("float"));
+        assertEquals("both", declarations.get("clear"));
+    }
 }

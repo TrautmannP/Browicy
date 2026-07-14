@@ -795,6 +795,28 @@ public class DomViewPanelTest {
         assertTrue(rowOne.height() > a.box().style().fontSizePx());
     }
 
+    @Test
+    public void floatsBlocksAndHonorsClear() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body>
+                  <div id="float" style="float:right;width:100px;height:70px">float</div>
+                  <div id="beside" style="height:20px">beside</div>
+                  <div id="clear" style="clear:both;height:10px">clear</div>
+                </body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment floated = boxById(layout, "float");
+        BoxFragment beside = boxById(layout, "beside");
+        BoxFragment clear = boxById(layout, "clear");
+
+        assertEquals(284f, floated.x(), 0.001f);
+        assertEquals(268f, beside.width(), 0.001f);
+        assertEquals(floated.y(), beside.y(), 0.001f);
+        assertEquals(floated.y() + floated.height(), clear.y(), 0.001f);
+        assertEquals(368f, clear.width(), 0.001f);
+    }
+
     private static Document parse(String html) {
         return new HtmlParser().parse(html);
     }

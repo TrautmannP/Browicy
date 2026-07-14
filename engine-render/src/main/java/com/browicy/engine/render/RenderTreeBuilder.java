@@ -58,6 +58,8 @@ public final class RenderTreeBuilder {
         RenderStyle initial = new RenderStyle(
                 RenderStyle.Display.BLOCK,
                 RenderStyle.Position.STATIC,
+                RenderStyle.FloatMode.NONE,
+                RenderStyle.Clear.NONE,
                 RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO,
                 DEFAULT_FONT_SIZE,
                 400,
@@ -227,6 +229,8 @@ public final class RenderTreeBuilder {
         return new RenderStyle(
                 RenderStyle.Display.BLOCK,
                 RenderStyle.Position.STATIC,
+                RenderStyle.FloatMode.NONE,
+                RenderStyle.Clear.NONE,
                 RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO,
                 inherited.fontSizePx(),
                 inherited.fontWeight(),
@@ -258,6 +262,8 @@ public final class RenderTreeBuilder {
 
         RenderStyle.Display display = defaultDisplay(tag);
         RenderStyle.Position position = RenderStyle.Position.STATIC;
+        RenderStyle.FloatMode floatMode = RenderStyle.FloatMode.NONE;
+        RenderStyle.Clear clear = RenderStyle.Clear.NONE;
         RenderOffset top = RenderOffset.AUTO;
         RenderOffset right = RenderOffset.AUTO;
         RenderOffset bottom = RenderOffset.AUTO;
@@ -310,6 +316,17 @@ public final class RenderTreeBuilder {
             case "relative" -> RenderStyle.Position.RELATIVE;
             case "absolute" -> RenderStyle.Position.ABSOLUTE;
             default -> RenderStyle.Position.STATIC;
+        };
+        floatMode = switch (declarations.getOrDefault("float", "none")) {
+            case "left" -> RenderStyle.FloatMode.LEFT;
+            case "right" -> RenderStyle.FloatMode.RIGHT;
+            default -> RenderStyle.FloatMode.NONE;
+        };
+        clear = switch (declarations.getOrDefault("clear", "none")) {
+            case "left" -> RenderStyle.Clear.LEFT;
+            case "right" -> RenderStyle.Clear.RIGHT;
+            case "both" -> RenderStyle.Clear.BOTH;
+            default -> RenderStyle.Clear.NONE;
         };
         if (declarations.containsKey("font-size")) {
             float remBase = element == documentElement ? DEFAULT_FONT_SIZE : rootFontSizePx;
@@ -373,7 +390,7 @@ public final class RenderTreeBuilder {
         borderStyle = resolveBorderStyles(declarations);
         borderWidth = effectiveBorderWidths(borderWidth, borderStyle);
 
-        return new RenderStyle(display, position, top, right, bottom, left,
+        return new RenderStyle(display, position, floatMode, clear, top, right, bottom, left,
                 fontSize, fontWeight, italic, color, background,
                 width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderCollapse, textAlign,
@@ -583,7 +600,7 @@ public final class RenderTreeBuilder {
     }
 
     private static RenderStyle copyWithDisplay(RenderStyle style, RenderStyle.Display display) {
-        return new RenderStyle(display, style.position(), style.top(), style.right(),
+        return new RenderStyle(display, style.position(), style.floatMode(), style.clear(), style.top(), style.right(),
                 style.bottom(), style.left(), style.fontSizePx(), style.fontWeight(), style.italic(),
                 style.color(), style.backgroundColor(), style.width(), style.height(),
                 style.minWidth(), style.maxWidth(), style.minHeight(), style.maxHeight(),

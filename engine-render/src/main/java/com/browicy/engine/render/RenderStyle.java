@@ -3,6 +3,8 @@ package com.browicy.engine.render;
 public record RenderStyle(
         Display display,
         Position position,
+        FloatMode floatMode,
+        Clear clear,
         RenderOffset top,
         RenderOffset right,
         RenderOffset bottom,
@@ -37,6 +39,8 @@ public record RenderStyle(
     }
     public enum BorderCollapse { SEPARATE, COLLAPSE }
     public enum Position { STATIC, RELATIVE, ABSOLUTE }
+    public enum FloatMode { NONE, LEFT, RIGHT }
+    public enum Clear { NONE, LEFT, RIGHT, BOTH }
     public enum TextAlign { LEFT, CENTER, RIGHT }
     public enum BoxSizing { CONTENT_BOX, BORDER_BOX }
     public enum Overflow { VISIBLE, HIDDEN, AUTO, SCROLL }
