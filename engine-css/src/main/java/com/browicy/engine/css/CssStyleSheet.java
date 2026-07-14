@@ -15,12 +15,14 @@ public final class CssStyleSheet {
     private final String href;
     private final List<String> ruleTexts = new ArrayList<>();
     private List<CssFontFace> fontFaces = List.of();
+    private String sourceText;
 
     CssStyleSheet(CssParser parser, int sourceOrder, Element ownerNode, String href, String css) {
         this.parser = Objects.requireNonNull(parser, "parser");
         this.sourceOrder = sourceOrder;
         this.ownerNode = ownerNode;
         this.href = href;
+        this.sourceText = css == null ? "" : css;
         ruleTexts.addAll(parser.ruleSources(css));
         fontFaces = parser.fontFaces(css);
     }
@@ -45,7 +47,12 @@ public final class CssStyleSheet {
         return List.copyOf(ruleTexts);
     }
 
+    public synchronized String sourceText() {
+        return sourceText;
+    }
+
     synchronized void replaceRules(String css) {
+        sourceText = css == null ? "" : css;
         ruleTexts.clear();
         ruleTexts.addAll(parser.ruleSources(css));
         fontFaces = parser.fontFaces(css);
@@ -65,6 +72,7 @@ public final class CssStyleSheet {
             throw new IllegalArgumentException("Ungueltige CSS-Regel");
         }
         ruleTexts.add(index, parsed.getFirst());
+        sourceText = String.join(System.lineSeparator(), ruleTexts);
         return index;
     }
 
@@ -73,6 +81,7 @@ public final class CssStyleSheet {
             throw new IndexOutOfBoundsException("CSS-Regelindex ausserhalb der Regelliste: " + index);
         }
         ruleTexts.remove(index);
+        sourceText = String.join(System.lineSeparator(), ruleTexts);
     }
 
     synchronized List<CssRule> parsedRules() {

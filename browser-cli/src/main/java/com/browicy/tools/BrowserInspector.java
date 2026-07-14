@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** Loads a page without Swing and emits a deterministic JSON diagnostics report. */
 public final class BrowserInspector {
 
     private BrowserInspector() { }
@@ -44,6 +43,7 @@ public final class BrowserInspector {
             }
         }
         String json = Json.write(report, options.pretty(), 0) + System.lineSeparator();
+        CompatibilityReport.log(castMap(report.get("compatibility")));
         if (options.output() == null) {
             System.out.print(json);
         } else {
@@ -107,8 +107,11 @@ public final class BrowserInspector {
         javascript.put("console", js.consoleMessages());
         javascript.put("errors", js.errors());
 
+        Map<String, Object> compatibility = CompatibilityReport.build(
+                document, session.styleSheets(), js);
+
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("schemaVersion", 1);
+        result.put("schemaVersion", 2);
         result.put("generatedAt", Instant.now().toString());
         result.put("durationMs", Duration.between(started, Instant.now()).toMillis());
         result.put("requestedUrl", requestedUrl);
@@ -117,9 +120,15 @@ public final class BrowserInspector {
         result.put("css", css);
         result.put("renderTree", renderReport);
         result.put("javascript", javascript);
+        result.put("compatibility", compatibility);
         result.put("network", network.stream().map(BrowserInspector::networkEvent).toList());
         result.put("healthy", !document.getUrl().equals("about:error") && js.errors().isEmpty());
         return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castMap(Object value) {
+        return (Map<String, Object>) value;
     }
 
     private static Map<String, Object> networkEvent(NetworkRequestEvent event) {

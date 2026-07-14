@@ -72,6 +72,12 @@ java -jar browser-cli/target/browicy-inspect.jar "https://example.com" --output 
 
 This output is suitable for automated regression checks and for investigating missing browser capabilities. See [the engine progress notes](docs/engine-progress.md) for an example workflow and compatibility baseline.
 
+The inspector also writes compatibility findings to stderr and includes a deduplicated
+`compatibility` section in schema version 2. It lists rejected CSS properties, values and
+selectors, likely missing JavaScript browser APIs inferred from runtime errors, and HTML
+elements that require specialized engine behavior. Each finding contains its occurrence
+count plus a small set of sources and examples, so reports remain readable on large pages.
+
 ## JavaScript support
 
 Inline and external scripts run in a sandbox without access to Java, the file system, or processes. The current API includes common capabilities such as DOM queries and mutation, `classList`, inline styles, `CSS.supports`, `URLSearchParams`, timers, microtasks, lifecycle events, and console/error collection.
