@@ -4,6 +4,7 @@ import lombok.AccessLevel;
 import lombok.Setter;
 
 import com.browicy.engine.css.CssStyleSheet;
+import com.browicy.engine.css.StyleApplicator;
 import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
@@ -29,7 +30,7 @@ import java.util.stream.Collectors;
 final class JsDocument implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "title", "body", "cookie", "documentElement", "forms", "styleSheets", "implementation", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
+            "title", "body", "cookie", "documentElement", "forms", "styleSheets", "implementation", "defaultView", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
             "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild", "hasChildNodes",
             "appendChild", "insertBefore", "replaceChild", "removeChild",
             "compareDocumentPosition", "isSameNode", "isEqualNode",
@@ -59,6 +60,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     @Setter(AccessLevel.PACKAGE)
     private JsCookieStore cookieStore;
     private JsDomImplementation implementation;
+    private JsWindow defaultView;
 
     JsDocument(Document document, Consumer<String> errorSink,
                StyleSheetRegistry styleSheets, Runnable styleSheetMutationCallback) {
@@ -115,6 +117,18 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         wrapper.setDomOperationWrapper(domOperationWrapper);
         wrapper.setCookieStore(cookieStore);
         return wrapper;
+    }
+
+    JsComputedStyleDeclaration computedStyle(JsElement element) {
+        Document owner = element.unwrap().getOwnerDocument();
+        if (owner != null && owner != document) {
+            new StyleApplicator().apply(owner);
+        }
+        return new JsComputedStyleDeclaration(element.unwrap());
+    }
+
+    JsWindow defaultView() {
+        return defaultView == null ? defaultView = new JsWindow(this) : defaultView;
     }
 
     Object wrapOwnerDocument(Node node) {
@@ -197,6 +211,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "styleSheets" -> new JsStyleSheetList();
             case "implementation" -> implementation == null
                     ? implementation = new JsDomImplementation(this) : implementation;
+            case "defaultView" -> defaultView();
             case "URL" -> document.getUrl();
             case "readyState" -> document.getReadyState().scriptValue();
             case "nodeType" -> document.getNodeType();

@@ -273,7 +273,7 @@ final class GraalPageRuntime implements PageRuntime {
                 throw new IllegalArgumentException(
                         "getComputedStyle: argument 1 must be an Element");
             }
-            return new JsComputedStyleDeclaration(element.unwrap());
+            return jsDocument.computedStyle(element);
         });
         context.eval("js", JavaScriptEngine.BROWSER_BOOTSTRAP);
         windowLoadInvoker = context.eval("js", "(callback, event) => callback.call(window, event)");

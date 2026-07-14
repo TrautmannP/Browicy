@@ -17,6 +17,52 @@ import static org.junit.Assert.assertTrue;
 public class JavaScriptEngineTest {
 
     @Test
+    public void iframeExposesStableInitialAboutBlankBrowsingContext() {
+        Document document = parse("""
+                <html><body><iframe id="frame"></iframe><script>
+                  const frame = document.getElementById('frame');
+                  const content = frame.contentDocument;
+                  console.log(content.URL, content.documentElement.tagName,
+                              content.body.tagName, content.readyState);
+                  console.log(frame.contentDocument === content,
+                              frame.contentWindow.document === content,
+                              content.defaultView === frame.contentWindow,
+                              frame.contentWindow.window === frame.contentWindow);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                "log: about:blank HTML BODY complete",
+                "log: true true true true"), result.consoleMessages());
+    }
+
+    @Test
+    public void iframeSrcdocCreatesAReplaceableStyledDocument() {
+        Document document = parse("""
+                <html><body><iframe id="frame"></iframe><script>
+                  const frame = document.getElementById('frame');
+                  frame.srcdoc = '<style>p { color: green }</style><p id="message">hello</p>';
+                  const first = frame.contentDocument;
+                  console.log(first.getElementById('message').textContent,
+                              frame.contentWindow.getComputedStyle(
+                                first.getElementById('message')).color);
+                  frame.srcdoc = '<p id="replacement">new</p>';
+                  console.log(frame.contentDocument !== first,
+                              frame.contentDocument.getElementById('replacement').textContent);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: hello green", "log: true new"),
+                result.consoleMessages());
+    }
+
+    @Test
     public void exposesComputedStylesAsAReadOnlyCssStyleDeclaration() {
         Document document = parse("""
                 <html><head><style>#target { color: red; font-size: 18px }</style></head>

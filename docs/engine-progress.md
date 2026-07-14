@@ -48,7 +48,7 @@ Acid3 harness during Maven's `verify` lifecycle:
 mvn -Pcompatibility-report -pl acid3-tests -am verify
 ```
 
-The run on 2026-07-14 recorded 33/94 CSS3Test cases (23%) and 57/100 Acid3 subtests,
-for 90/194 cases overall. Reports are written to `target/compatibility-reports`: `latest.html`
+The run on 2026-07-14 recorded 33/94 CSS3Test cases (23%) and 65/100 Acid3 subtests,
+for 98/194 cases overall. Reports are written to `target/compatibility-reports`: `latest.html`
 is intended for human review, while `latest.json` is intended for CI and automated analysis.
 Timestamped copies are retained for trend tracking.

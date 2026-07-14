@@ -1,6 +1,7 @@
 package com.browicy.engine.js;
 
 import com.browicy.engine.dom.Document;
+import com.browicy.engine.dom.DocumentReadyState;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 
@@ -25,6 +26,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
     private static final List<String> MEMBERS = List.of(
             "tagName", "nodeName", "nodeType", "nodeValue", "namespaceURI", "prefix", "localName",
             "id", "className", "classList", "name", "type", "value", "checked", "defaultChecked", "selected", "defaultSelected",
+            "src", "srcdoc", "contentDocument", "contentWindow",
             "textContent", "innerHTML", "style", "sheet", "children", "childNodes", "length", "elements", "form", "options", "selectedIndex",
             "caption", "tHead", "tFoot", "tBodies", "rows", "cells", "rowIndex", "sectionRowIndex", "cellIndex",
             "parentNode", "ownerDocument", "firstChild", "lastChild", "previousSibling", "nextSibling",
@@ -45,6 +47,8 @@ final class JsElement implements ProxyObject, JsNodeLike {
     private JsStyleDeclaration style;
     private JsCssStyleSheet sheet;
     private final Map<String, Value> expandos = new LinkedHashMap<>();
+    private String embeddedDocumentSource;
+    private JsDocument embeddedDocument;
 
     Element unwrap() {
         return element;
@@ -73,6 +77,13 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "defaultChecked" -> element.hasAttribute("checked");
             case "selected" -> element.hasAttribute("selected");
             case "defaultSelected" -> element.hasAttribute("selected");
+            case "src" -> reflectedUrl("src");
+            case "srcdoc" -> orEmpty(element.getAttribute("srcdoc"));
+            case "contentDocument" -> embeddedDocument();
+            case "contentWindow" -> {
+                JsDocument content = embeddedDocument();
+                yield content == null ? null : content.defaultView();
+            }
             case "textContent" -> element.getTextContent();
             case "innerHTML" -> element.getTextContent();
             case "style" -> style == null ? style = new JsStyleDeclaration(element) : style;
@@ -217,7 +228,38 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "defaultChecked" -> booleanAttribute("checked", value.asBoolean());
             case "selected", "defaultSelected" -> booleanAttribute("selected", value.asBoolean());
             case "selectedIndex" -> setSelectedIndex(value.asInt());
+            case "src", "srcdoc" -> element.setAttribute(key, toText(value));
             default -> expandos.put(key, value);
+        }
+    }
+
+    private JsDocument embeddedDocument() {
+        if (!"iframe".equals(tag())) return null;
+        String srcdoc = element.getAttribute("srcdoc");
+        String source = srcdoc == null ? "src:" + orEmpty(element.getAttribute("src"))
+                : "srcdoc:" + srcdoc;
+        if (embeddedDocument != null && source.equals(embeddedDocumentSource)) {
+            return embeddedDocument;
+        }
+        Document content = srcdoc == null
+                ? new HtmlParser().parse("<!doctype html><html><head></head><body></body></html>",
+                        "about:blank")
+                : new HtmlParser().parse(
+                        "<!doctype html><html><head></head><body>" + srcdoc + "</body></html>",
+                        "about:srcdoc");
+        content.transitionTo(DocumentReadyState.COMPLETE);
+        embeddedDocumentSource = source;
+        embeddedDocument = document.wrapDocument(content);
+        return embeddedDocument;
+    }
+
+    private String reflectedUrl(String attribute) {
+        String value = element.getAttribute(attribute);
+        if (value == null || value.isBlank()) return "";
+        try {
+            return element.getOwnerDocument().getBaseUri().resolve(value.strip()).toString();
+        } catch (IllegalArgumentException invalid) {
+            return value;
         }
     }
 
