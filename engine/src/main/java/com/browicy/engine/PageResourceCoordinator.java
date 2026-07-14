@@ -69,14 +69,15 @@ final class PageResourceCoordinator {
 
         DocumentResources resources = scanner.scan(document);
         StyleSheetRegistry styleSheets = new StyleSheetRegistry();
-        registerInlineStyleSheets(resources, styleSheets);
+        registerStyleSheets(resources, styleSheets);
         DocumentUpdateCoordinator updates = new DocumentUpdateCoordinator(
                 document, styleSheets, styleApplicator, listener);
         JsCookieStore cookies = new JsCookieStore();
         PageFetchBackend fetchBackend = new PageFetchBackend(
                 resourceLoader, document.getUrl(), cookies);
         PageRuntime runtime = javaScriptEngine.createPageRuntime(
-                document, ignored -> updates.flush(), fetchBackend, cookies);
+                document, ignored -> updates.flush(), fetchBackend, cookies,
+                styleSheets, () -> updates.invalidate(InvalidationType.STYLE));
         List<ResourceLoad> cancellableLoads = new ArrayList<>();
         cancellableLoads.add(fetchBackend);
         ImageResourceRegistry images = new ImageResourceRegistry();
@@ -194,16 +195,20 @@ final class PageResourceCoordinator {
             return CompletableFuture.completedFuture(null);
         }
         return runtime.submitTask(() -> {
-            styleSheets.register(external.sourceOrder(), resource.content());
+            styleSheets.register(external.sourceOrder(), external.element(),
+                    resource.uri().toString(), resource.content());
             updates.stylesheetChanged(resource.uri());
         }).exceptionally(failure -> null);
     }
 
-    private static void registerInlineStyleSheets(DocumentResources resources,
-                                                  StyleSheetRegistry registry) {
+    private static void registerStyleSheets(DocumentResources resources,
+                                            StyleSheetRegistry registry) {
         for (StyleSheetResource resource : resources.styleSheets()) {
             if (resource instanceof StyleSheetResource.Inline inline) {
-                registry.register(inline.sourceOrder(), inline.css());
+                registry.register(inline.sourceOrder(), inline.element(), inline.css());
+            } else if (resource instanceof StyleSheetResource.External external) {
+                registry.register(external.sourceOrder(), external.element(),
+                        external.uri().toString(), "");
             }
         }
     }

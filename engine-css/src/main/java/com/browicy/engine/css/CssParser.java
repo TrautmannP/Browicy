@@ -39,6 +39,19 @@ public final class CssParser {
         return parse(css, 0);
     }
 
+    List<String> ruleSources(String css) {
+        List<String> sources = new ArrayList<>();
+        if (css == null || css.isBlank()) {
+            return sources;
+        }
+        String source = COMMENTS.matcher(css).replaceAll("");
+        var matcher = RULE.matcher(source);
+        while (matcher.find()) {
+            sources.add(matcher.group().strip());
+        }
+        return List.copyOf(sources);
+    }
+
     List<CssRule> parse(String css, long sourceOrderStart) {
         List<CssRule> rules = new ArrayList<>();
         if (css == null || css.isBlank()) {

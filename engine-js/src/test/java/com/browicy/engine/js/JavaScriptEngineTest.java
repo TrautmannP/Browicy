@@ -42,6 +42,52 @@ public class JavaScriptEngineTest {
         assertEquals("red", target.getComputedStyles().get("color"));
     }
 
+    @Test
+    public void exposesLiveCssStyleSheetAndCssRuleBindings() {
+        Document document = parse("""
+                <html><head><style id="theme">p { color: red; }</style></head><body>
+                <script>
+                  const sheet = document.getElementById('theme').sheet;
+                  const rules = sheet.cssRules;
+                  console.log(document.styleSheets.length, document.styleSheets[0] === sheet,
+                              sheet.ownerNode.id, sheet.href === null);
+                  console.log(rules.length, rules[0].selectorText, rules[0].type,
+                              rules[0].parentStyleSheet === sheet);
+                  console.log(sheet.insertRule('p { color: blue; }', 1), rules.length,
+                              rules.item(1).cssText);
+                  sheet.deleteRule(0);
+                  console.log(rules.length, rules[0].selectorText);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                "log: 1 true theme true",
+                "log: 1 p 1 true",
+                "log: 1 2 p { color: blue; }",
+                "log: 1 p"), result.consoleMessages());
+    }
+
+    @Test
+    public void createsAStyleSheetBindingForDynamicallyCreatedStyleElements() {
+        Document document = parse("""
+                <html><head></head><body><script>
+                  const style = document.createElement('style');
+                  style.textContent = 'p { color: green; }';
+                  document.getElementsByTagName('head')[0].appendChild(style);
+                  console.log(style.sheet !== null, style.sheet.cssRules.length,
+                              style.sheet.cssRules[0].selectorText);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: true 1 p"), result.consoleMessages());
+    }
+
     private final HtmlParser parser = new HtmlParser();
     private final JavaScriptEngine engine = new JavaScriptEngine();
 

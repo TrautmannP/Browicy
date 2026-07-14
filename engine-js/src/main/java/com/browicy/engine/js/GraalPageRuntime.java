@@ -4,6 +4,7 @@ import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Event;
 import com.browicy.engine.css.CssParser;
+import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.selectors.SelectorParseException;
 import com.browicy.engine.selectors.SelectorParser;
 import java.io.OutputStream;
@@ -49,6 +50,8 @@ final class GraalPageRuntime implements PageRuntime {
     private final PageRuntimeObserver observer;
     private final JsFetchBackend fetchBackend;
     private final JsCookieStore cookieStore;
+    private final StyleSheetRegistry styleSheets;
+    private final Runnable styleSheetMutationCallback;
     private final LinkedBlockingDeque<Envelope<?>> tasks = new LinkedBlockingDeque<>();
     private final Deque<Envelope<?>> microtasks = new ArrayDeque<>();
     private final AtomicBoolean acceptingTasks = new AtomicBoolean(true);
@@ -74,21 +77,33 @@ final class GraalPageRuntime implements PageRuntime {
     private int startedFetchRequests;
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer) {
-        this(document, statementLimit, observer, null, null);
+        this(document, statementLimit, observer, null, null,
+                new StyleSheetRegistry(), () -> { });
     }
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
                      JsFetchBackend fetchBackend) {
-        this(document, statementLimit, observer, fetchBackend, null);
+        this(document, statementLimit, observer, fetchBackend, null,
+                new StyleSheetRegistry(), () -> { });
     }
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
                      JsFetchBackend fetchBackend, JsCookieStore cookieStore) {
+        this(document, statementLimit, observer, fetchBackend, cookieStore,
+                new StyleSheetRegistry(), () -> { });
+    }
+
+    GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
+                     JsFetchBackend fetchBackend, JsCookieStore cookieStore,
+                     StyleSheetRegistry styleSheets, Runnable styleSheetMutationCallback) {
         this.document = Objects.requireNonNull(document, "document");
         this.statementLimit = statementLimit;
         this.observer = Objects.requireNonNull(observer, "observer");
         this.fetchBackend = fetchBackend;
         this.cookieStore = cookieStore == null ? new JsCookieStore() : cookieStore;
+        this.styleSheets = Objects.requireNonNull(styleSheets, "styleSheets");
+        this.styleSheetMutationCallback = Objects.requireNonNull(
+                styleSheetMutationCallback, "styleSheetMutationCallback");
         long runtimeId = NEXT_RUNTIME_ID.incrementAndGet();
         ThreadFactory schedulerThreads = runnable -> {
             Thread thread = new Thread(runnable, "browicy-page-timer-" + runtimeId);
@@ -213,7 +228,8 @@ final class GraalPageRuntime implements PageRuntime {
     private void initializeContext() {
         context = newSandboxedContext();
         console = new JsConsole();
-        jsDocument = new JsDocument(document, errors::add);
+        jsDocument = new JsDocument(
+                document, errors::add, styleSheets, styleSheetMutationCallback);
         jsDocument.setCookieStore(cookieStore);
         Value bindings = context.getBindings("js");
         bindings.putMember("document", jsDocument);

@@ -43,6 +43,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
     private final JsDocument document;
     private JsDomTokenList classList;
     private JsStyleDeclaration style;
+    private JsCssStyleSheet sheet;
     private final Map<String, Value> expandos = new LinkedHashMap<>();
 
     Element unwrap() {
@@ -76,7 +77,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "innerHTML" -> element.getTextContent();
             case "style" -> style == null ? style = new JsStyleDeclaration(element) : style;
             case "sheet" -> "style".equals(tag())
-                    ? ProxyObject.fromMap(Map.of("cssRules", ProxyArray.fromArray())) : null;
+                    ? sheet == null ? sheet = document.styleSheet(element) : sheet : null;
             case "children" -> collection(element::getChildElements);
             case "childNodes" -> ProxyArray.fromList(element.getChildren().stream()
                     .map(document::wrap).collect(Collectors.toList()));

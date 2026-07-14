@@ -53,6 +53,33 @@ public class StyleSheetRegistryTest {
         assertEquals("blue", sibling.getComputedStyles().get("color"));
     }
 
+    @Test
+    public void mutableStyleSheetInsertsAndDeletesRulesAtCssomIndexes() {
+        Document document = documentWithParagraph();
+        Element owner = document.createElement("style");
+        StyleSheetRegistry registry = new StyleSheetRegistry();
+        CssStyleSheet sheet = registry.register(0, owner, "p { color: red; }");
+
+        assertEquals(1, sheet.insertRule("p { color: blue; }", 1));
+        assertEquals(2, sheet.ruleCount());
+        assertEquals("p { color: blue; }", sheet.ruleText(1));
+        new StyleApplicator().apply(document, registry);
+        assertEquals("blue", paragraph(document).getComputedStyles().get("color"));
+
+        sheet.deleteRule(1);
+        new StyleApplicator().apply(document, registry);
+        assertEquals(1, sheet.ruleCount());
+        assertEquals("red", paragraph(document).getComputedStyles().get("color"));
+    }
+
+    @Test(expected = IndexOutOfBoundsException.class)
+    public void mutableStyleSheetRejectsInsertPastEndOfRuleList() {
+        StyleSheetRegistry registry = new StyleSheetRegistry();
+        CssStyleSheet sheet = registry.register(0, "p { color: red; }");
+
+        sheet.insertRule("p { color: blue; }", 2);
+    }
+
     private static Document documentWithParagraph() {
         Document document = new Document("about:test");
         Element html = document.createElement("html");

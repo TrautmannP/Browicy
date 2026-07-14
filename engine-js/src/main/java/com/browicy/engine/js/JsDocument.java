@@ -3,6 +3,8 @@ package com.browicy.engine.js;
 import lombok.AccessLevel;
 import lombok.Setter;
 
+import com.browicy.engine.css.CssStyleSheet;
+import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Event;
@@ -20,13 +22,14 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 final class JsDocument implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "title", "body", "cookie", "documentElement", "forms", "implementation", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
+            "title", "body", "cookie", "documentElement", "forms", "styleSheets", "implementation", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
             "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild", "hasChildNodes",
             "appendChild", "insertBefore", "replaceChild", "removeChild",
             "compareDocumentPosition", "isSameNode", "isEqualNode",
@@ -44,6 +47,9 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private final Map<Document, JsDocument> documentWrappers;
     private final Map<Event, JsEvent> eventWrappers = new IdentityHashMap<>();
     private final List<ListenerRegistration> listenerRegistrations;
+    private final StyleSheetRegistry styleSheets;
+    private final Runnable styleSheetMutationCallback;
+    private final Map<CssStyleSheet, JsCssStyleSheet> styleSheetWrappers = new IdentityHashMap<>();
     @Setter(AccessLevel.PACKAGE)
     private Element currentScript;
     @Setter(AccessLevel.PACKAGE)
@@ -54,17 +60,24 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private JsCookieStore cookieStore;
     private JsDomImplementation implementation;
 
-    JsDocument(Document document, Consumer<String> errorSink) {
-        this(document, errorSink, new IdentityHashMap<>(), new ArrayList<>());
+    JsDocument(Document document, Consumer<String> errorSink,
+               StyleSheetRegistry styleSheets, Runnable styleSheetMutationCallback) {
+        this(document, errorSink, new IdentityHashMap<>(), new ArrayList<>(),
+                styleSheets, styleSheetMutationCallback);
     }
 
     private JsDocument(Document document, Consumer<String> errorSink,
                        Map<Document, JsDocument> documentWrappers,
-                       List<ListenerRegistration> listenerRegistrations) {
+                       List<ListenerRegistration> listenerRegistrations,
+                       StyleSheetRegistry styleSheets,
+                       Runnable styleSheetMutationCallback) {
         this.document = document;
         this.errorSink = errorSink;
         this.documentWrappers = documentWrappers;
         this.listenerRegistrations = listenerRegistrations;
+        this.styleSheets = Objects.requireNonNull(styleSheets, "styleSheets");
+        this.styleSheetMutationCallback = Objects.requireNonNull(
+                styleSheetMutationCallback, "styleSheetMutationCallback");
         documentWrappers.put(document, this);
     }
 
@@ -96,7 +109,8 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             return existing;
         }
         JsDocument wrapper = new JsDocument(
-                relatedDocument, errorSink, documentWrappers, listenerRegistrations);
+                relatedDocument, errorSink, documentWrappers, listenerRegistrations,
+                styleSheets, styleSheetMutationCallback);
         wrapper.setEventListenerInvoker(eventListenerInvoker);
         wrapper.setDomOperationWrapper(domOperationWrapper);
         wrapper.setCookieStore(cookieStore);
@@ -117,6 +131,15 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             return null;
         }
         return eventWrappers.computeIfAbsent(event, value -> new JsEvent(value, this));
+    }
+
+    JsCssStyleSheet styleSheet(Element ownerNode) {
+        return wrap(styleSheets.ensureStyleSheet(ownerNode, ownerNode.getTextContent()));
+    }
+
+    private JsCssStyleSheet wrap(CssStyleSheet sheet) {
+        return styleSheetWrappers.computeIfAbsent(sheet,
+                value -> new JsCssStyleSheet(value, this, styleSheetMutationCallback));
     }
 
     Object domOperation(ProxyExecutable operation) {
@@ -171,6 +194,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "cookie" -> cookieStore == null ? "" : cookieStore.cookiesForScript(documentUri());
             case "documentElement" -> wrap(document.getDocumentElement());
             case "forms" -> new JsHtmlCollection(() -> document.getElementsByTagName("form"), this);
+            case "styleSheets" -> new JsStyleSheetList();
             case "implementation" -> implementation == null
                     ? implementation = new JsDomImplementation(this) : implementation;
             case "URL" -> document.getUrl();
@@ -375,6 +399,33 @@ final class JsDocument implements ProxyObject, JsNodeLike {
 
     private record ListenerRegistration(Node target, String type,
                                         JsEventListener listener, boolean capture) {
+    }
+
+    private final class JsStyleSheetList implements ProxyObject {
+        @Override public Object getMember(String key) {
+            if ("length".equals(key)) return styleSheets.styleSheets().size();
+            if ("item".equals(key)) return (ProxyExecutable) args -> item(
+                    args.length > 0 && args[0].fitsInInt() ? args[0].asInt() : -1);
+            try { return item(Integer.parseInt(key)); }
+            catch (NumberFormatException ignored) { return null; }
+        }
+        private Object item(int index) {
+            List<CssStyleSheet> sheets = styleSheets.styleSheets();
+            return index >= 0 && index < sheets.size() ? wrap(sheets.get(index)) : null;
+        }
+        @Override public Object getMemberKeys() {
+            List<String> keys = new ArrayList<>(List.of("length", "item"));
+            for (int index = 0; index < styleSheets.styleSheets().size(); index++) {
+                keys.add(Integer.toString(index));
+            }
+            return keys.toArray();
+        }
+        @Override public boolean hasMember(String key) {
+            return "length".equals(key) || "item".equals(key) || getMember(key) != null;
+        }
+        @Override public void putMember(String key, Value value) {
+            throw new UnsupportedOperationException("StyleSheetList ist schreibgeschuetzt");
+        }
     }
 
     @Override

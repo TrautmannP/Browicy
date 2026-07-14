@@ -4,6 +4,9 @@ import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.DocumentReadyState;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Event;
+import com.browicy.engine.css.StyleSheetRegistry;
+import com.browicy.engine.html.DocumentResourceScanner;
+import com.browicy.engine.html.StyleSheetResource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -641,14 +644,35 @@ public final class JavaScriptEngine {
     public PageRuntime createPageRuntime(Document document,
                                          PageRuntimeObserver observer,
                                          JsFetchBackend fetchBackend) {
-        return new GraalPageRuntime(document, statementLimit, observer, fetchBackend);
+        return createPageRuntime(document, observer, fetchBackend, null);
     }
 
     public PageRuntime createPageRuntime(Document document,
                                          PageRuntimeObserver observer,
                                          JsFetchBackend fetchBackend,
                                          JsCookieStore cookieStore) {
-        return new GraalPageRuntime(document, statementLimit, observer, fetchBackend, cookieStore);
+        return createPageRuntime(document, observer, fetchBackend, cookieStore,
+                defaultStyleSheets(document), () -> { });
+    }
+
+    public PageRuntime createPageRuntime(Document document,
+                                         PageRuntimeObserver observer,
+                                         JsFetchBackend fetchBackend,
+                                         JsCookieStore cookieStore,
+                                         StyleSheetRegistry styleSheets,
+                                         Runnable styleSheetMutationCallback) {
+        return new GraalPageRuntime(document, statementLimit, observer, fetchBackend, cookieStore,
+                styleSheets, styleSheetMutationCallback);
+    }
+
+    private static StyleSheetRegistry defaultStyleSheets(Document document) {
+        StyleSheetRegistry registry = new StyleSheetRegistry();
+        for (StyleSheetResource resource : new DocumentResourceScanner().scan(document).styleSheets()) {
+            if (resource instanceof StyleSheetResource.Inline inline) {
+                registry.register(inline.sourceOrder(), inline.element(), inline.css());
+            }
+        }
+        return registry;
     }
 
     public JsExecutionResult runScripts(Document document) {

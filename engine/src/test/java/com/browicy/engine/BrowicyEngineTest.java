@@ -477,6 +477,30 @@ public class BrowicyEngineTest {
     }
 
     @Test
+    public void cssomRuleMutationRequestsStyleInvalidationAndRestylesDocument() {
+        server.serveHtml("/cssom", """
+                <html><head><style id="theme">#message { color: red; }</style></head>
+                <body><p id="message">Text</p></body></html>
+                """);
+        List<PageUpdate> updates = new CopyOnWriteArrayList<>();
+
+        try (PageSession session = engine.loadPageSession(server.url("/cssom"), updates::add)) {
+            assertEquals("red", session.document().getElementById("message")
+                    .getComputedStyles().get("color"));
+
+            session.runtime().execute(new com.browicy.engine.js.JavaScriptSource("""
+                    const sheet = document.getElementById('theme').sheet;
+                    sheet.insertRule('#message { color: blue; }', sheet.cssRules.length);
+                    """, null, "cssom-test.js"));
+
+            assertEquals("blue", session.document().getElementById("message")
+                    .getComputedStyles().get("color"));
+            assertEquals(1, updates.size());
+            assertEquals(InvalidationType.STYLE, updates.getFirst().invalidation());
+        }
+    }
+
+    @Test
     public void timerScheduledFromLoadUpdatesPageAfterInitialLoad() throws Exception {
         server.serveHtml("/timer", """
                 <html><body><p id="message">Warte</p><script>
