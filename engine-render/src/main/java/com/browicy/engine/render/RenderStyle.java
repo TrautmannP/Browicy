@@ -45,10 +45,14 @@ public record RenderStyle(
         BorderCollapse borderCollapse,
         TextAlign textAlign,
         Overflow overflow,
-        VerticalAlign verticalAlign) {
+        VerticalAlign verticalAlign,
+        FlexDirection flexDirection,
+        JustifyContent justifyContent,
+        AlignItems alignItems,
+        float flexGrow) {
 
     public enum Display {
-        BLOCK, INLINE, INLINE_BLOCK, NONE,
+        BLOCK, INLINE, INLINE_BLOCK, FLEX, INLINE_FLEX, NONE,
         TABLE, INLINE_TABLE, TABLE_ROW_GROUP, TABLE_HEADER_GROUP, TABLE_FOOTER_GROUP,
         TABLE_ROW, TABLE_CELL, TABLE_COLUMN_GROUP, TABLE_COLUMN, TABLE_CAPTION
     }
@@ -65,6 +69,9 @@ public record RenderStyle(
     public enum BoxSizing { CONTENT_BOX, BORDER_BOX }
     public enum Overflow { VISIBLE, HIDDEN, AUTO, SCROLL }
     public enum VerticalAlign { BASELINE, TOP, MIDDLE, BOTTOM }
+    public enum FlexDirection { ROW, ROW_REVERSE, COLUMN, COLUMN_REVERSE }
+    public enum JustifyContent { FLEX_START, CENTER, FLEX_END, SPACE_BETWEEN, SPACE_AROUND, SPACE_EVENLY }
+    public enum AlignItems { STRETCH, FLEX_START, CENTER, FLEX_END }
 
     public RenderStyle {
         if (fontSizePx <= 0) {
@@ -72,6 +79,9 @@ public record RenderStyle(
         }
         if (fontWeight < 100 || fontWeight > 900) {
             throw new IllegalArgumentException("fontWeight outside 100..900");
+        }
+        if (!Float.isFinite(flexGrow) || flexGrow < 0) {
+            throw new IllegalArgumentException("flexGrow must be a finite non-negative number");
         }
     }
 
@@ -81,5 +91,36 @@ public record RenderStyle(
 
     public float usedLineHeightPx() {
         return lineHeight < 0 ? -lineHeight * fontSizePx : lineHeight;
+    }
+
+    public RenderStyle withDisplay(Display value) {
+        return copy(value, width, height, flexGrow);
+    }
+
+    public RenderStyle withWidth(RenderLength value) {
+        return copy(display, value, height, flexGrow);
+    }
+
+    public RenderStyle withHeight(RenderLength value) {
+        return copy(display, width, value, flexGrow);
+    }
+
+    public RenderStyle withFlexGrow(float value) {
+        return copy(display, width, height, value);
+    }
+
+    private RenderStyle copy(Display newDisplay,
+                             RenderLength newWidth,
+                             RenderLength newHeight,
+                             float newFlexGrow) {
+        return new RenderStyle(newDisplay, position, zIndex, floatMode, clear,
+                top, right, bottom, left, fontSizePx, fontFamily, fontWeight, italic,
+                lineHeight, color, listStyleType, underline, textDecorationColor, cursor,
+                backgroundColor, backgroundImageUrl, backgroundRepeat, backgroundPositionX,
+                backgroundPositionY, newWidth, newHeight, minWidth, maxWidth, minHeight,
+                maxHeight, boxSizing, margin, autoMargins, padding, borderWidth, borderColor,
+                borderStyle, borderRadius, outlineWidth, outlineColor, outlineVisible,
+                borderCollapse, textAlign, overflow, verticalAlign, flexDirection,
+                justifyContent, alignItems, newFlexGrow);
     }
 }

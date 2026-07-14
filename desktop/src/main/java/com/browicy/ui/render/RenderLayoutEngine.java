@@ -135,73 +135,18 @@ public final class RenderLayoutEngine {
                                 style, style.maxHeight(), containingHeight, verticalDecoration));
 
         List<PaintFragment> childFragments = new ArrayList<>();
-        List<RenderNode> inlineBuffer = new ArrayList<>();
-        List<FloatRegion> floats = new ArrayList<>();
-        float currentY = contentY;
-        Float previousBottomMargin = null;
-
-        for (RenderNode child : box.children()) {
-            if (child instanceof RenderBox childBox) {
-                FloatArea inlineArea = floatArea(floats, contentX, contentWidth, currentY);
-                float inlineHeight = flushInline(inlineBuffer, inlineArea.x(), currentY, inlineArea.width(),
-                        childContainingHeight, style.textAlign(), graphics, childFragments,
-                        lineBoxes);
-                currentY += inlineHeight;
-                if (inlineHeight > 0) {
-                    previousBottomMargin = null;
-                }
-                if (childBox.style().position() == RenderStyle.Position.ABSOLUTE) {
-                    childPositionedContext.requests.add(
-                            new AbsoluteRequest(childBox, contentX, currentY));
-                    continue;
-                }
-                currentY = clearedY(floats, currentY, childBox.style().clear());
-                FloatArea blockArea = floatArea(floats, contentX, contentWidth, currentY);
-                if (childBox.style().floatMode() != RenderStyle.FloatMode.NONE) {
-                    int floatFirstLine = lineBoxes.size();
-                    BlockLayout floatLayout = layoutBlock(
-                            childBox, blockArea.x(), currentY, blockArea.width(),
-                            childContainingHeight, true, graphics, lineBoxes,
-                            childPositionedContext);
-                    BoxFragment root = (BoxFragment) floatLayout.fragments().getFirst();
-                    float desiredX = childBox.style().floatMode() == RenderStyle.FloatMode.LEFT
-                            ? blockArea.x() + childBox.style().margin().left()
-                            : blockArea.x() + blockArea.width()
-                                    - childBox.style().margin().right() - root.width();
-                    float dx = desiredX - root.x();
-                    List<PaintFragment> placed = floatLayout.fragments().stream()
-                            .map(fragment -> translate(fragment, dx, 0)).toList();
-                    translateLines(lineBoxes, floatFirstLine, dx, 0);
-                    childFragments.addAll(placed);
-                    floats.add(new FloatRegion(
-                            childBox.style().floatMode(),
-                            desiredX - childBox.style().margin().left(),
-                            currentY,
-                            root.width() + childBox.style().margin().horizontal(),
-                            floatLayout.outerHeight()));
-                    previousBottomMargin = null;
-                    continue;
-                }
-                float collapsedOverlap = previousBottomMargin == null ? 0
-                        : previousBottomMargin + childBox.style().margin().top()
-                        - Math.max(previousBottomMargin, childBox.style().margin().top());
-                currentY -= collapsedOverlap;
-                BlockLayout childLayout = layoutBlock(
-                        childBox, blockArea.x(), currentY, blockArea.width(), childContainingHeight,
-                        false, graphics, lineBoxes, childPositionedContext);
-                childFragments.addAll(childLayout.fragments());
-                currentY += childLayout.outerHeight();
-                previousBottomMargin = childBox.style().margin().bottom();
-            } else {
-                previousBottomMargin = null;
-                inlineBuffer.add(child);
-            }
+        float naturalContentHeight;
+        if (style.display() == RenderStyle.Display.FLEX
+                || style.display() == RenderStyle.Display.INLINE_FLEX) {
+            FlexLayout flex = layoutFlex(box, contentX, contentY, contentWidth,
+                    childContainingHeight, graphics, lineBoxes, childPositionedContext);
+            childFragments.addAll(flex.fragments());
+            naturalContentHeight = flex.height();
+        } else {
+            naturalContentHeight = layoutBlockChildren(box, contentX, contentY, contentWidth,
+                    childContainingHeight, graphics, lineBoxes, childPositionedContext,
+                    childFragments);
         }
-        FloatArea finalArea = floatArea(floats, contentX, contentWidth, currentY);
-        currentY += flushInline(inlineBuffer, finalArea.x(), currentY, finalArea.width(),
-                childContainingHeight, style.textAlign(), graphics, childFragments, lineBoxes);
-
-        float naturalContentHeight = Math.max(0, currentY - contentY);
         float contentHeight = specifiedContentHeight == null
                 ? naturalContentHeight
                 : specifiedContentHeight;
@@ -241,6 +186,319 @@ public final class RenderLayoutEngine {
             translateLines(lineBoxes, firstLine, dx, dy);
         }
         return new BlockLayout(outerHeight, List.copyOf(fragments));
+    }
+
+    private float layoutBlockChildren(RenderBox box,
+                                      float contentX,
+                                      float contentY,
+                                      float contentWidth,
+                                      Float childContainingHeight,
+                                      Graphics2D graphics,
+                                      List<LineBox> lineBoxes,
+                                      PositionedContext childPositionedContext,
+                                      List<PaintFragment> childFragments) {
+        List<RenderNode> inlineBuffer = new ArrayList<>();
+        List<FloatRegion> floats = new ArrayList<>();
+        float currentY = contentY;
+        Float previousBottomMargin = null;
+        for (RenderNode child : box.children()) {
+            if (child instanceof RenderBox childBox) {
+                FloatArea inlineArea = floatArea(floats, contentX, contentWidth, currentY);
+                float inlineHeight = flushInline(inlineBuffer, inlineArea.x(), currentY,
+                        inlineArea.width(), childContainingHeight, box.style().textAlign(),
+                        graphics, childFragments, lineBoxes);
+                currentY += inlineHeight;
+                if (inlineHeight > 0) previousBottomMargin = null;
+                if (childBox.style().position() == RenderStyle.Position.ABSOLUTE) {
+                    childPositionedContext.requests.add(
+                            new AbsoluteRequest(childBox, contentX, currentY));
+                    continue;
+                }
+                currentY = clearedY(floats, currentY, childBox.style().clear());
+                FloatArea blockArea = floatArea(floats, contentX, contentWidth, currentY);
+                if (childBox.style().floatMode() != RenderStyle.FloatMode.NONE) {
+                    int floatFirstLine = lineBoxes.size();
+                    BlockLayout floatLayout = layoutBlock(
+                            childBox, blockArea.x(), currentY, blockArea.width(),
+                            childContainingHeight, true, graphics, lineBoxes,
+                            childPositionedContext);
+                    BoxFragment root = (BoxFragment) floatLayout.fragments().getFirst();
+                    float desiredX = childBox.style().floatMode() == RenderStyle.FloatMode.LEFT
+                            ? blockArea.x() + childBox.style().margin().left()
+                            : blockArea.x() + blockArea.width()
+                                    - childBox.style().margin().right() - root.width();
+                    float dx = desiredX - root.x();
+                    floatLayout.fragments().stream().map(fragment -> translate(fragment, dx, 0))
+                            .forEach(childFragments::add);
+                    translateLines(lineBoxes, floatFirstLine, dx, 0);
+                    floats.add(new FloatRegion(
+                            childBox.style().floatMode(),
+                            desiredX - childBox.style().margin().left(), currentY,
+                            root.width() + childBox.style().margin().horizontal(),
+                            floatLayout.outerHeight()));
+                    previousBottomMargin = null;
+                    continue;
+                }
+                float collapsedOverlap = previousBottomMargin == null ? 0
+                        : previousBottomMargin + childBox.style().margin().top()
+                        - Math.max(previousBottomMargin, childBox.style().margin().top());
+                currentY -= collapsedOverlap;
+                BlockLayout childLayout = layoutBlock(
+                        childBox, blockArea.x(), currentY, blockArea.width(),
+                        childContainingHeight, false, graphics, lineBoxes,
+                        childPositionedContext);
+                childFragments.addAll(childLayout.fragments());
+                currentY += childLayout.outerHeight();
+                previousBottomMargin = childBox.style().margin().bottom();
+            } else {
+                previousBottomMargin = null;
+                inlineBuffer.add(child);
+            }
+        }
+        FloatArea finalArea = floatArea(floats, contentX, contentWidth, currentY);
+        currentY += flushInline(inlineBuffer, finalArea.x(), currentY, finalArea.width(),
+                childContainingHeight, box.style().textAlign(), graphics, childFragments,
+                lineBoxes);
+        return Math.max(0, currentY - contentY);
+    }
+
+    private FlexLayout layoutFlex(RenderBox container,
+                                  float contentX,
+                                  float contentY,
+                                  float contentWidth,
+                                  Float contentHeight,
+                                  Graphics2D graphics,
+                                  List<LineBox> lineBoxes,
+                                  PositionedContext positionedContext) {
+        List<RenderBox> items = new ArrayList<>();
+        for (RenderNode child : container.children()) {
+            if (!(child instanceof RenderBox item)) continue;
+            if (item.style().position() == RenderStyle.Position.ABSOLUTE) {
+                positionedContext.requests.add(new AbsoluteRequest(item, contentX, contentY));
+            } else {
+                items.add(item);
+            }
+        }
+        if (items.isEmpty()) return new FlexLayout(0, List.of());
+        return switch (container.style().flexDirection()) {
+            case ROW, ROW_REVERSE -> layoutFlexRow(container.style(), items, contentX, contentY,
+                    contentWidth, contentHeight, graphics, lineBoxes);
+            case COLUMN, COLUMN_REVERSE -> layoutFlexColumn(container.style(), items,
+                    contentX, contentY, contentWidth, contentHeight, graphics, lineBoxes);
+        };
+    }
+
+    private FlexLayout layoutFlexRow(RenderStyle containerStyle,
+                                     List<RenderBox> items,
+                                     float contentX,
+                                     float contentY,
+                                     float contentWidth,
+                                     Float contentHeight,
+                                     Graphics2D graphics,
+                                     List<LineBox> lineBoxes) {
+        float[] widths = new float[items.size()];
+        float[] minimums = new float[items.size()];
+        float totalGrow = 0;
+        for (int index = 0; index < items.size(); index++) {
+            IntrinsicWidths intrinsic = intrinsicBoxWidth(items.get(index), contentWidth, graphics);
+            widths[index] = intrinsic.preferred();
+            minimums[index] = intrinsic.minimum();
+            totalGrow += items.get(index).style().flexGrow();
+        }
+        shrinkFlexSizes(widths, minimums, contentWidth);
+        float remaining = Math.max(0, contentWidth - sum(widths));
+        if (remaining > 0 && totalGrow > 0) {
+            for (int index = 0; index < widths.length; index++) {
+                widths[index] += remaining * items.get(index).style().flexGrow() / totalGrow;
+            }
+        }
+
+        List<FlexItemLayout> layouts = new ArrayList<>();
+        float crossSize = 0;
+        for (int index = 0; index < items.size(); index++) {
+            RenderBox sized = forceOuterWidth(items.get(index), widths[index]);
+            FlexItemLayout layout = layoutFlexItem(sized, widths[index], contentHeight, graphics);
+            layouts.add(layout);
+            crossSize = Math.max(crossSize, layout.layout().outerHeight());
+        }
+        if (contentHeight != null) crossSize = contentHeight;
+        if (containerStyle.alignItems() == RenderStyle.AlignItems.STRETCH) {
+            for (int index = 0; index < items.size(); index++) {
+                if (!items.get(index).style().height().isAuto()) continue;
+                RenderBox sized = forceOuterHeight(
+                        forceOuterWidth(items.get(index), widths[index]), crossSize);
+                layouts.set(index, layoutFlexItem(sized, widths[index], crossSize, graphics));
+            }
+        }
+
+        AxisSpacing spacing = axisSpacing(containerStyle.justifyContent(),
+                Math.max(0, contentWidth - sum(widths)), items.size());
+        boolean reverse = containerStyle.flexDirection() == RenderStyle.FlexDirection.ROW_REVERSE;
+        float cursor = reverse ? contentWidth - spacing.offset() : spacing.offset();
+        List<PaintFragment> fragments = new ArrayList<>();
+        for (int index = 0; index < items.size(); index++) {
+            if (reverse) cursor -= widths[index];
+            FlexItemLayout item = layouts.get(index);
+            float crossOffset = crossOffset(containerStyle.alignItems(), crossSize,
+                    item.layout().outerHeight());
+            appendFlexItem(item, contentX + cursor, contentY + crossOffset,
+                    fragments, lineBoxes);
+            if (reverse) cursor -= spacing.gap();
+            else cursor += widths[index] + spacing.gap();
+        }
+        return new FlexLayout(crossSize, List.copyOf(fragments));
+    }
+
+    private FlexLayout layoutFlexColumn(RenderStyle containerStyle,
+                                        List<RenderBox> items,
+                                        float contentX,
+                                        float contentY,
+                                        float contentWidth,
+                                        Float contentHeight,
+                                        Graphics2D graphics,
+                                        List<LineBox> lineBoxes) {
+        List<FlexItemLayout> layouts = new ArrayList<>();
+        float[] heights = new float[items.size()];
+        float totalGrow = 0;
+        for (int index = 0; index < items.size(); index++) {
+            FlexItemLayout layout = layoutFlexItem(items.get(index), contentWidth,
+                    contentHeight, graphics);
+            layouts.add(layout);
+            heights[index] = layout.layout().outerHeight();
+            totalGrow += items.get(index).style().flexGrow();
+        }
+        float mainSize = contentHeight == null ? sum(heights) : contentHeight;
+        shrinkFlexSizes(heights, new float[heights.length], mainSize);
+        float remaining = Math.max(0, mainSize - sum(heights));
+        if (remaining > 0 && totalGrow > 0) {
+            for (int index = 0; index < heights.length; index++) {
+                heights[index] += remaining * items.get(index).style().flexGrow() / totalGrow;
+            }
+        }
+        for (int index = 0; index < items.size(); index++) {
+            if (Math.abs(layouts.get(index).layout().outerHeight() - heights[index]) > 0.01f) {
+                layouts.set(index, layoutFlexItem(forceOuterHeight(items.get(index), heights[index]),
+                        contentWidth, heights[index], graphics));
+            }
+        }
+
+        AxisSpacing spacing = axisSpacing(containerStyle.justifyContent(),
+                Math.max(0, mainSize - sum(heights)), items.size());
+        boolean reverse = containerStyle.flexDirection()
+                == RenderStyle.FlexDirection.COLUMN_REVERSE;
+        float cursor = reverse ? mainSize - spacing.offset() : spacing.offset();
+        List<PaintFragment> fragments = new ArrayList<>();
+        for (int index = 0; index < items.size(); index++) {
+            if (reverse) cursor -= heights[index];
+            FlexItemLayout item = layouts.get(index);
+            BoxFragment root = (BoxFragment) item.layout().fragments().getFirst();
+            float outerWidth = root.width() + item.box().style().margin().horizontal();
+            float x = crossOffset(containerStyle.alignItems(), contentWidth, outerWidth);
+            appendFlexItem(item, contentX + x, contentY + cursor, fragments, lineBoxes);
+            if (reverse) cursor -= spacing.gap();
+            else cursor += heights[index] + spacing.gap();
+        }
+        return new FlexLayout(mainSize, List.copyOf(fragments));
+    }
+
+    private FlexItemLayout layoutFlexItem(RenderBox box,
+                                          float availableWidth,
+                                          Float containingHeight,
+                                          Graphics2D graphics) {
+        List<LineBox> localLines = new ArrayList<>();
+        PositionedContext context = new PositionedContext();
+        BlockLayout layout = layoutBlock(box, 0, 0, Math.max(0, availableWidth),
+                containingHeight, false, graphics, localLines, context);
+        BoxFragment root = (BoxFragment) layout.fragments().getFirst();
+        context.setGeometry(root.x(), root.y(), root.width(), root.height());
+        List<PaintFragment> fragments = new ArrayList<>(layout.fragments());
+        fragments.addAll(layoutAbsoluteRequests(context, graphics, localLines));
+        return new FlexItemLayout(box,
+                new BlockLayout(layout.outerHeight(), List.copyOf(fragments)),
+                List.copyOf(localLines));
+    }
+
+    private static RenderBox forceOuterWidth(RenderBox box, float outerWidth) {
+        RenderStyle style = box.style();
+        float decoration = style.padding().horizontal() + style.borderWidth().horizontal();
+        float content = Math.max(0, outerWidth - style.margin().horizontal() - decoration);
+        float declared = style.boxSizing() == RenderStyle.BoxSizing.BORDER_BOX
+                ? content + decoration : content;
+        return new RenderBox(box.source(),
+                style.withWidth(new RenderLength(declared, RenderLength.Unit.PX)), box.children());
+    }
+
+    private static RenderBox forceOuterHeight(RenderBox box, float outerHeight) {
+        RenderStyle style = box.style();
+        float decoration = style.padding().vertical() + style.borderWidth().vertical();
+        float content = Math.max(0, outerHeight - style.margin().vertical() - decoration);
+        float declared = style.boxSizing() == RenderStyle.BoxSizing.BORDER_BOX
+                ? content + decoration : content;
+        return new RenderBox(box.source(),
+                style.withHeight(new RenderLength(declared, RenderLength.Unit.PX)), box.children());
+    }
+
+    private static void shrinkFlexSizes(float[] sizes, float[] minimums, float available) {
+        float excess = sum(sizes) - available;
+        while (excess > 0.01f) {
+            int flexible = 0;
+            for (int index = 0; index < sizes.length; index++) {
+                if (sizes[index] > minimums[index] + 0.01f) flexible++;
+            }
+            if (flexible == 0) return;
+            float share = excess / flexible;
+            float removed = 0;
+            for (int index = 0; index < sizes.length; index++) {
+                float reduction = Math.min(share, sizes[index] - minimums[index]);
+                if (reduction > 0) {
+                    sizes[index] -= reduction;
+                    removed += reduction;
+                }
+            }
+            if (removed < 0.01f) return;
+            excess -= removed;
+        }
+    }
+
+    private static AxisSpacing axisSpacing(RenderStyle.JustifyContent justify,
+                                           float free,
+                                           int itemCount) {
+        return switch (justify) {
+            case CENTER -> new AxisSpacing(free / 2f, 0);
+            case FLEX_END -> new AxisSpacing(free, 0);
+            case SPACE_BETWEEN -> new AxisSpacing(0,
+                    itemCount > 1 ? free / (itemCount - 1) : 0);
+            case SPACE_AROUND -> {
+                float gap = itemCount > 0 ? free / itemCount : 0;
+                yield new AxisSpacing(gap / 2f, gap);
+            }
+            case SPACE_EVENLY -> {
+                float gap = free / (itemCount + 1);
+                yield new AxisSpacing(gap, gap);
+            }
+            default -> new AxisSpacing(0, 0);
+        };
+    }
+
+    private static float crossOffset(RenderStyle.AlignItems align, float available, float used) {
+        float free = Math.max(0, available - used);
+        return switch (align) {
+            case CENTER -> free / 2f;
+            case FLEX_END -> free;
+            default -> 0;
+        };
+    }
+
+    private static void appendFlexItem(FlexItemLayout item,
+                                       float x,
+                                       float y,
+                                       List<PaintFragment> fragments,
+                                       List<LineBox> lineBoxes) {
+        item.layout().fragments().stream().map(fragment -> translate(fragment, x, y))
+                .forEach(fragments::add);
+        int first = lineBoxes.size();
+        lineBoxes.addAll(item.lines());
+        translateLines(lineBoxes, first, x, y);
     }
 
     private static FloatArea floatArea(List<FloatRegion> floats,
@@ -921,6 +1179,17 @@ public final class RenderLayoutEngine {
     }
 
     private record BlockLayout(float outerHeight, List<PaintFragment> fragments) {
+    }
+
+    private record FlexLayout(float height, List<PaintFragment> fragments) {
+    }
+
+    private record FlexItemLayout(RenderBox box,
+                                  BlockLayout layout,
+                                  List<LineBox> lines) {
+    }
+
+    private record AxisSpacing(float offset, float gap) {
     }
 
     private record AbsoluteRequest(RenderBox box, float staticX, float staticY) {

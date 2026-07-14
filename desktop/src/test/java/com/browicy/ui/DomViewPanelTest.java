@@ -983,6 +983,89 @@ public class DomViewPanelTest {
         assertEquals(java.awt.Cursor.HAND_CURSOR, panel.getCursor().getType());
     }
 
+    @Test
+    public void laysOutFlexRowsWithGrowthAndCrossAxisAlignment() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="flex" style="display:flex;width:300px;height:100px;
+                  align-items:center">
+                  <div id="one" style="width:50px;height:20px"></div>
+                  <div id="grown" style="flex-grow:1;height:40px"></div>
+                  <div id="three" style="width:50px;height:20px"></div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment flex = boxById(layout, "flex");
+        BoxFragment one = boxById(layout, "one");
+        BoxFragment grown = boxById(layout, "grown");
+        BoxFragment three = boxById(layout, "three");
+
+        assertEquals(300f, flex.width(), 0.001f);
+        assertEquals(50f, one.width(), 0.001f);
+        assertEquals(200f, grown.width(), 0.001f);
+        assertEquals(50f, three.width(), 0.001f);
+        assertEquals(one.x() + one.width(), grown.x(), 0.001f);
+        assertEquals(grown.x() + grown.width(), three.x(), 0.001f);
+        assertEquals(flex.y() + 40f, one.y(), 0.001f);
+        assertEquals(flex.y() + 30f, grown.y(), 0.001f);
+    }
+
+    @Test
+    public void honorsFlexDirectionJustificationAndInlineFlex() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body>
+                  <div id="column" style="display:flex;flex-direction:column-reverse;
+                    justify-content:space-between;align-items:center;width:200px;height:160px">
+                    <div id="first" style="width:40px;height:20px"></div>
+                    <div id="second" style="width:60px;height:30px"></div>
+                  </div>
+                  <p>before <span id="inline-flex" style="display:inline-flex;width:80px">
+                    <i id="left" style="width:30px">L</i><i id="right" style="flex-grow:1">R</i>
+                  </span> after</p>
+                </body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment column = boxById(layout, "column");
+        BoxFragment first = boxById(layout, "first");
+        BoxFragment second = boxById(layout, "second");
+        BoxFragment inlineFlex = boxById(layout, "inline-flex");
+        BoxFragment left = boxById(layout, "left");
+        BoxFragment right = boxById(layout, "right");
+
+        assertEquals(column.y() + column.height() - first.height(), first.y(), 0.001f);
+        assertEquals(column.y(), second.y(), 0.001f);
+        assertEquals(column.x() + (column.width() - first.width()) / 2f, first.x(), 0.001f);
+        assertEquals(80f, inlineFlex.width(), 0.001f);
+        assertEquals(30f, left.width(), 0.001f);
+        assertEquals(50f, right.width(), 0.001f);
+        assertEquals(left.x() + left.width(), right.x(), 0.001f);
+    }
+
+    @Test
+    public void wrapsTextWithinShrunkFlexItems() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div style="display:flex;width:180px">
+                  <div id="text" style="flex-grow:1">one two three four five six seven</div>
+                  <div id="fixed" style="width:90px;height:20px"></div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(300);
+        BoxFragment text = boxById(layout, "text");
+        BoxFragment fixed = boxById(layout, "fixed");
+        long textLines = layout.lineBoxes().stream()
+                .filter(line -> line.fragments().stream()
+                        .filter(TextFragment.class::isInstance)
+                        .map(TextFragment.class::cast)
+                        .anyMatch(fragment -> fragment.text().matches(".*(one|two|three|four|five|six|seven).*")))
+                .count();
+
+        assertEquals(90f, text.width(), 0.001f);
+        assertEquals(text.x() + text.width(), fixed.x(), 0.001f);
+        assertTrue("Text in einem geschrumpften Flex-Item muss umbrechen", textLines > 1);
+    }
+
     private static Document parse(String html) {
         return new HtmlParser().parse(html);
     }

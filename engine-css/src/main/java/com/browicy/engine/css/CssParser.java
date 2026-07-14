@@ -38,6 +38,8 @@ public final class CssParser {
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_WEIGHT = Pattern.compile("[1-9]00");
     private static final Pattern INTEGER = Pattern.compile("-?\\d+");
+    private static final Pattern NON_NEGATIVE_NUMBER = Pattern.compile(
+            "(?:\\d+(?:\\.\\d+)?|\\.\\d+)");
     private static final Pattern LINE_HEIGHT = Pattern.compile(
             "(?:normal|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:(?:px|em|rem|vw|vh|%)?))",
             Pattern.CASE_INSENSITIVE);
@@ -231,6 +233,10 @@ public final class CssParser {
             case "font-weight" -> supports(normalized, "normal");
             case "font-style" -> supports(normalized, "normal");
             case "display" -> supports(normalized, "block");
+            case "flex-direction" -> supports(normalized, "row");
+            case "justify-content" -> supports(normalized, "flex-start");
+            case "align-items" -> supports(normalized, "stretch");
+            case "flex-grow" -> supports(normalized, "1");
             case "position" -> supports(normalized, "static");
             case "z-index" -> supports(normalized, "1");
             case "cursor" -> supports(normalized, "pointer");
@@ -295,6 +301,7 @@ public final class CssParser {
             case "display" -> {
                 if (value.equals("block") || value.equals("inline")
                         || value.equals("inline-block") || value.equals("none")
+                        || value.equals("flex") || value.equals("inline-flex")
                         || value.equals("table") || value.equals("inline-table")
                         || value.equals("table-row-group") || value.equals("table-header-group")
                         || value.equals("table-footer-group") || value.equals("table-row")
@@ -303,6 +310,26 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
+            case "flex-direction" -> {
+                if (value.equals("row") || value.equals("row-reverse")
+                        || value.equals("column") || value.equals("column-reverse")) {
+                    target.put(property, value);
+                }
+            }
+            case "justify-content" -> {
+                if (value.equals("flex-start") || value.equals("center")
+                        || value.equals("flex-end") || value.equals("space-between")
+                        || value.equals("space-around") || value.equals("space-evenly")) {
+                    target.put(property, value);
+                }
+            }
+            case "align-items" -> {
+                if (value.equals("stretch") || value.equals("flex-start")
+                        || value.equals("center") || value.equals("flex-end")) {
+                    target.put(property, value);
+                }
+            }
+            case "flex-grow" -> putIfMatches(target, property, value, NON_NEGATIVE_NUMBER);
             case "border-collapse" -> {
                 if (value.equals("separate") || value.equals("collapse")) {
                     target.put(property, value);

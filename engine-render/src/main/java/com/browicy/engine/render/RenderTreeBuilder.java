@@ -97,7 +97,11 @@ public final class RenderTreeBuilder {
                 RenderStyle.BorderCollapse.SEPARATE,
                 RenderStyle.TextAlign.LEFT,
                 RenderStyle.Overflow.VISIBLE,
-                RenderStyle.VerticalAlign.BASELINE);
+                RenderStyle.VerticalAlign.BASELINE,
+                RenderStyle.FlexDirection.ROW,
+                RenderStyle.JustifyContent.FLEX_START,
+                RenderStyle.AlignItems.STRETCH,
+                0);
         if (rootElement == null) {
             return renderTree(new RenderBox(null, initial, List.of()));
         }
@@ -109,7 +113,10 @@ public final class RenderTreeBuilder {
         if (rootStyle.display() == RenderStyle.Display.NONE) {
             return renderTree(new RenderBox(rootElement, initial, List.of()));
         }
-        if (rootStyle.display() != RenderStyle.Display.BLOCK) {
+        if (rootStyle.display() == RenderStyle.Display.INLINE_FLEX) {
+            rootStyle = copyWithDisplay(rootStyle, RenderStyle.Display.FLEX);
+        } else if (rootStyle.display() != RenderStyle.Display.BLOCK
+                && rootStyle.display() != RenderStyle.Display.FLEX) {
             rootStyle = copyWithDisplay(rootStyle, RenderStyle.Display.BLOCK);
         }
         return renderTree(buildBox(rootElement, rootStyle));
@@ -131,7 +138,10 @@ public final class RenderTreeBuilder {
     private RenderBox buildBox(Element element, RenderStyle style) {
         List<RenderNode> children = new ArrayList<>();
         collectChildren(element, style, children);
-        return new RenderBox(element, style, wrapMixedInlineContent(children, style));
+        List<RenderNode> normalized = isFlexContainer(style.display())
+                ? wrapFlexItems(children, style)
+                : wrapMixedInlineContent(children, style);
+        return new RenderBox(element, style, normalized);
     }
 
     private RenderInlineBox buildInlineBox(Element element, RenderStyle style) {
@@ -161,6 +171,9 @@ public final class RenderTreeBuilder {
                 continue;
             }
             if (style.position() == RenderStyle.Position.ABSOLUTE
+                    && style.display() == RenderStyle.Display.INLINE_FLEX) {
+                style = copyWithDisplay(style, RenderStyle.Display.FLEX);
+            } else if (style.position() == RenderStyle.Position.ABSOLUTE
                     && style.display() != RenderStyle.Display.BLOCK
                     && !"br".equals(element.getTagName())
                     && !"img".equals(element.getTagName())) {
@@ -173,10 +186,18 @@ public final class RenderTreeBuilder {
                         element, style, imageData.apply(element),
                         positiveIntegerAttribute(element, "width"),
                         positiveIntegerAttribute(element, "height")));
+            } else if (isFlexContainer(parentStyle.display())) {
+                RenderStyle itemStyle = switch (style.display()) {
+                    case INLINE -> copyWithDisplay(style, RenderStyle.Display.BLOCK);
+                    case INLINE_FLEX -> copyWithDisplay(style, RenderStyle.Display.FLEX);
+                    default -> style;
+                };
+                output.add(buildBox(element, itemStyle));
             } else if (isBlockContainer(style.display())) {
                 output.add(buildBox(element, style));
             } else if (style.display() == RenderStyle.Display.INLINE_BLOCK
-                    || style.display() == RenderStyle.Display.INLINE_TABLE) {
+                    || style.display() == RenderStyle.Display.INLINE_TABLE
+                    || style.display() == RenderStyle.Display.INLINE_FLEX) {
                 output.add(buildInlineBlock(element, style));
             } else {
                 output.add(buildInlineBox(element, style));
@@ -186,10 +207,51 @@ public final class RenderTreeBuilder {
 
     private static boolean isBlockContainer(RenderStyle.Display display) {
         return switch (display) {
-            case BLOCK, TABLE, TABLE_ROW_GROUP, TABLE_HEADER_GROUP, TABLE_FOOTER_GROUP,
+            case BLOCK, FLEX, TABLE, TABLE_ROW_GROUP, TABLE_HEADER_GROUP, TABLE_FOOTER_GROUP,
                  TABLE_ROW, TABLE_CELL, TABLE_COLUMN_GROUP, TABLE_COLUMN, TABLE_CAPTION -> true;
             default -> false;
         };
+    }
+
+    private static boolean isFlexContainer(RenderStyle.Display display) {
+        return display == RenderStyle.Display.FLEX || display == RenderStyle.Display.INLINE_FLEX;
+    }
+
+    private static List<RenderNode> wrapFlexItems(List<RenderNode> children,
+                                                   RenderStyle parentStyle) {
+        List<RenderNode> items = new ArrayList<>();
+        List<RenderNode> textRun = new ArrayList<>();
+        for (RenderNode child : children) {
+            if (child instanceof RenderBox box) {
+                flushFlexText(textRun, parentStyle, items);
+                items.add(box);
+            } else if (child instanceof RenderTextRun text) {
+                textRun.add(text);
+            } else if (child instanceof RenderInlineBlock inlineBlock) {
+                flushFlexText(textRun, parentStyle, items);
+                items.add(inlineBlock.box());
+            } else {
+                flushFlexText(textRun, parentStyle, items);
+                RenderStyle itemStyle = anonymousBlockStyle(parentStyle);
+                if (child instanceof RenderImage image) {
+                    itemStyle = itemStyle.withFlexGrow(image.style().flexGrow());
+                }
+                items.add(new RenderBox(null, itemStyle, List.of(child)));
+            }
+        }
+        flushFlexText(textRun, parentStyle, items);
+        return List.copyOf(items);
+    }
+
+    private static void flushFlexText(List<RenderNode> textRun,
+                                      RenderStyle parentStyle,
+                                      List<RenderNode> output) {
+        if (textRun.isEmpty()) return;
+        if (!textRun.stream().allMatch(node -> node instanceof RenderTextRun run
+                && run.text().isBlank())) {
+            output.add(new RenderBox(null, anonymousBlockStyle(parentStyle), List.copyOf(textRun)));
+        }
+        textRun.clear();
     }
 
     private static Integer positiveIntegerAttribute(Element element, String name) {
@@ -283,7 +345,11 @@ public final class RenderTreeBuilder {
                 inherited.borderCollapse(),
                 inherited.textAlign(),
                 RenderStyle.Overflow.VISIBLE,
-                RenderStyle.VerticalAlign.BASELINE);
+                RenderStyle.VerticalAlign.BASELINE,
+                RenderStyle.FlexDirection.ROW,
+                RenderStyle.JustifyContent.FLEX_START,
+                RenderStyle.AlignItems.STRETCH,
+                0);
     }
 
     private RenderStyle resolveStyle(Element element, RenderStyle parent) {
@@ -335,11 +401,17 @@ public final class RenderTreeBuilder {
         RenderStyle.TextAlign textAlign = parent.textAlign();
         RenderStyle.Overflow overflow = RenderStyle.Overflow.VISIBLE;
         RenderStyle.VerticalAlign verticalAlign = RenderStyle.VerticalAlign.BASELINE;
+        RenderStyle.FlexDirection flexDirection = RenderStyle.FlexDirection.ROW;
+        RenderStyle.JustifyContent justifyContent = RenderStyle.JustifyContent.FLEX_START;
+        RenderStyle.AlignItems alignItems = RenderStyle.AlignItems.STRETCH;
+        float flexGrow = 0;
 
         if (declarations.containsKey("display")) {
             display = switch (declarations.get("display")) {
                 case "block" -> RenderStyle.Display.BLOCK;
                 case "inline-block" -> RenderStyle.Display.INLINE_BLOCK;
+                case "flex" -> RenderStyle.Display.FLEX;
+                case "inline-flex" -> RenderStyle.Display.INLINE_FLEX;
                 case "none" -> RenderStyle.Display.NONE;
                 case "table" -> RenderStyle.Display.TABLE;
                 case "inline-table" -> RenderStyle.Display.INLINE_TABLE;
@@ -429,6 +501,29 @@ public final class RenderTreeBuilder {
             case "bottom", "text-bottom" -> RenderStyle.VerticalAlign.BOTTOM;
             default -> RenderStyle.VerticalAlign.BASELINE;
         };
+        flexDirection = switch (declarations.getOrDefault("flex-direction", "row")) {
+            case "row-reverse" -> RenderStyle.FlexDirection.ROW_REVERSE;
+            case "column" -> RenderStyle.FlexDirection.COLUMN;
+            case "column-reverse" -> RenderStyle.FlexDirection.COLUMN_REVERSE;
+            default -> RenderStyle.FlexDirection.ROW;
+        };
+        justifyContent = switch (declarations.getOrDefault("justify-content", "flex-start")) {
+            case "center" -> RenderStyle.JustifyContent.CENTER;
+            case "flex-end" -> RenderStyle.JustifyContent.FLEX_END;
+            case "space-between" -> RenderStyle.JustifyContent.SPACE_BETWEEN;
+            case "space-around" -> RenderStyle.JustifyContent.SPACE_AROUND;
+            case "space-evenly" -> RenderStyle.JustifyContent.SPACE_EVENLY;
+            default -> RenderStyle.JustifyContent.FLEX_START;
+        };
+        alignItems = switch (declarations.getOrDefault("align-items", "stretch")) {
+            case "flex-start" -> RenderStyle.AlignItems.FLEX_START;
+            case "center" -> RenderStyle.AlignItems.CENTER;
+            case "flex-end" -> RenderStyle.AlignItems.FLEX_END;
+            default -> RenderStyle.AlignItems.STRETCH;
+        };
+        if (declarations.containsKey("flex-grow")) {
+            flexGrow = Float.parseFloat(declarations.get("flex-grow"));
+        }
         CssColor declaredColor = CssColor.parse(declarations.get("color"));
         if (declaredColor != null) {
             color = declaredColor;
@@ -491,7 +586,7 @@ public final class RenderTreeBuilder {
                 width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,
                 outlineWidth, outlineColor, outlineVisible, borderCollapse, textAlign,
-                overflow, verticalAlign);
+                overflow, verticalAlign, flexDirection, justifyContent, alignItems, flexGrow);
     }
 
     private static RenderStyle.Display defaultDisplay(String tag) {
@@ -736,18 +831,6 @@ public final class RenderTreeBuilder {
     }
 
     private static RenderStyle copyWithDisplay(RenderStyle style, RenderStyle.Display display) {
-        return new RenderStyle(display, style.position(), style.zIndex(), style.floatMode(), style.clear(), style.top(), style.right(),
-                style.bottom(), style.left(), style.fontSizePx(), style.fontFamily(), style.fontWeight(), style.italic(), style.lineHeight(),
-                style.color(), style.listStyleType(), style.underline(), style.textDecorationColor(),
-                style.cursor(),
-                style.backgroundColor(), style.backgroundImageUrl(),
-                style.backgroundRepeat(), style.backgroundPositionX(), style.backgroundPositionY(),
-                style.width(), style.height(),
-                style.minWidth(), style.maxWidth(), style.minHeight(), style.maxHeight(),
-                style.boxSizing(), style.margin(), style.autoMargins(), style.padding(),
-                style.borderWidth(),
-                style.borderColor(), style.borderStyle(), style.borderRadius(), style.outlineWidth(),
-                style.outlineColor(), style.outlineVisible(), style.borderCollapse(), style.textAlign(), style.overflow(),
-                style.verticalAlign());
+        return style.withDisplay(display);
     }
 }

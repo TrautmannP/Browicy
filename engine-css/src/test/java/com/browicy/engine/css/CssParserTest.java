@@ -334,4 +334,23 @@ public class CssParserTest {
         assertTrue(parser.supportsProperty("z-index"));
         assertTrue(parser.supportsProperty("cursor"));
     }
+
+    @Test
+    public void parsesFlexDisplayAndCoreFlexProperties() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                display:inline-flex;flex-direction:column-reverse;
+                justify-content:space-between;align-items:center;flex-grow:1.5
+                """);
+
+        assertEquals("inline-flex", declarations.get("display"));
+        assertEquals("column-reverse", declarations.get("flex-direction"));
+        assertEquals("space-between", declarations.get("justify-content"));
+        assertEquals("center", declarations.get("align-items"));
+        assertEquals("1.5", declarations.get("flex-grow"));
+        assertTrue(parser.supports("display", "flex"));
+        assertTrue(parser.supportsProperty("flex-grow"));
+        assertFalse(parser.supports("flex-grow", "-1"));
+        assertFalse(parser.supports("align-items", "baseline"));
+    }
 }
