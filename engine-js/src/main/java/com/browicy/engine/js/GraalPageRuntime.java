@@ -42,10 +42,13 @@ final class GraalPageRuntime implements PageRuntime {
     private static final AtomicLong NEXT_RUNTIME_ID = new AtomicLong();
     static final int MAX_FETCH_REQUESTS_PER_PAGE = 256;
 
+    static final long SYNC_FETCH_TIMEOUT_MILLIS = 30_000;
+
     private final Document document;
     private final long statementLimit;
     private final PageRuntimeObserver observer;
     private final JsFetchBackend fetchBackend;
+    private final JsCookieStore cookieStore;
     private final LinkedBlockingDeque<Envelope<?>> tasks = new LinkedBlockingDeque<>();
     private final Deque<Envelope<?>> microtasks = new ArrayDeque<>();
     private final AtomicBoolean acceptingTasks = new AtomicBoolean(true);
@@ -71,15 +74,21 @@ final class GraalPageRuntime implements PageRuntime {
     private int startedFetchRequests;
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer) {
-        this(document, statementLimit, observer, null);
+        this(document, statementLimit, observer, null, null);
     }
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
                      JsFetchBackend fetchBackend) {
+        this(document, statementLimit, observer, fetchBackend, null);
+    }
+
+    GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
+                     JsFetchBackend fetchBackend, JsCookieStore cookieStore) {
         this.document = Objects.requireNonNull(document, "document");
         this.statementLimit = statementLimit;
         this.observer = Objects.requireNonNull(observer, "observer");
         this.fetchBackend = fetchBackend;
+        this.cookieStore = cookieStore == null ? new JsCookieStore() : cookieStore;
         long runtimeId = NEXT_RUNTIME_ID.incrementAndGet();
         ThreadFactory schedulerThreads = runnable -> {
             Thread thread = new Thread(runnable, "browicy-page-timer-" + runtimeId);
@@ -205,6 +214,7 @@ final class GraalPageRuntime implements PageRuntime {
         context = newSandboxedContext();
         console = new JsConsole();
         jsDocument = new JsDocument(document, errors::add);
+        jsDocument.setCookieStore(cookieStore);
         Value bindings = context.getBindings("js");
         bindings.putMember("document", jsDocument);
         bindings.putMember("console", console);
@@ -262,7 +272,9 @@ final class GraalPageRuntime implements PageRuntime {
         });
         if (fetchBackend != null) {
             bindings.putMember("__browicyFetch", (ProxyExecutable) this::startFetch);
+            bindings.putMember("__browicyFetchSync", (ProxyExecutable) this::fetchSync);
             context.eval("js", JavaScriptEngine.FETCH_BOOTSTRAP);
+            context.eval("js", JavaScriptEngine.XHR_BOOTSTRAP);
         }
     }
 
@@ -294,6 +306,43 @@ final class GraalPageRuntime implements PageRuntime {
         pending.whenComplete((response, failure) ->
                 completeFetchOnEventLoop(resolve, reject, response, failure));
         return null;
+    }
+
+    private Object fetchSync(Value[] args) {
+        String url = args.length == 0 ? "" : asText(args[0]);
+        URI target;
+        try {
+            target = resolveFetchUri(url);
+        } catch (IllegalArgumentException invalidUrl) {
+            return ProxyArray.fromArray(false, "XMLHttpRequest: " + invalidUrl.getMessage());
+        }
+        if (startedFetchRequests >= MAX_FETCH_REQUESTS_PER_PAGE) {
+            return ProxyArray.fromArray(false,
+                    "XMLHttpRequest: Limit von " + MAX_FETCH_REQUESTS_PER_PAGE
+                            + " Netzwerkanfragen pro Seite erreicht");
+        }
+        startedFetchRequests++;
+        JsFetchResponse response;
+        try {
+            response = Objects.requireNonNull(fetchBackend.fetch(target), "fetchBackend lieferte null")
+                    .get(SYNC_FETCH_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return ProxyArray.fromArray(false, "XMLHttpRequest: Anfrage wurde unterbrochen");
+        } catch (java.util.concurrent.TimeoutException timeout) {
+            return ProxyArray.fromArray(false, "XMLHttpRequest: Zeitüberschreitung nach "
+                    + SYNC_FETCH_TIMEOUT_MILLIS + " ms");
+        } catch (Exception failure) {
+            return ProxyArray.fromArray(false, failureMessage(failure));
+        }
+        Object[] headerPairs = new Object[response.headers().size() * 2];
+        int index = 0;
+        for (JsFetchResponse.Header header : response.headers()) {
+            headerPairs[index++] = header.name();
+            headerPairs[index++] = header.value();
+        }
+        return ProxyArray.fromArray(true, response.url(), response.status(),
+                response.statusText(), ProxyArray.fromArray(headerPairs), response.bodyText());
     }
 
     private URI resolveFetchUri(String url) {

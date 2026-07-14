@@ -10,6 +10,7 @@ import com.browicy.engine.html.ScriptResource;
 import com.browicy.engine.html.StyleSheetResource;
 import com.browicy.engine.js.JavaScriptEngine;
 import com.browicy.engine.js.JavaScriptSource;
+import com.browicy.engine.js.JsCookieStore;
 import com.browicy.engine.js.PageRuntime;
 import com.browicy.engine.net.NetworkResourceType;
 import com.browicy.engine.net.BinaryResource;
@@ -71,9 +72,11 @@ final class PageResourceCoordinator {
         registerInlineStyleSheets(resources, styleSheets);
         DocumentUpdateCoordinator updates = new DocumentUpdateCoordinator(
                 document, styleSheets, styleApplicator, listener);
-        PageFetchBackend fetchBackend = new PageFetchBackend(resourceLoader, document.getUrl());
+        JsCookieStore cookies = new JsCookieStore();
+        PageFetchBackend fetchBackend = new PageFetchBackend(
+                resourceLoader, document.getUrl(), cookies);
         PageRuntime runtime = javaScriptEngine.createPageRuntime(
-                document, ignored -> updates.flush(), fetchBackend);
+                document, ignored -> updates.flush(), fetchBackend, cookies);
         List<ResourceLoad> cancellableLoads = new ArrayList<>();
         cancellableLoads.add(fetchBackend);
         ImageResourceRegistry images = new ImageResourceRegistry();
@@ -104,7 +107,7 @@ final class PageResourceCoordinator {
             CompletableFuture<Void> resourcesLoaded = CompletableFuture.allOf(
                     allResources.toArray(CompletableFuture[]::new));
             return new PageSession(
-                    document, runtime, styleSheets, images, resourcesLoaded,
+                    document, runtime, styleSheets, images, cookies, resourcesLoaded,
                     cancellableLoads, updates, onClose);
         } catch (RuntimeException failure) {
             cancellableLoads.forEach(ResourceLoad::cancel);

@@ -1,5 +1,6 @@
 package com.browicy.engine;
 
+import com.browicy.engine.js.JsCookieStore;
 import com.browicy.engine.js.JsFetchBackend;
 import com.browicy.engine.js.JsFetchResponse;
 import com.browicy.engine.net.FetchResource;
@@ -20,12 +21,18 @@ final class PageFetchBackend implements JsFetchBackend, ResourceLoad {
 
     private final SubResourceLoader loader;
     private final String documentOrigin;
+    private final JsCookieStore cookieStore;
     private final Set<FetchResourceLoad> activeLoads = ConcurrentHashMap.newKeySet();
     private volatile boolean cancelled;
 
     PageFetchBackend(SubResourceLoader loader, String documentUrl) {
+        this(loader, documentUrl, null);
+    }
+
+    PageFetchBackend(SubResourceLoader loader, String documentUrl, JsCookieStore cookieStore) {
         this.loader = Objects.requireNonNull(loader, "loader");
         this.documentOrigin = originOf(documentUrl);
+        this.cookieStore = cookieStore;
     }
 
     @Override
@@ -62,6 +69,7 @@ final class PageFetchBackend implements JsFetchBackend, ResourceLoad {
 
     private JsFetchResponse toResponse(URI requestUri, FetchResource resource) {
         requireCorsAllowed(requestUri, resource);
+        storeCookies(resource);
         List<JsFetchResponse.Header> headers = new ArrayList<>();
         for (String name : resource.headers().names()) {
             if (name.equals("set-cookie") || name.equals("set-cookie2")) {
@@ -77,6 +85,15 @@ final class PageFetchBackend implements JsFetchBackend, ResourceLoad {
                 resource.statusText(),
                 headers,
                 resource.bodyText());
+    }
+
+    private void storeCookies(FetchResource resource) {
+        if (cookieStore == null) {
+            return;
+        }
+        for (String value : resource.headers().all("set-cookie")) {
+            cookieStore.storeFromHttp(resource.uri(), value);
+        }
     }
 
     private void requireCorsAllowed(URI requestUri, FetchResource resource) {

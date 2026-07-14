@@ -1,5 +1,6 @@
 package com.browicy.engine;
 
+import com.browicy.engine.js.JsCookieStore;
 import com.browicy.engine.js.JsFetchResponse;
 import com.browicy.engine.net.LocalTestServer;
 import com.browicy.engine.net.SubResourceLoader;
@@ -140,6 +141,43 @@ public class PageFetchBackendTest {
                 .anyMatch(header -> header.name().equals("x-sichtbar")));
         assertFalse(response.headers().stream()
                 .anyMatch(header -> header.name().contains("cookie")));
+    }
+
+    @Test
+    public void setCookieHeadersLandInTheCookieStore() throws Exception {
+        server.on("/setzt-cookies", exchange -> {
+            exchange.getResponseHeaders().add("Set-Cookie", "sitzung=abc; Path=/");
+            exchange.getResponseHeaders().add("Set-Cookie", "geheim=intern; Path=/; HttpOnly");
+            LocalTestServer.respond(exchange, 200, "text/plain", new byte[0]);
+        });
+        JsCookieStore cookies = new JsCookieStore();
+        PageFetchBackend backend = new PageFetchBackend(
+                loader, serverOriginUrl("/index.html"), cookies);
+
+        JsFetchResponse response = backend.fetch(
+                URI.create(serverOriginUrl("/setzt-cookies"))).get(5, TimeUnit.SECONDS);
+
+        assertFalse(response.headers().stream()
+                .anyMatch(header -> header.name().contains("cookie")));
+        assertEquals("sitzung=abc",
+                cookies.cookiesForScript(URI.create(serverOriginUrl("/index.html"))));
+    }
+
+    @Test
+    public void deniedCrossOriginResponsesStoreNoCookies() {
+        server.on("/fremde-cookies", exchange -> {
+            exchange.getResponseHeaders().add("Set-Cookie", "fremd=wert; Path=/");
+            LocalTestServer.respond(exchange, 200, "text/plain", new byte[0]);
+        });
+        JsCookieStore cookies = new JsCookieStore();
+        PageFetchBackend backend = new PageFetchBackend(
+                loader, "https://andere.example/seite.html", cookies);
+
+        assertThrows(CompletionException.class,
+                () -> backend.fetch(URI.create(serverOriginUrl("/fremde-cookies"))).join());
+
+        assertEquals("", cookies.cookiesForScript(
+                URI.create(serverOriginUrl("/index.html"))));
     }
 
     @Test

@@ -345,6 +345,255 @@ public final class JavaScriptEngine {
             })();
             """;
 
+    static final String XHR_BOOTSTRAP = """
+            (() => {
+              'use strict';
+              const UNSENT = 0, OPENED = 1, HEADERS_RECEIVED = 2, LOADING = 3, DONE = 4;
+              class XMLHttpRequest {
+                constructor() {
+                  this._listeners = new Map();
+                  this._generation = 0;
+                  this._requestHeaders = [];
+                  this._responseType = '';
+                  this._reset();
+                  this.timeout = 0;
+                  this.withCredentials = false;
+                  this.upload = Object.freeze({
+                    addEventListener: () => undefined,
+                    removeEventListener: () => undefined,
+                    dispatchEvent: () => true
+                  });
+                  this.onreadystatechange = null;
+                  this.onloadstart = null;
+                  this.onprogress = null;
+                  this.onload = null;
+                  this.onerror = null;
+                  this.onabort = null;
+                  this.ontimeout = null;
+                  this.onloadend = null;
+                }
+                _reset() {
+                  this._state = UNSENT;
+                  this._sent = false;
+                  this._status = 0;
+                  this._statusText = '';
+                  this._responseText = '';
+                  this._responseUrl = '';
+                  this._headers = [];
+                }
+                get readyState() { return this._state; }
+                get status() { return this._status; }
+                get statusText() { return this._statusText; }
+                get responseURL() { return this._responseUrl; }
+                get responseXML() { return null; }
+                get responseType() { return this._responseType; }
+                set responseType(value) {
+                  value = String(value);
+                  if (value === '' || value === 'text' || value === 'json') {
+                    this._responseType = value;
+                  }
+                }
+                get responseText() {
+                  if (this._responseType === 'json') {
+                    throw new DOMException(
+                        "responseText ist bei responseType 'json' nicht verfügbar",
+                        'InvalidStateError');
+                  }
+                  return this._state < LOADING ? '' : this._responseText;
+                }
+                get response() {
+                  if (this._responseType === 'json') {
+                    if (this._state !== DONE) return null;
+                    try { return JSON.parse(this._responseText); } catch (error) { return null; }
+                  }
+                  return this.responseText;
+                }
+                addEventListener(type, listener) {
+                  type = String(type);
+                  const listeners = this._listeners.get(type) || [];
+                  if (typeof listener === 'function' && !listeners.includes(listener)) {
+                    listeners.push(listener);
+                  }
+                  this._listeners.set(type, listeners);
+                }
+                removeEventListener(type, listener) {
+                  const listeners = this._listeners.get(String(type)) || [];
+                  this._listeners.set(String(type),
+                      listeners.filter(candidate => candidate !== listener));
+                }
+                dispatchEvent(event) {
+                  this._fire(String(event && event.type));
+                  return true;
+                }
+                _fire(type, loaded) {
+                  loaded = loaded === undefined ? 0 : loaded;
+                  const event = {
+                    type: type, target: this, currentTarget: this,
+                    lengthComputable: loaded > 0, loaded: loaded, total: loaded
+                  };
+                  const handler = this['on' + type];
+                  const listeners = [...(this._listeners.get(type) || [])];
+                  if (typeof handler === 'function') listeners.unshift(handler);
+                  for (const listener of listeners) {
+                    try {
+                      listener.call(this, event);
+                    } catch (error) {
+                      console.error('XMLHttpRequest-Ereignisbehandlung (' + type + '): '
+                          + String(error && error.message || error));
+                    }
+                  }
+                }
+                open(method, url, async) {
+                  method = String(method).toUpperCase();
+                  if (method === 'CONNECT' || method === 'TRACE' || method === 'TRACK') {
+                    throw new DOMException(
+                        'XMLHttpRequest: Methode ' + method + ' ist nicht erlaubt',
+                        'SecurityError');
+                  }
+                  this._generation++;
+                  this._reset();
+                  this._method = method;
+                  this._url = String(url);
+                  this._async = async === undefined ? true : Boolean(async);
+                  this._state = OPENED;
+                  this._fire('readystatechange');
+                }
+                setRequestHeader(name, value) {
+                  if (this._state !== OPENED || this._sent) {
+                    throw new DOMException(
+                        'setRequestHeader: open() wurde noch nicht aufgerufen',
+                        'InvalidStateError');
+                  }
+                  this._requestHeaders.push([String(name), String(value)]);
+                }
+                overrideMimeType(mimeType) {
+                  if (this._state >= LOADING) {
+                    throw new DOMException(
+                        'overrideMimeType: Antwort wird bereits geladen', 'InvalidStateError');
+                  }
+                }
+                getResponseHeader(name) {
+                  if (this._state < HEADERS_RECEIVED) return null;
+                  name = String(name).toLowerCase();
+                  const values = [];
+                  for (const pair of this._headers) {
+                    if (pair[0] === name) values.push(pair[1]);
+                  }
+                  return values.length === 0 ? null : values.join(', ');
+                }
+                getAllResponseHeaders() {
+                  if (this._state < HEADERS_RECEIVED) return '';
+                  const names = [...new Set(this._headers.map(pair => pair[0]))].sort();
+                  return names.map(name =>
+                      name + ': ' + this.getResponseHeader(name) + '\\r\\n').join('');
+                }
+                abort() {
+                  this._generation++;
+                  const active = this._sent && this._state !== DONE;
+                  this._sent = false;
+                  this._status = 0;
+                  this._statusText = '';
+                  this._responseText = '';
+                  if (active) {
+                    this._state = DONE;
+                    this._fire('readystatechange');
+                    this._fire('abort');
+                    this._fire('loadend');
+                  }
+                  this._state = UNSENT;
+                }
+                _applyResponse(finalUrl, status, statusText, headerPairs) {
+                  this._responseUrl = String(finalUrl);
+                  this._status = Number(status);
+                  this._statusText = String(statusText);
+                  this._headers = [];
+                  for (let i = 0; i + 1 < headerPairs.length; i += 2) {
+                    this._headers.push(
+                        [String(headerPairs[i]).toLowerCase(), String(headerPairs[i + 1])]);
+                  }
+                }
+                send(body) {
+                  if (this._state !== OPENED || this._sent) {
+                    throw new DOMException(
+                        'send: XMLHttpRequest ist nicht geöffnet', 'InvalidStateError');
+                  }
+                  if (this._method !== 'GET') {
+                    throw new DOMException(
+                        'XMLHttpRequest: Methode ' + this._method + ' wird noch nicht unterstützt',
+                        'NotSupportedError');
+                  }
+                  this._sent = true;
+                  const generation = this._generation;
+                  if (!this._async) {
+                    const result = __browicyFetchSync(this._url);
+                    if (!result[0]) {
+                      this._state = DONE;
+                      this._sent = false;
+                      throw new DOMException(String(result[1]), 'NetworkError');
+                    }
+                    this._applyResponse(result[1], result[2], result[3], result[4]);
+                    this._responseText = String(result[5]);
+                    this._state = DONE;
+                    this._fire('readystatechange');
+                    this._fire('load', this._responseText.length);
+                    this._fire('loadend', this._responseText.length);
+                    return;
+                  }
+                  this._fire('loadstart');
+                  let timerId = 0;
+                  let timedOut = false;
+                  const timeoutMillis = Number(this.timeout);
+                  if (Number.isFinite(timeoutMillis) && timeoutMillis > 0) {
+                    timerId = setTimeout(() => {
+                      if (generation !== this._generation || this._state === DONE) return;
+                      timedOut = true;
+                      this._status = 0;
+                      this._statusText = '';
+                      this._state = DONE;
+                      this._fire('readystatechange');
+                      this._fire('timeout');
+                      this._fire('loadend');
+                    }, timeoutMillis);
+                  }
+                  const stillCurrent = () => generation === this._generation && !timedOut;
+                  __browicyFetch(this._url,
+                      (finalUrl, status, statusText, headerPairs, bodyText) => {
+                        if (!stillCurrent()) return;
+                        if (timerId) clearTimeout(timerId);
+                        this._applyResponse(finalUrl, status, statusText, headerPairs);
+                        this._state = HEADERS_RECEIVED;
+                        this._fire('readystatechange');
+                        this._state = LOADING;
+                        this._responseText = String(bodyText);
+                        this._fire('readystatechange');
+                        this._fire('progress', this._responseText.length);
+                        this._state = DONE;
+                        this._fire('readystatechange');
+                        this._fire('load', this._responseText.length);
+                        this._fire('loadend', this._responseText.length);
+                      },
+                      message => {
+                        if (!stillCurrent()) return;
+                        if (timerId) clearTimeout(timerId);
+                        this._status = 0;
+                        this._statusText = '';
+                        this._state = DONE;
+                        this._fire('readystatechange');
+                        this._fire('error');
+                        this._fire('loadend');
+                      });
+                }
+              }
+              const STATES = { UNSENT: UNSENT, OPENED: OPENED, HEADERS_RECEIVED: HEADERS_RECEIVED,
+                  LOADING: LOADING, DONE: DONE };
+              for (const name of Object.keys(STATES)) {
+                XMLHttpRequest[name] = STATES[name];
+                XMLHttpRequest.prototype[name] = STATES[name];
+              }
+              globalThis.XMLHttpRequest = XMLHttpRequest;
+            })();
+            """;
+
     static final String EVENT_LISTENER_INVOKER = """
             (listener, currentTarget, event) => {
               if (typeof listener === 'function') {
@@ -393,6 +642,13 @@ public final class JavaScriptEngine {
                                          PageRuntimeObserver observer,
                                          JsFetchBackend fetchBackend) {
         return new GraalPageRuntime(document, statementLimit, observer, fetchBackend);
+    }
+
+    public PageRuntime createPageRuntime(Document document,
+                                         PageRuntimeObserver observer,
+                                         JsFetchBackend fetchBackend,
+                                         JsCookieStore cookieStore) {
+        return new GraalPageRuntime(document, statementLimit, observer, fetchBackend, cookieStore);
     }
 
     public JsExecutionResult runScripts(Document document) {

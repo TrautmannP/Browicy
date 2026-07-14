@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 final class JsDocument implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "title", "body", "documentElement", "forms", "implementation", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
+            "title", "body", "cookie", "documentElement", "forms", "implementation", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
             "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild", "hasChildNodes",
             "appendChild", "insertBefore", "replaceChild", "removeChild",
             "compareDocumentPosition", "isSameNode", "isEqualNode",
@@ -50,6 +50,8 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private Value eventListenerInvoker;
     @Setter(AccessLevel.PACKAGE)
     private Value domOperationWrapper;
+    @Setter(AccessLevel.PACKAGE)
+    private JsCookieStore cookieStore;
     private JsDomImplementation implementation;
 
     JsDocument(Document document, Consumer<String> errorSink) {
@@ -97,6 +99,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
                 relatedDocument, errorSink, documentWrappers, listenerRegistrations);
         wrapper.setEventListenerInvoker(eventListenerInvoker);
         wrapper.setDomOperationWrapper(domOperationWrapper);
+        wrapper.setCookieStore(cookieStore);
         return wrapper;
     }
 
@@ -165,6 +168,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         return switch (key) {
             case "title" -> document.getTitle();
             case "body" -> wrap(document.getBody());
+            case "cookie" -> cookieStore == null ? "" : cookieStore.cookiesForScript(documentUri());
             case "documentElement" -> wrap(document.getDocumentElement());
             case "forms" -> new JsHtmlCollection(() -> document.getElementsByTagName("form"), this);
             case "implementation" -> implementation == null
@@ -306,8 +310,27 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             setTitle(value.isString() ? value.asString() : value.toString());
             return;
         }
+        if ("cookie".equals(key)) {
+            if (cookieStore != null) {
+                cookieStore.storeFromScript(
+                        documentUri(), value.isString() ? value.asString() : value.toString());
+            }
+            return;
+        }
         throw new UnsupportedOperationException(
                 "Eigenschaft nicht unterstützt oder schreibgeschützt: " + key);
+    }
+
+    private java.net.URI documentUri() {
+        String url = document.getUrl();
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        try {
+            return new java.net.URI(url.strip());
+        } catch (java.net.URISyntaxException invalid) {
+            return null;
+        }
     }
 
     private void setTitle(String text) {

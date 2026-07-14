@@ -3,6 +3,7 @@ package com.browicy.engine;
 import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.DocumentReadyState;
+import com.browicy.engine.js.JsCookieStore;
 import com.browicy.engine.js.PageRuntime;
 import com.browicy.engine.net.ResourceLoad;
 import java.util.List;
@@ -16,6 +17,7 @@ public final class PageSession implements AutoCloseable {
     private final PageRuntime runtime;
     private final StyleSheetRegistry styleSheets;
     private final ImageResourceRegistry images;
+    private final JsCookieStore cookies;
     private final CompletableFuture<Void> resourcesLoaded;
     private final List<ResourceLoad> cancellableLoads;
     private final DocumentUpdateCoordinator updateCoordinator;
@@ -26,6 +28,7 @@ public final class PageSession implements AutoCloseable {
                 PageRuntime runtime,
                 StyleSheetRegistry styleSheets,
                 ImageResourceRegistry images,
+                JsCookieStore cookies,
                 CompletableFuture<Void> resourcesLoaded,
                 List<ResourceLoad> cancellableLoads,
                 DocumentUpdateCoordinator updateCoordinator,
@@ -34,6 +37,7 @@ public final class PageSession implements AutoCloseable {
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.styleSheets = Objects.requireNonNull(styleSheets, "styleSheets");
         this.images = Objects.requireNonNull(images, "images");
+        this.cookies = Objects.requireNonNull(cookies, "cookies");
         this.resourcesLoaded = Objects.requireNonNull(resourcesLoaded, "resourcesLoaded");
         this.cancellableLoads = List.copyOf(cancellableLoads);
         this.updateCoordinator = updateCoordinator;
@@ -48,6 +52,7 @@ public final class PageSession implements AutoCloseable {
                 PageRuntime.closed(),
                 new StyleSheetRegistry(),
                 new ImageResourceRegistry(),
+                new JsCookieStore(),
                 CompletableFuture.completedFuture(null),
                 List.of(),
                 null,
@@ -68,6 +73,10 @@ public final class PageSession implements AutoCloseable {
 
     public ImageResourceRegistry images() {
         return images;
+    }
+
+    public JsCookieStore cookies() {
+        return cookies;
     }
 
     public CompletableFuture<Void> resourcesLoaded() {
