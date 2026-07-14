@@ -14,6 +14,7 @@ public final class CssStyleSheet {
     private final Element ownerNode;
     private final String href;
     private final List<String> ruleTexts = new ArrayList<>();
+    private List<CssFontFace> fontFaces = List.of();
 
     CssStyleSheet(CssParser parser, int sourceOrder, Element ownerNode, String href, String css) {
         this.parser = Objects.requireNonNull(parser, "parser");
@@ -21,6 +22,7 @@ public final class CssStyleSheet {
         this.ownerNode = ownerNode;
         this.href = href;
         ruleTexts.addAll(parser.ruleSources(css));
+        fontFaces = parser.fontFaces(css);
     }
 
     public Element ownerNode() {
@@ -46,6 +48,11 @@ public final class CssStyleSheet {
     synchronized void replaceRules(String css) {
         ruleTexts.clear();
         ruleTexts.addAll(parser.ruleSources(css));
+        fontFaces = parser.fontFaces(css);
+    }
+
+    public synchronized List<CssFontFace> fontFaces() {
+        return fontFaces;
     }
 
     public synchronized int insertRule(String rule, int index) {

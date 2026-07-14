@@ -17,6 +17,7 @@ public final class PageSession implements AutoCloseable {
     private final PageRuntime runtime;
     private final StyleSheetRegistry styleSheets;
     private final ImageResourceRegistry images;
+    private final FontResourceRegistry fonts;
     private final JsCookieStore cookies;
     private final CompletableFuture<Void> resourcesLoaded;
     private final List<ResourceLoad> cancellableLoads;
@@ -28,6 +29,7 @@ public final class PageSession implements AutoCloseable {
                 PageRuntime runtime,
                 StyleSheetRegistry styleSheets,
                 ImageResourceRegistry images,
+                FontResourceRegistry fonts,
                 JsCookieStore cookies,
                 CompletableFuture<Void> resourcesLoaded,
                 List<ResourceLoad> cancellableLoads,
@@ -37,6 +39,7 @@ public final class PageSession implements AutoCloseable {
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.styleSheets = Objects.requireNonNull(styleSheets, "styleSheets");
         this.images = Objects.requireNonNull(images, "images");
+        this.fonts = Objects.requireNonNull(fonts, "fonts");
         this.cookies = Objects.requireNonNull(cookies, "cookies");
         this.resourcesLoaded = Objects.requireNonNull(resourcesLoaded, "resourcesLoaded");
         this.cancellableLoads = List.copyOf(cancellableLoads);
@@ -52,6 +55,7 @@ public final class PageSession implements AutoCloseable {
                 PageRuntime.closed(),
                 new StyleSheetRegistry(),
                 new ImageResourceRegistry(),
+                new FontResourceRegistry(),
                 new JsCookieStore(),
                 CompletableFuture.completedFuture(null),
                 List.of(),
@@ -73,6 +77,10 @@ public final class PageSession implements AutoCloseable {
 
     public ImageResourceRegistry images() {
         return images;
+    }
+
+    public FontResourceRegistry fonts() {
+        return fonts;
     }
 
     public JsCookieStore cookies() {

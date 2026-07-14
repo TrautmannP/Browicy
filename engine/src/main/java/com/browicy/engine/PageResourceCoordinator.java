@@ -2,6 +2,7 @@ package com.browicy.engine;
 
 import com.browicy.engine.css.StyleApplicator;
 import com.browicy.engine.css.StyleSheetRegistry;
+import com.browicy.engine.css.CssFontFace;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.html.DocumentResourceScanner;
 import com.browicy.engine.html.DocumentResources;
@@ -42,6 +43,8 @@ final class PageResourceCoordinator {
     private static final long MAX_TOTAL_IMAGE_BYTES = 128L * 1024 * 1024;
     private static final Pattern CSS_URL = Pattern.compile(
             "url\\(\\s*(['\"]?)(.*?)\\1\\s*\\)", Pattern.CASE_INSENSITIVE);
+    private static final int MAX_FONT_LOADS_PER_PAGE = 32;
+    private static final long MAX_TOTAL_FONT_BYTES = 32L * 1024 * 1024;
 
     private final DocumentResourceScanner scanner;
     private final SubResourceLoader resourceLoader;
@@ -85,6 +88,7 @@ final class PageResourceCoordinator {
         List<ResourceLoad> cancellableLoads = new ArrayList<>();
         cancellableLoads.add(fetchBackend);
         ImageResourceRegistry images = new ImageResourceRegistry();
+        FontResourceRegistry fonts = new FontResourceRegistry();
 
         try {
             StyleLoadPlan styleLoads = startStyleLoads(
@@ -111,13 +115,16 @@ final class PageResourceCoordinator {
                     resources, images, updates, cancellableLoads));
             imageLoads.addAll(startCssImageLoads(
                     document, images, updates, cancellableLoads));
+            List<CompletableFuture<Void>> fontLoads = startFontLoads(
+                    styleSheets, fonts, updates, cancellableLoads);
 
             List<CompletableFuture<Void>> allResources = new ArrayList<>(styleLoads.allTasks());
             allResources.addAll(imageLoads);
+            allResources.addAll(fontLoads);
             CompletableFuture<Void> resourcesLoaded = CompletableFuture.allOf(
                     allResources.toArray(CompletableFuture[]::new));
             return new PageSession(
-                    document, runtime, styleSheets, images, cookies, resourcesLoaded,
+                    document, runtime, styleSheets, images, fonts, cookies, resourcesLoaded,
                     cancellableLoads, updates, onClose);
         } catch (RuntimeException failure) {
             cancellableLoads.forEach(ResourceLoad::cancel);
@@ -246,6 +253,59 @@ final class PageResourceCoordinator {
         } catch (IllegalArgumentException invalidUri) {
             return null;
         }
+    }
+
+    private List<CompletableFuture<Void>> startFontLoads(
+            StyleSheetRegistry styleSheets,
+            FontResourceRegistry fonts,
+            DocumentUpdateCoordinator updates,
+            List<ResourceLoad> cancellableLoads) {
+        List<CompletableFuture<Void>> tasks = new ArrayList<>();
+        Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
+        AtomicLong totalBytes = new AtomicLong();
+        for (CssFontFace face : styleSheets.fontFaces()) {
+            if (tasks.size() >= MAX_FONT_LOADS_PER_PAGE) break;
+            CssFontFace.Source source = preferredFontSource(face.sources());
+            if (source == null) continue;
+            URI uri;
+            try {
+                uri = URI.create(source.url());
+            } catch (IllegalArgumentException invalidUri) {
+                continue;
+            }
+            CompletableFuture<BinaryResource> shared = loadsByUri.get(uri);
+            if (shared == null) {
+                BinarySubResourceLoad load;
+                try {
+                    load = resourceLoader.loadFontAsync(uri);
+                } catch (IllegalArgumentException invalidUri) {
+                    continue;
+                }
+                cancellableLoads.add(load);
+                shared = load.future().thenApply(resource ->
+                        totalBytes.addAndGet(resource.sizeBytes()) <= MAX_TOTAL_FONT_BYTES
+                                ? resource : null);
+                loadsByUri.put(uri, shared);
+            }
+            CompletableFuture<Void> task = shared.thenAccept(resource -> {
+                if (resource != null) {
+                    fonts.register(face.family(), resource);
+                    updates.invalidate(InvalidationType.LAYOUT);
+                }
+            }).exceptionally(failure -> null);
+            tasks.add(task);
+        }
+        return List.copyOf(tasks);
+    }
+
+    private static CssFontFace.Source preferredFontSource(List<CssFontFace.Source> sources) {
+        for (CssFontFace.Source source : sources) {
+            if (source.format().equals("truetype")
+                    || source.url().toLowerCase(java.util.Locale.ROOT).endsWith(".ttf")) {
+                return source;
+            }
+        }
+        return sources.isEmpty() ? null : sources.getFirst();
     }
 
     private static CompletableFuture<Void> applyStyleSheet(

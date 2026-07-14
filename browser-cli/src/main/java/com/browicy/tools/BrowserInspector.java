@@ -89,6 +89,12 @@ public final class BrowserInspector {
                                 ? "" : element.getAttribute("id"),
                         "value", element.getComputedStyles().get("background-image")))
                 .toList());
+        css.put("webFonts", session.fonts().resources().entrySet().stream()
+                .map(entry -> Map.of(
+                        "family", entry.getKey(),
+                        "url", entry.getValue().uri().toString(),
+                        "sizeBytes", entry.getValue().sizeBytes()))
+                .toList());
 
         Map<String, Object> renderReport = new LinkedHashMap<>();
         renderReport.put("nodes", render.nodes);

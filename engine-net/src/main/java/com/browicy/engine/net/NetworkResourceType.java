@@ -5,5 +5,6 @@ public enum NetworkResourceType {
     STYLESHEET,
     SCRIPT,
     IMAGE,
+    FONT,
     FETCH
 }

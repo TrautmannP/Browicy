@@ -276,4 +276,23 @@ public class CssParserTest {
         assertEquals("right", declarations.get("background-position-x"));
         assertEquals("center", declarations.get("background-position-y"));
     }
+
+    @Test
+    public void extractsFontFaceSourcesWithoutTreatingThemAsStyleRules() {
+        CssParser parser = new CssParser();
+        List<CssFontFace> faces = parser.fontFaces("""
+                @font-face {
+                  font-family: 'Special Elite';
+                  src: url(font.woff) format('woff'), url(font.ttf) format('truetype');
+                  font-weight: bold;
+                }
+                """);
+
+        assertEquals(1, faces.size());
+        assertEquals("Special Elite", faces.getFirst().family());
+        assertEquals(700, faces.getFirst().weight());
+        assertEquals(List.of(
+                new CssFontFace.Source("font.woff", "woff"),
+                new CssFontFace.Source("font.ttf", "truetype")), faces.getFirst().sources());
+    }
 }

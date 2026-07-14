@@ -2,6 +2,7 @@ package com.browicy.ui;
 
 import com.browicy.engine.InvalidationType;
 import com.browicy.engine.ImageResourceRegistry;
+import com.browicy.engine.FontResourceRegistry;
 import com.browicy.engine.PageSession;
 import com.browicy.engine.PageUpdate;
 import com.browicy.engine.css.StyleApplicator;
@@ -29,6 +30,8 @@ import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Font;
+import java.awt.GraphicsEnvironment;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ComponentAdapter;
@@ -45,6 +48,8 @@ import java.net.URI;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.List;
 import java.util.ArrayList;
 import javax.swing.BorderFactory;
@@ -64,6 +69,8 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private final PageRuntime runtime;
     private final ImageResourceRegistry images;
     private final StyleSheetRegistry styleSheets;
+    private final FontResourceRegistry fonts;
+    private final Set<URI> registeredFonts = new HashSet<>();
     private final Map<URI, Optional<BufferedImage>> backgroundImages = new ConcurrentHashMap<>();
     private RenderTree renderTree;
     private Element pressedTarget;
@@ -75,24 +82,28 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private int renderViewportHeight = -1;
 
     public DomViewPanel(Document document) {
-        this(document, PageRuntime.closed(), new ImageResourceRegistry(), null);
+        this(document, PageRuntime.closed(), new ImageResourceRegistry(),
+                new FontResourceRegistry(), null);
     }
 
     public DomViewPanel(PageSession session) {
-        this(session.document(), session.runtime(), session.images(), session.styleSheets());
+        this(session.document(), session.runtime(), session.images(), session.fonts(),
+                session.styleSheets());
     }
 
     DomViewPanel(Document document, PageRuntime runtime, ImageResourceRegistry images) {
-        this(document, runtime, images, null);
+        this(document, runtime, images, new FontResourceRegistry(), null);
     }
 
     private DomViewPanel(Document document,
                          PageRuntime runtime,
                          ImageResourceRegistry images,
+                         FontResourceRegistry fonts,
                          StyleSheetRegistry styleSheets) {
         this.document = document;
         this.runtime = runtime;
         this.images = images;
+        this.fonts = fonts;
         this.styleSheets = styleSheets;
         setLayout(null);
         setOpaque(true);
@@ -339,6 +350,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     }
 
     private boolean ensureLayout(int width, Graphics2D graphics) {
+        if (registerLoadedFonts()) invalidateReflow();
         int viewportHeight = currentViewportHeight();
         if (renderViewportWidth != width || renderViewportHeight != viewportHeight) {
             rebuildRenderTree(width, viewportHeight);
@@ -350,6 +362,22 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         layoutResult = layoutEngine.layout(renderTree, width, getInsets(), graphics);
         layoutWidth = width;
         return oldHeight != layoutResult.height();
+    }
+
+    private boolean registerLoadedFonts() {
+        boolean changed = false;
+        for (var entry : fonts.resources().entrySet()) {
+            var resource = entry.getValue();
+            if (!registeredFonts.add(resource.uri())) continue;
+            try {
+                Font font = Font.createFont(
+                        Font.TRUETYPE_FONT, new ByteArrayInputStream(resource.content()));
+                changed |= GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font);
+            } catch (java.awt.FontFormatException | IOException invalidFont) {
+                // Unsupported webfont formats remain eligible for a later fallback source.
+            }
+        }
+        return changed;
     }
 
     private void paintBox(Graphics2D graphics, BoxFragment fragment) {

@@ -15,6 +15,11 @@ public final class CssParser {
     private static final SelectorParser SELECTOR_PARSER = new SelectorParser();
     private static final Pattern RULE = Pattern.compile("([^{}]+)\\{([^{}]*)}");
     private static final Pattern COMMENTS = Pattern.compile("/\\*.*?\\*/", Pattern.DOTALL);
+    private static final Pattern FONT_FACE = Pattern.compile(
+            "@font-face\\s*\\{([^}]*)}", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    private static final Pattern FONT_SOURCE = Pattern.compile(
+            "url\\(\\s*(['\"]?)(.*?)\\1\\s*\\)(?:\\s*format\\(\\s*(['\"]?)(.*?)\\3\\s*\\))?",
+            Pattern.CASE_INSENSITIVE);
     private static final String LENGTH_UNIT = "(?:px|em|rem|vw|vh)";
     private static final Pattern POSITIVE_LENGTH = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)" + LENGTH_UNIT + "|0)", Pattern.CASE_INSENSITIVE);
@@ -56,6 +61,65 @@ public final class CssParser {
             sources.add(matcher.group().strip());
         }
         return List.copyOf(sources);
+    }
+
+    List<CssFontFace> fontFaces(String css) {
+        if (css == null || css.isBlank()) return List.of();
+        List<CssFontFace> result = new ArrayList<>();
+        var matcher = FONT_FACE.matcher(COMMENTS.matcher(css).replaceAll(""));
+        while (matcher.find()) {
+            String family = null;
+            String src = null;
+            int weight = 400;
+            boolean italic = false;
+            for (String declaration : matcher.group(1).split(";")) {
+                int separator = declaration.indexOf(':');
+                if (separator < 1) continue;
+                String property = declaration.substring(0, separator).strip()
+                        .toLowerCase(Locale.ROOT);
+                String value = declaration.substring(separator + 1).strip();
+                switch (property) {
+                    case "font-family" -> family = unquote(value);
+                    case "src" -> src = value;
+                    case "font-weight" -> weight = parseFontFaceWeight(value);
+                    case "font-style" -> italic = !value.equalsIgnoreCase("normal");
+                    default -> { }
+                }
+            }
+            List<CssFontFace.Source> sources = new ArrayList<>();
+            if (src != null) {
+                var sourceMatcher = FONT_SOURCE.matcher(src);
+                while (sourceMatcher.find()) {
+                    sources.add(new CssFontFace.Source(
+                            sourceMatcher.group(2), sourceMatcher.group(4) == null
+                                    ? "" : sourceMatcher.group(4).toLowerCase(Locale.ROOT)));
+                }
+            }
+            if (family != null && !family.isBlank() && !sources.isEmpty()) {
+                result.add(new CssFontFace(family, sources, weight, italic));
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private static String unquote(String value) {
+        String result = value.strip();
+        if (result.length() >= 2 && (result.startsWith("\"") && result.endsWith("\"")
+                || result.startsWith("'") && result.endsWith("'"))) {
+            return result.substring(1, result.length() - 1);
+        }
+        return result;
+    }
+
+    private static int parseFontFaceWeight(String value) {
+        String normalized = value.strip().toLowerCase(Locale.ROOT);
+        if (normalized.equals("bold")) return 700;
+        try {
+            int parsed = Integer.parseInt(normalized);
+            return parsed >= 100 && parsed <= 900 ? parsed : 400;
+        } catch (NumberFormatException ignored) {
+            return 400;
+        }
     }
 
     List<CssRule> parse(String css, long sourceOrderStart) {

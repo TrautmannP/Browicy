@@ -125,4 +125,19 @@ public class SubResourceLoaderTest {
         assertEquals(NetworkResourceType.IMAGE,
                 ((NetworkRequestEvent.Loaded) events.getLast()).resourceType());
     }
+
+    @Test
+    public void loadsFontsAsBinaryFontResources() throws Exception {
+        byte[] fontBytes = new byte[] {0x00, 0x01, 0x00, 0x00};
+        server.on("/font.ttf", exchange -> LocalTestServer.respond(
+                exchange, 200, "font/ttf", fontBytes));
+
+        BinaryResource resource = loader.loadFontAsync(
+                URI.create(server.url("/font.ttf"))).await();
+
+        assertArrayEquals(fontBytes, resource.content());
+        assertEquals(NetworkResourceType.FONT, resource.resourceType());
+        assertEquals(NetworkResourceType.FONT,
+                ((NetworkRequestEvent.Loaded) events.getLast()).resourceType());
+    }
 }

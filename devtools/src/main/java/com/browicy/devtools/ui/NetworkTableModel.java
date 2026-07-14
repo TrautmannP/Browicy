@@ -84,6 +84,7 @@ final class NetworkTableModel extends AbstractTableModel {
             case STYLESHEET -> "CSS";
             case SCRIPT -> "JavaScript";
             case IMAGE -> "Bild";
+            case FONT -> "Schrift";
             case FETCH -> "Fetch";
         };
     }

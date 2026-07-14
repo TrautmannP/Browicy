@@ -85,4 +85,10 @@ public final class StyleSheetRegistry {
         sheetsBySource.values().forEach(sheet -> snapshot.addAll(sheet.parsedRules()));
         return List.copyOf(snapshot);
     }
+
+    public synchronized List<CssFontFace> fontFaces() {
+        List<CssFontFace> snapshot = new ArrayList<>();
+        sheetsBySource.values().forEach(sheet -> snapshot.addAll(sheet.fontFaces()));
+        return List.copyOf(snapshot);
+    }
 }

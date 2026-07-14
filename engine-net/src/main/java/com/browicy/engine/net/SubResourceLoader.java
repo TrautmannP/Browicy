@@ -70,6 +70,14 @@ public final class SubResourceLoader implements AutoCloseable {
     }
 
     public BinarySubResourceLoad loadImageAsync(URI uri) {
+        return loadBinaryAsync(uri, NetworkResourceType.IMAGE);
+    }
+
+    public BinarySubResourceLoad loadFontAsync(URI uri) {
+        return loadBinaryAsync(uri, NetworkResourceType.FONT);
+    }
+
+    private BinarySubResourceLoad loadBinaryAsync(URI uri, NetworkResourceType resourceType) {
         Objects.requireNonNull(uri, "uri");
         validateHttpUri(uri);
 
@@ -78,21 +86,21 @@ public final class SubResourceLoader implements AutoCloseable {
         BinarySubResourceLoad load = new BinarySubResourceLoad(
                 requestId,
                 uri,
-                NetworkResourceType.IMAGE,
+                resourceType,
                 future,
                 resource -> emit(new NetworkRequestEvent.Loaded(
                         requestId, Instant.now(), resource.uri(), resource.statusCode(),
                         resource.sizeBytes(), resource.resourceType())),
                 failure -> emit(new NetworkRequestEvent.Failed(
                         requestId, Instant.now(), uri.toString(), failure,
-                        NetworkResourceType.IMAGE)),
+                        resourceType)),
                 () -> emit(new NetworkRequestEvent.Cancelled(
-                        requestId, Instant.now(), uri.toString(), NetworkResourceType.IMAGE)));
+                    requestId, Instant.now(), uri.toString(), resourceType)));
         emit(new NetworkRequestEvent.Started(
-                requestId, Instant.now(), uri.toString(), NetworkResourceType.IMAGE));
+                requestId, Instant.now(), uri.toString(), resourceType));
 
         try {
-            executor.execute(() -> fetchImage(load));
+            executor.execute(() -> fetchBinary(load));
         } catch (RuntimeException rejected) {
             load.completeFailed(rejected);
         }
@@ -215,7 +223,7 @@ public final class SubResourceLoader implements AutoCloseable {
         }
     }
 
-    private void fetchImage(BinarySubResourceLoad load) {
+    private void fetchBinary(BinarySubResourceLoad load) {
         try {
             imageFetchPermits.acquire();
         } catch (InterruptedException interrupted) {
@@ -227,11 +235,11 @@ public final class SubResourceLoader implements AutoCloseable {
             HttpResourceFetcher.FetchResult result = HttpResourceFetcher.fetch(
                     client,
                     load.uri(),
-                    acceptFor(NetworkResourceType.IMAGE),
+                    acceptFor(load.resourceType()),
                     load::isCancelled,
                     (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
                             load.id(), Instant.now(), from, to, statusCode,
-                            NetworkResourceType.IMAGE)),
+                            load.resourceType())),
                     true);
             HttpResponse response = result.response();
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -239,7 +247,7 @@ public final class SubResourceLoader implements AutoCloseable {
             }
             load.completeLoaded(new BinaryResource(
                     result.uri(), response.statusCode(), response.body(),
-                    NetworkResourceType.IMAGE));
+                    load.resourceType()));
         } catch (CancellationException cancellation) {
             load.cancel();
         } catch (Exception exception) {
@@ -265,6 +273,7 @@ public final class SubResourceLoader implements AutoCloseable {
             case STYLESHEET -> "text/css,*/*;q=0.1";
             case SCRIPT -> "text/javascript,application/javascript,*/*;q=0.1";
             case IMAGE -> "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.1";
+            case FONT -> "font/woff2,font/woff,font/ttf,application/font-sfnt,*/*;q=0.1";
             case FETCH -> "*/*";
             case DOCUMENT -> throw new IllegalArgumentException("Dokument ist keine Subresource");
         };
