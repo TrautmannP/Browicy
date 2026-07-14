@@ -1,154 +1,111 @@
-# browicy
+# Browicy
 
-A browser with its own engine — pure Java (21+), built with Maven and GraalVM.
+**Browicy** is an experimental desktop web browser and browser engine written in Java. It loads web pages, constructs a DOM, applies CSS, executes a sandboxed subset of JavaScript through GraalJS, and renders the resulting page with Swing and Java2D.
 
-## Modules
+The project is a work in progress rather than a standards-compliant replacement for an established browser. Its purpose is to explore browser-engine architecture in a modular, inspectable Java codebase.
 
-The engine is split into functionally separated Maven modules. This keeps dependencies
-visible and prevents HTML, CSS, JavaScript, network, and rendering code from growing
-back into a monolith as the feature set expands.
+## Highlights
 
-* **[engine-selectors](./engine-selectors)** — DOM-independent selector parser, AST, matching, and specificity.
-* **[engine-dom](./engine-dom)** — DOM nodes, events, ranges, and shared DOM contracts.
-* **[engine-css](./engine-css)** — stylesheet/declaration parser, cascade, and CSS values.
-* **[engine-html](./engine-html)** — HTML entities, tokenizer, and tree construction; after
-  parsing it applies the CSS cascade to the generated DOM.
-* **[engine-js](./engine-js)** — GraalJS runtime and JavaScript bindings for the DOM.
-* **[engine-net](./engine-net)** — HTTP client, page loader, and network observation.
-* **[engine-render](./engine-render)** — render tree, render styles, and block/inline boxes.
-* **[engine](./engine)** — compatible `browicy-engine` facade that bundles the submodules
-  and, with `BrowicyEngine`, orchestrates the full loading process.
-* **[engine-integration-tests](./engine-integration-tests)** — cross-module
-  integration tests without cyclic test dependencies between the production modules.
-* **[browser-cli](./browser-cli)** — headless inspection CLI that emits machine-readable
-  page, DOM, CSS, render-tree, JavaScript, and network diagnostics for developers and agents.
-* **[devtools](./devtools)** — developer tools; depends only on the network module.
-* **[desktop](./desktop)** — Swing interface and Graphics2D renderer.
+- HTML parsing, DOM construction, events, ranges, and CSS selector matching
+- CSS parsing, cascade resolution, render-tree construction, and block/inline layout
+- HTTP(S) page and subresource loading with resource-access policies
+- Sandboxed JavaScript execution with selected DOM APIs, timers, microtasks, and module loading
+- A Swing desktop interface backed by a Java2D renderer
+- A headless CLI that produces machine-readable diagnostics for pages, DOM, CSS, rendering, JavaScript, and network activity
 
-The dependency direction is intentionally one-way:
+## Project structure
 
-```text
-engine-selectors <- engine-dom <- engine-render <- engine-css <- engine-html <- engine-js
-       ^                                      |
-       +--------------------------------------+
+The Maven modules follow the engine's responsibilities and keep dependencies explicit:
 
-engine-net ---------------------------------------------------------> engine (facade)
-engine-selectors/dom/render/css/html/js ----------------------------> engine (facade)
+- `engine-selectors`: CSS selector parsing, matching, and specificity
+- `engine-dom`: DOM nodes, events, ranges, and shared DOM contracts
+- `engine-css`: stylesheets, declarations, cascade resolution, and CSS values
+- `engine-html`: entities, tokenization, tree construction, and style application
+- `engine-js`: GraalJS integration and JavaScript-to-DOM bindings
+- `engine-net`: HTTP client, document loading, and network observation
+- `engine-render`: render tree, styles, layout boxes, and painting data
+- `engine`: public facade that composes the engine modules
+- `browser-cli`: headless page inspection and JSON reporting
+- `devtools`: developer tooling built on network observation
+- `desktop`: Swing user interface and Java2D renderer
+- `engine-integration-tests`: cross-module integration tests
+
+## Requirements
+
+- Java 21 or newer
+- Maven 3.9 or newer
+- A GraalVM JDK is recommended for running pages that use JavaScript and for native-image builds
+
+The build uses GraalJS version `25.1.3`. Use a compatible GraalVM distribution when running the desktop browser or inspector with JavaScript enabled.
+
+## Build and run
+
+Build the complete project and run its default test suite:
+
+```bash
+mvn verify
 ```
 
-New features should land in the smallest suitable module. The facade module serves
-composition and backward compatibility, not as a dumping ground for domain classes.
+Start the desktop browser:
 
-## Building and Running
-
-On Windows the project uses Oracle GraalVM `25.1.3+9.1` (JDK `25.0.3`).
-The distribution is located at `D:\Graal\graalvm-25.1.3+9.1`. `mvn-graal.cmd` sets
-`JAVA_HOME` and `PATH` only for the respective invocation; the system-wide Java configuration
-remains unchanged.
-
-```bat
-# Build everything and run tests
-mvn-graal.cmd verify
-
-# Start the browser
-run.cmd
-
-# Build an executable jar and start it with GraalVM
-mvn-graal.cmd package
-D:\Graal\graalvm-25.1.3+9.1\bin\java.exe --sun-misc-unsafe-memory-access=allow -jar desktop\target\browicy-desktop-0.1.0-SNAPSHOT.jar
+```bash
+mvn -pl desktop -am compile exec:java
 ```
 
-The `--sun-misc-unsafe-memory-access=allow` flag suppresses the JDK warning
-that Truffle (GraalJS) triggers during initialization; the required native access is
-already enabled in the jar manifest (`Enable-Native-Access: ALL-UNNAMED`).
-For `run.cmd`, `mvn-graal.cmd` sets both flags automatically via `MAVEN_OPTS`.
+Create the executable desktop JAR:
 
-Additional Maven arguments are passed through unchanged, for example
-`mvn-graal.cmd test`. In IntelliJ IDEA, `D:\Graal\graalvm-25.1.3+9.1` should also
-be selected as the JDK for the project and the Maven runner. To start from
-the IDE, use the bundled run configuration **"Browicy"** (`.run/Browicy.run.xml`)
-— it sets the JVM flags without which the JDK emits warnings when initializing the
-JavaScript engine (Truffle/GraalJS).
-
-## GraalVM native-image
-
-The `native` profile is prepared. The installed distribution includes `native-image`:
-
-```bat
-mvn-graal.cmd -Pnative -pl desktop -am package
+```bash
+mvn -pl desktop -am package
+java -jar desktop/target/browicy-desktop-0.1.0-SNAPSHOT.jar
 ```
 
-Note: Swing/AWT support in native-image requires a recent GraalVM;
-additional reachability metadata may be needed.
+On JDK versions that require it, add `--sun-misc-unsafe-memory-access=allow` when launching the JAR. The manifest already enables the native access required by Truffle.
 
-## JavaScript (Prototype)
+## Inspect pages without the UI
 
-When loading a page, the engine executes inline and external scripts via
-GraalJS (`com.browicy.engine.js.JavaScriptEngine`). The scripts run in
-a sandbox without host access (no Java, no file system, no processes)
-and with a statement limit to guard against infinite loops. The currently
-available DOM API includes, among others,
-`document.title`, `document.getElementById`, `document.querySelector`,
-`document.createElement`, `element.classList`, `element.textContent`,
-`element.setAttribute`, `element.appendChild`, `element.append`, `element.style`,
-`CSS.supports`, `URLSearchParams`, timers, microtasks, and basic window lifecycle events;
-`console.log` output and source-located script errors are collected (`JsExecutionResult`)
-and, as in a browser, are not fatal.
+The headless inspector exercises the same engine as the desktop browser and emits a stable JSON report. It includes the final page state, DOM inventory, accepted CSS rules, render-tree counts, JavaScript errors with source locations, and network requests.
 
-Static ES modules with default imports are bundled recursively over HTTP(S). Named imports,
-dynamic `import()`, Fetch/XHR, full CSSOM, and most layout modes are not supported yet.
-
-## Headless inspection and progress tracking
-
-Agents and developers can exercise the real engine without controlling the Swing UI:
-
-```bat
-inspect.cmd "https://css3test.com/?filter=css2007" target\css3test-css2007.json
+```bash
+mvn -pl browser-cli -am package -DskipTests
+java -jar browser-cli/target/browicy-inspect.jar "https://example.com" --output report.json
 ```
 
-The generated JSON is intentionally stable and includes the final page state, a DOM/tag
-inventory, accepted CSS rule counts, render-tree counts, source-located JavaScript errors,
-and every document/subresource request. This makes reports diffable in CI and gives agents
-concrete evidence about the next missing API. See [docs/engine-progress.md](./docs/engine-progress.md)
-for the current css3test baseline and suggested workflow.
+This output is suitable for automated regression checks and for investigating missing browser capabilities. See [the engine progress notes](docs/engine-progress.md) for an example workflow and compatibility baseline.
 
-## Tests
+## JavaScript support
 
-```bat
-mvn-graal.cmd test
+Inline and external scripts run in a sandbox without access to Java, the file system, or processes. The current API includes common capabilities such as DOM queries and mutation, `classList`, inline styles, `CSS.supports`, `URLSearchParams`, timers, microtasks, lifecycle events, and console/error collection.
+
+Static ES modules with default imports can be loaded recursively over HTTP(S). Dynamic `import()`, named imports, Fetch/XHR, full CSSOM support, and many browser and layout APIs are not implemented yet.
+
+## Testing and compatibility
+
+Run the default tests with:
+
+```bash
+mvn test
 ```
 
-The 100 Acid3 subtests are located in a separate opt-in module, since not yet
-supported browser APIs cause the expected test failures there:
+The optional Acid3 module keeps known unsupported browser APIs out of the default suite:
 
-```bat
-mvn-graal.cmd -Pacid3 -pl acid3-tests -am test
+```bash
+mvn -Pacid3 -pl acid3-tests -am test
 ```
 
-Details on the JUnit mapping and the embedded original test page are in
-[`acid3-tests/README.md`](./acid3-tests/README.md).
+An optional compatibility-report profile runs the CSS3Test CSS-2007 filter and the embedded Acid3 harness, producing JSON and HTML reports under `target/compatibility-reports`:
 
-## Compatibility report
-
-The opt-in Maven profile runs the live CSS3Test CSS-2007 filter and the embedded Acid3
-harness, then writes detailed pass/fail results as JSON and HTML:
-
-```bat
-compatibility-report.cmd
-
-# Equivalent Maven invocation
-mvn-graal.cmd -Pcompatibility-report -pl acid3-tests -am verify
+```bash
+mvn -Pcompatibility-report -pl acid3-tests -am verify
 ```
 
-Reports are written to `target\compatibility-reports\`. `latest.html` and `latest.json`
-always point to the newest run; timestamped copies make individual executions comparable.
-Expected conformance failures do not fail this reporting build. The stricter
-`-Pacid3 ... test` command continues to expose every failing Acid3 subtest as a JUnit failure.
+Expected conformance gaps are reported without failing this reporting build. The stricter Acid3 test command reports every failing subtest as a JUnit failure.
 
-CI can override the live target or output directory, for example:
+## Native image
 
-```bat
-mvn-graal.cmd -Pcompatibility-report -pl acid3-tests -am verify ^
-  -Dbrowicy.css3test.url=https://css3test.com/?filter=css2007 ^
-  -Dbrowicy.report.directory=artifacts\compatibility
+The desktop module provides an experimental GraalVM native-image profile:
+
+```bash
+mvn -Pnative -pl desktop -am package
 ```
+
+Swing/AWT native-image support depends on the GraalVM version and may require additional reachability metadata.
