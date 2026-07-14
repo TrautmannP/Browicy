@@ -238,6 +238,11 @@ public final class CssParser {
             case "overflow" -> supports(normalized, "visible");
             case "vertical-align" -> supports(normalized, "baseline");
             case "border-collapse" -> supports(normalized, "separate");
+            case "border-radius" -> supports(normalized, "4px");
+            case "outline" -> supports(normalized, "1px solid black");
+            case "outline-width" -> supports(normalized, "1px");
+            case "outline-color" -> supports(normalized, "black");
+            case "outline-style" -> supports(normalized, "solid");
             case "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
                  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
                  "border", "border-width", "border-top-width", "border-right-width",
@@ -346,6 +351,13 @@ public final class CssParser {
             case "border-color" -> expandColors(target, value);
             case "border-style" -> expandBorderStyles(target, value);
             case "border" -> expandBorder(target, null, value);
+            case "border-radius" -> putIfMatches(target, property, value, POSITIVE_LENGTH);
+            case "outline" -> expandOutline(target, value);
+            case "outline-width" -> putIfMatches(target, property, value, POSITIVE_LENGTH);
+            case "outline-color" -> putColor(target, property, value);
+            case "outline-style" -> {
+                if (value.equals("none") || value.equals("solid")) target.put(property, value);
+            }
             default -> parseLonghand(target, property, value);
         }
     }
@@ -524,6 +536,27 @@ public final class CssParser {
                 target.put("border-" + targetSide + "-color", color);
             }
         }
+    }
+
+    private static void expandOutline(Map<String, String> target, String value) {
+        String width = null;
+        String style = null;
+        String color = null;
+        for (String token : value.split("\\s+")) {
+            if (POSITIVE_LENGTH.matcher(token).matches() && width == null) {
+                width = token;
+            } else if ((token.equals("none") || token.equals("solid")) && style == null) {
+                style = token;
+            } else if (CssColor.isSupported(token) && color == null) {
+                color = token;
+            } else {
+                return;
+            }
+        }
+        if (width == null && style == null && color == null) return;
+        target.put("outline-width", width == null ? "1px" : width);
+        target.put("outline-style", style == null ? "none" : style);
+        if (color != null) target.put("outline-color", color);
     }
 
     private static String[] splitBoxValues(String value) {

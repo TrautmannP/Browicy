@@ -26,6 +26,7 @@ import com.browicy.ui.render.RenderLayoutEngine.LayoutResult;
 import com.browicy.ui.render.RenderLayoutEngine.PaintFragment;
 import com.browicy.ui.render.RenderLayoutEngine.TextFragment;
 import java.awt.Color;
+import java.awt.BasicStroke;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Graphics;
@@ -41,6 +42,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Rectangle2D;
+import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -414,14 +416,35 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                                        boolean paintLeft,
                                        boolean paintRight) {
         CssColor background = style.backgroundColor();
+        float radius = Math.min(style.borderRadius(), Math.min(width, height) / 2f);
+        var boxShape = radius > 0
+                ? new RoundRectangle2D.Float(x, y, width, height, radius * 2, radius * 2)
+                : new Rectangle2D.Float(x, y, width, height);
         if (background != null && !background.isTransparent()) {
             graphics.setColor(toAwtColor(background));
-            graphics.fill(new Rectangle2D.Float(x, y, width, height));
+            graphics.fill(boxShape);
         }
+        var oldClip = graphics.getClip();
+        if (radius > 0) graphics.clip(boxShape);
         paintBackgroundImage(graphics, style, x, y, width, height);
+        graphics.setClip(oldClip);
 
         BoxEdges widths = style.borderWidth();
         BoxBorders borders = style.borderStyle();
+        if (radius > 0 && (borders.top() || borders.right() || borders.bottom() || borders.left())) {
+            float strokeWidth = Math.max(Math.max(widths.top(), widths.right()),
+                    Math.max(widths.bottom(), widths.left()));
+            if (strokeWidth > 0) {
+                graphics.setColor(toAwtColor(style.borderColor().top()));
+                graphics.setStroke(new BasicStroke(strokeWidth));
+                float inset = strokeWidth / 2f;
+                graphics.draw(new RoundRectangle2D.Float(x + inset, y + inset,
+                        Math.max(0, width - strokeWidth), Math.max(0, height - strokeWidth),
+                        Math.max(0, radius * 2 - strokeWidth),
+                        Math.max(0, radius * 2 - strokeWidth)));
+                graphics.setStroke(new BasicStroke());
+            }
+        } else {
         float right = x + width;
         float bottom = y + height;
         if (borders.top() && widths.top() > 0) {
@@ -439,6 +462,17 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         if (paintLeft && borders.left() && widths.left() > 0) {
             fillBorder(graphics, style.borderColor().left(), style.color(),
                     x, y, widths.left(), height);
+        }
+        }
+        if (style.outlineVisible()) {
+            float outline = style.outlineWidth();
+            graphics.setColor(toAwtColor(style.outlineColor()));
+            graphics.setStroke(new BasicStroke(outline));
+            float inset = outline / 2f;
+            graphics.draw(new RoundRectangle2D.Float(x - inset, y - inset,
+                    width + outline, height + outline,
+                    Math.max(0, radius * 2 + outline), Math.max(0, radius * 2 + outline)));
+            graphics.setStroke(new BasicStroke());
         }
     }
 

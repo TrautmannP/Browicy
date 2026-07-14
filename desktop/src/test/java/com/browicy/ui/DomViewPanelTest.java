@@ -893,6 +893,24 @@ public class DomViewPanelTest {
                 Math.round(box.y() + box.height() - 1), CssColor.rgb(0xff0000));
     }
 
+    @Test
+    public void paintsRoundedBackgroundWithoutFillingItsCorner() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="box" style="width:40px;height:40px;background-color:red;
+                  border-radius:12px;outline:2px solid blue"></div></body>
+                """));
+        panel.setSize(100, 1);
+        BoxFragment box = boxById(panel.layoutForTesting(100), "box");
+
+        BufferedImage painted = paint(panel);
+
+        int corner = painted.getRGB(Math.round(box.x() + 1), Math.round(box.y() + 1));
+        int center = painted.getRGB(Math.round(box.x() + 20), Math.round(box.y() + 20));
+        assertFalse("Eine gerundete Ecke darf nicht mit der Hintergrundfarbe gefüllt sein",
+                (corner & 0x00ffffff) == 0x00ff0000);
+        assertEquals(0x00ff0000, center & 0x00ffffff);
+    }
+
     private static Document parse(String html) {
         return new HtmlParser().parse(html);
     }

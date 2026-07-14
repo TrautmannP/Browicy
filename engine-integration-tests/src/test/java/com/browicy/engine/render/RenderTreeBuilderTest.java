@@ -58,6 +58,18 @@ public class RenderTreeBuilderTest {
     }
 
     @Test
+    public void resolvesBorderRadiusAndOutline() {
+        RenderBox box = boxChildren(build("""
+                <body><div style="border-radius:8px;outline:blue 2px solid">x</div></body>
+                """).root()).getFirst();
+
+        assertEquals(8f, box.style().borderRadius(), 0.001f);
+        assertEquals(2f, box.style().outlineWidth(), 0.001f);
+        assertEquals(CssColor.parse("blue"), box.style().outlineColor());
+        assertTrue(box.style().outlineVisible());
+    }
+
+    @Test
     public void excludesDisplayNoneSubtreesFromRenderTree() {
         RenderBox paragraph = boxChildren(build("""
                 <body><p>visible <span style="display:none">hidden</span> text</p></body>

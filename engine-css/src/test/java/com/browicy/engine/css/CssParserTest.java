@@ -295,4 +295,18 @@ public class CssParserTest {
                 new CssFontFace.Source("font.woff", "woff"),
                 new CssFontFace.Source("font.ttf", "truetype")), faces.getFirst().sources());
     }
+
+    @Test
+    public void parsesRoundedBordersAndOutlineShorthand() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations(
+                "border-radius:6px;outline:black 2px solid");
+
+        assertEquals("6px", declarations.get("border-radius"));
+        assertEquals("2px", declarations.get("outline-width"));
+        assertEquals("solid", declarations.get("outline-style"));
+        assertEquals("black", declarations.get("outline-color"));
+        assertTrue(parser.supportsProperty("border-radius"));
+        assertTrue(parser.supportsProperty("outline"));
+    }
 }

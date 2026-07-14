@@ -85,6 +85,10 @@ public final class RenderTreeBuilder {
                 BoxEdges.ZERO,
                 BoxColors.CURRENT_COLOR,
                 BoxBorders.NONE,
+                0,
+                0,
+                DEFAULT_COLOR,
+                false,
                 RenderStyle.BorderCollapse.SEPARATE,
                 RenderStyle.TextAlign.LEFT,
                 RenderStyle.Overflow.VISIBLE,
@@ -262,6 +266,10 @@ public final class RenderTreeBuilder {
                 BoxEdges.ZERO,
                 BoxColors.CURRENT_COLOR,
                 BoxBorders.NONE,
+                0,
+                0,
+                inherited.color(),
+                false,
                 inherited.borderCollapse(),
                 inherited.textAlign(),
                 RenderStyle.Overflow.VISIBLE,
@@ -304,6 +312,10 @@ public final class RenderTreeBuilder {
         BoxEdges borderWidth = BoxEdges.ZERO;
         BoxColors borderColor = BoxColors.CURRENT_COLOR;
         BoxBorders borderStyle = BoxBorders.NONE;
+        float borderRadius = 0;
+        float outlineWidth = 0;
+        CssColor outlineColor = color;
+        boolean outlineVisible = false;
         RenderStyle.BorderCollapse borderCollapse = RenderStyle.BorderCollapse.SEPARATE;
         RenderStyle.TextAlign textAlign = parent.textAlign();
         RenderStyle.Overflow overflow = RenderStyle.Overflow.VISIBLE;
@@ -430,12 +442,19 @@ public final class RenderTreeBuilder {
         borderColor = resolveBorderColors(declarations, color);
         borderStyle = resolveBorderStyles(declarations);
         borderWidth = effectiveBorderWidths(borderWidth, borderStyle);
+        borderRadius = Math.max(0, resolveLength(
+                declarations.get("border-radius"), fontSize, rootFontSizePx, 0));
+        outlineWidth = Math.max(0, resolveLength(
+                declarations.get("outline-width"), fontSize, rootFontSizePx, 0));
+        outlineColor = colorOrCurrent(declarations.get("outline-color"), color);
+        outlineVisible = "solid".equals(declarations.get("outline-style")) && outlineWidth > 0;
 
         return new RenderStyle(display, position, floatMode, clear, top, right, bottom, left,
                 fontSize, fontFamily, fontWeight, italic, lineHeight, color, background,
                 backgroundImageUrl, backgroundRepeat, backgroundPositionX, backgroundPositionY,
                 width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
-                autoMargins, padding, borderWidth, borderColor, borderStyle, borderCollapse, textAlign,
+                autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,
+                outlineWidth, outlineColor, outlineVisible, borderCollapse, textAlign,
                 overflow, verticalAlign);
     }
 
@@ -688,7 +707,8 @@ public final class RenderTreeBuilder {
                 style.minWidth(), style.maxWidth(), style.minHeight(), style.maxHeight(),
                 style.boxSizing(), style.margin(), style.autoMargins(), style.padding(),
                 style.borderWidth(),
-                style.borderColor(), style.borderStyle(), style.borderCollapse(), style.textAlign(), style.overflow(),
+                style.borderColor(), style.borderStyle(), style.borderRadius(), style.outlineWidth(),
+                style.outlineColor(), style.outlineVisible(), style.borderCollapse(), style.textAlign(), style.overflow(),
                 style.verticalAlign());
     }
 }
