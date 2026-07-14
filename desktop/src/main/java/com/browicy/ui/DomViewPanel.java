@@ -38,7 +38,6 @@ import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
-import java.awt.Font;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ComponentAdapter;
@@ -76,6 +75,8 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private static final int SCROLL_UNIT = 24;
     private static final int MAX_BACKGROUND_IMAGE_DIMENSION = 8192;
     private static final long MAX_BACKGROUND_IMAGE_PIXELS = 32_000_000L;
+    private static final int MAX_SCREENSHOT_DIMENSION = 32_767;
+    private static final long MAX_SCREENSHOT_PIXELS = 100_000_000L;
 
     private static final System.Logger LOGGER = System.getLogger(DomViewPanel.class.getName());
 
@@ -285,7 +286,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         }
     }
 
-    private void renderPass(InvalidationType invalidation) {
+    private synchronized void renderPass(InvalidationType invalidation) {
         RenderSnapshot current = snapshot;
         int width = Math.max(1, currentLayoutWidth());
         int viewportHeight = Math.max(1, currentViewportHeight());
@@ -504,6 +505,40 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             default -> Cursor.DEFAULT_CURSOR;
         };
         setCursor(Cursor.getPredefinedCursor(type));
+    }
+
+    public synchronized BufferedImage captureScreenshot(int viewportWidth,
+                                                        int viewportHeight,
+                                                        boolean fullPage) {
+        if (viewportWidth <= 0 || viewportHeight <= 0) {
+            throw new IllegalArgumentException("Viewport-Abmessungen müssen positiv sein");
+        }
+        setSize(viewportWidth, viewportHeight);
+        renderPass(InvalidationType.STYLE);
+        RenderSnapshot current = snapshot;
+        if (current == null) {
+            throw new IllegalStateException("Die Webseite konnte nicht gerendert werden");
+        }
+        int imageHeight = fullPage
+                ? Math.max(viewportHeight, (int) Math.ceil(current.layout().height()))
+                : viewportHeight;
+        if (viewportWidth > MAX_SCREENSHOT_DIMENSION
+                || imageHeight > MAX_SCREENSHOT_DIMENSION
+                || (long) viewportWidth * imageHeight > MAX_SCREENSHOT_PIXELS) {
+            throw new IllegalArgumentException(
+                    "Screenshot ist größer als 32767 Pixel bzw. 100 Megapixel");
+        }
+        BufferedImage image = new BufferedImage(
+                viewportWidth, imageHeight, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        try {
+            graphics.setColor(getBackground());
+            graphics.fillRect(0, 0, viewportWidth, imageHeight);
+            paintComponent(graphics);
+        } finally {
+            graphics.dispose();
+        }
+        return image;
     }
 
     @Override
@@ -829,11 +864,11 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         return current == null ? null : current.tree();
     }
 
-    LayoutResult layoutForTesting(int width) {
+    synchronized LayoutResult layoutForTesting(int width) {
         return layoutForTesting(width, DEFAULT_VIEWPORT_HEIGHT);
     }
 
-    LayoutResult layoutForTesting(int width, int viewportHeight) {
+    synchronized LayoutResult layoutForTesting(int width, int viewportHeight) {
         BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = image.createGraphics();
         try {

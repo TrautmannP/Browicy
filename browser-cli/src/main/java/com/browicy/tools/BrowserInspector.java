@@ -13,14 +13,20 @@ import com.browicy.engine.render.RenderLineBreak;
 import com.browicy.engine.render.RenderNode;
 import com.browicy.engine.render.RenderTextRun;
 import com.browicy.engine.render.RenderTreeBuilder;
+import com.browicy.ui.DomViewPanel;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,7 +45,10 @@ public final class BrowserInspector {
             engine.addRequestObserver(network::add);
             try (PageSession session = engine.loadPageSession(options.url(), ignored -> { })) {
                 session.awaitResources();
-                report = buildReport(options.url(), started, session, List.copyOf(network));
+                Map<String, Object> screenshot = options.screenshot() == null
+                        ? null : captureScreenshot(session, options);
+                report = buildReport(options.url(), started, session,
+                        List.copyOf(network), screenshot);
             }
         }
         String json = Json.write(report, options.pretty(), 0) + System.lineSeparator();
@@ -56,7 +65,8 @@ public final class BrowserInspector {
     private static Map<String, Object> buildReport(String requestedUrl,
                                                     Instant started,
                                                     PageSession session,
-                                                    List<NetworkRequestEvent> network) {
+                                                    List<NetworkRequestEvent> network,
+                                                    Map<String, Object> screenshot) {
         Document document = session.document();
         JsExecutionResult js = session.runtime().snapshot();
         DomStats dom = new DomStats();
@@ -122,8 +132,49 @@ public final class BrowserInspector {
         result.put("javascript", javascript);
         result.put("compatibility", compatibility);
         result.put("network", network.stream().map(BrowserInspector::networkEvent).toList());
+        if (screenshot != null) result.put("screenshot", screenshot);
         result.put("healthy", !document.getUrl().equals("about:error") && js.errors().isEmpty());
         return result;
+    }
+
+    private static Map<String, Object> captureScreenshot(PageSession session,
+                                                          Options options) throws IOException {
+        Path target = options.screenshot().toAbsolutePath().normalize();
+        Path parent = target.getParent();
+        if (parent != null) Files.createDirectories(parent);
+
+        BufferedImage image;
+        DomViewPanel view = new DomViewPanel(session);
+        try {
+            image = view.captureScreenshot(
+                    options.viewportWidth(), options.viewportHeight(), options.fullPage());
+        } finally {
+            view.dispose();
+        }
+        if (!ImageIO.write(image, "png", target.toFile())) {
+            throw new IOException("Kein PNG-Encoder verfügbar");
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("path", target.toString());
+        result.put("format", "png");
+        result.put("width", image.getWidth());
+        result.put("height", image.getHeight());
+        result.put("viewportWidth", options.viewportWidth());
+        result.put("viewportHeight", options.viewportHeight());
+        result.put("fullPage", options.fullPage());
+        result.put("sizeBytes", Files.size(target));
+        result.put("sha256", sha256(target));
+        return result;
+    }
+
+    private static String sha256(Path path) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(Files.readAllBytes(path)));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 ist nicht verfügbar", impossible);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -190,14 +241,35 @@ public final class BrowserInspector {
         }
     }
 
-    private record Options(String url, Path output, boolean pretty) {
+    static final int DEFAULT_VIEWPORT_WIDTH = 1280;
+    static final int DEFAULT_VIEWPORT_HEIGHT = 720;
+
+    record Options(String url,
+                   Path output,
+                   boolean pretty,
+                   Path screenshot,
+                   int viewportWidth,
+                   int viewportHeight,
+                   boolean fullPage) {
         static Options parse(String[] arguments) {
             if (arguments.length == 0 || "--help".equals(arguments[0])) {
-                System.out.println("Usage: java -jar browicy-inspect.jar <url> [--output report.json] [--compact]");
+                System.out.println("""
+                        Usage: java -jar browicy-inspect.jar <url> [options]
+                          --output <report.json>   JSON-Bericht schreiben
+                          --compact                Kompaktes JSON ausgeben
+                          --screenshot <page.png>  Gerenderte Webseite als PNG speichern
+                          --viewport <width>x<height>
+                                                   Viewport (Standard: 1280x720)
+                          --full-page              Gesamte Dokumenthöhe aufnehmen
+                        """);
                 System.exit(arguments.length == 0 ? 2 : 0);
             }
             Path output = null;
             boolean pretty = true;
+            Path screenshot = null;
+            int viewportWidth = DEFAULT_VIEWPORT_WIDTH;
+            int viewportHeight = DEFAULT_VIEWPORT_HEIGHT;
+            boolean fullPage = false;
             for (int index = 1; index < arguments.length; index++) {
                 switch (arguments[index]) {
                     case "--output" -> {
@@ -205,10 +277,58 @@ public final class BrowserInspector {
                         output = Path.of(arguments[index]);
                     }
                     case "--compact" -> pretty = false;
+                    case "--screenshot" -> {
+                        if (++index >= arguments.length) {
+                            throw new IllegalArgumentException("--screenshot benötigt einen PNG-Pfad");
+                        }
+                        screenshot = Path.of(arguments[index]);
+                    }
+                    case "--viewport" -> {
+                        if (++index >= arguments.length) {
+                            throw new IllegalArgumentException("--viewport benötigt WIDTHxHEIGHT");
+                        }
+                        int[] viewport = parseViewport(arguments[index]);
+                        viewportWidth = viewport[0];
+                        viewportHeight = viewport[1];
+                    }
+                    case "--full-page" -> fullPage = true;
                     default -> throw new IllegalArgumentException("Unbekannte Option: " + arguments[index]);
                 }
             }
-            return new Options(arguments[0], output, pretty);
+            if (fullPage && screenshot == null) {
+                throw new IllegalArgumentException("--full-page erfordert --screenshot");
+            }
+            if (output != null && screenshot != null
+                    && output.toAbsolutePath().normalize()
+                    .equals(screenshot.toAbsolutePath().normalize())) {
+                throw new IllegalArgumentException(
+                        "--output und --screenshot benötigen unterschiedliche Pfade");
+            }
+            return new Options(arguments[0], output, pretty, screenshot,
+                    viewportWidth, viewportHeight, fullPage);
+        }
+
+        private static int[] parseViewport(String value) {
+            String[] dimensions = value.toLowerCase(java.util.Locale.ROOT).split("x", -1);
+            if (dimensions.length != 2) {
+                throw invalidViewport(value);
+            }
+            try {
+                int width = Integer.parseInt(dimensions[0]);
+                int height = Integer.parseInt(dimensions[1]);
+                if (width <= 0 || height <= 0 || width > 16_384 || height > 16_384
+                        || (long) width * height > 100_000_000L) {
+                    throw invalidViewport(value);
+                }
+                return new int[]{width, height};
+            } catch (NumberFormatException invalidNumber) {
+                throw invalidViewport(value);
+            }
+        }
+
+        private static IllegalArgumentException invalidViewport(String value) {
+            return new IllegalArgumentException("Ungültiger Viewport '" + value
+                    + "' (erwartet: WIDTHxHEIGHT, maximal 100 Megapixel)");
         }
     }
 

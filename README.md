@@ -70,6 +70,23 @@ mvn -pl browser-cli -am package -DskipTests
 java -jar browser-cli/target/browicy-inspect.jar "https://example.com" --output report.json
 ```
 
+For visual regression tests, the inspector can capture the same Java2D rendering
+as the desktop browser as a PNG. Viewport size and optionally the full document
+height can be explicitly controlled:
+
+```bash
+java -jar browser-cli/target/browicy-inspect.jar "https://example.com" \
+  --output report.json \
+  --screenshot artifacts/example.png \
+  --viewport 1280x720 \
+  --full-page
+```
+
+The JSON report includes the absolute artifact path, image and viewport
+dimensions, file size, and SHA-256 hash under `screenshot`. This allows the PNG
+to be uniquely matched against a reference image and compared pixel by pixel
+in a downstream step.
+
 This output is suitable for automated regression checks and for investigating missing browser capabilities. See [the engine progress notes](docs/engine-progress.md) for an example workflow and compatibility baseline.
 
 The inspector also writes compatibility findings to stderr and includes a deduplicated

@@ -32,6 +32,26 @@ import static org.junit.Assert.assertTrue;
 public class DomViewPanelTest {
 
     @Test
+    public void capturesViewportAndFullPageScreenshots() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body style="background: white; color: black">
+                  <div style="height: 900px">Screenshot content</div>
+                </body>
+                """));
+        try {
+            BufferedImage viewport = panel.captureScreenshot(320, 200, false);
+            BufferedImage fullPage = panel.captureScreenshot(320, 200, true);
+
+            assertEquals(320, viewport.getWidth());
+            assertEquals(200, viewport.getHeight());
+            assertEquals(320, fullPage.getWidth());
+            assertTrue(fullPage.getHeight() > viewport.getHeight());
+        } finally {
+            panel.dispose();
+        }
+    }
+
+    @Test
     public void rendersLargeDocumentsWithoutChildSwingComponents() {
         StringBuilder html = new StringBuilder("<body>");
         for (int index = 0; index < 1_500; index++) {
