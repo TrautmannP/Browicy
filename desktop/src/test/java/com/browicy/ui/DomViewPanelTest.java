@@ -501,6 +501,39 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void collapsesAdjacentVerticalBlockMarginsToTheLargerMargin() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="first" style="height:10px;margin-bottom:30px"></div>
+                  <div id="second" style="height:10px;margin-top:20px"></div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment first = boxById(layout, "first");
+        BoxFragment second = boxById(layout, "second");
+
+        assertEquals(30f, second.y() - (first.y() + first.height()), 0.001f);
+    }
+
+    @Test
+    public void resolvesRemAndViewportUnitsFromTheCurrentViewport() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <html style="font-size:20px"><body>
+                  <div id="viewport-box" style="width:50vw;height:25vh;margin-left:1rem"></div>
+                </body></html>
+                """));
+
+        BoxFragment small = boxById(panel.layoutForTesting(400, 600), "viewport-box");
+        BoxFragment large = boxById(panel.layoutForTesting(600, 800), "viewport-box");
+
+        assertEquals(200f, small.width(), 0.001f);
+        assertEquals(150f, small.height(), 0.001f);
+        assertEquals(36f, small.x(), 0.001f);
+        assertEquals(300f, large.width(), 0.001f);
+        assertEquals(200f, large.height(), 0.001f);
+        assertEquals(36f, large.x(), 0.001f);
+    }
+
+    @Test
     public void absoluteBlocksArePositionedAndRemovedFromNormalFlow() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body><div id="container" style="position: relative; width: 200px; height: 100px">

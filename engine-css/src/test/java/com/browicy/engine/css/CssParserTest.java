@@ -160,14 +160,16 @@ public class CssParserTest {
     }
 
     @Test
-    public void rejectsUnsupportedDimensionAndAlignmentValues() {
+    public void acceptsSupportedDimensionsAndRejectsInvalidValues() {
         CssParser parser = new CssParser();
 
         assertTrue(parser.supports("width", "120px"));
         assertTrue(parser.supports("height", "auto"));
         assertTrue(parser.supports("text-align", "right"));
         assertFalse(parser.supports("width", "-1px"));
-        assertFalse(parser.supports("height", "10vh"));
+        assertTrue(parser.supports("height", "10vh"));
+        assertTrue(parser.supports("width", "25vw"));
+        assertTrue(parser.supports("font-size", "1.5rem"));
         assertFalse(parser.supports("text-align", "justify"));
     }
 

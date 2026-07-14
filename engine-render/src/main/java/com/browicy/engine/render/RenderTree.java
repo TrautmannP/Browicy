@@ -1,5 +1,11 @@
 package com.browicy.engine.render;
 
-/** Root object of the rendering representation derived from a DOM document. */
-public record RenderTree(RenderBox root) {
+public record RenderTree(RenderBox root,
+                         float rootFontSizePx,
+                         float viewportWidth,
+                         float viewportHeight) {
+
+    public RenderTree(RenderBox root) {
+        this(root, 16f, 800f, 600f);
+    }
 }

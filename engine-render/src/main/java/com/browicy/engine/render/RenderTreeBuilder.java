@@ -14,6 +14,8 @@ import java.util.function.Function;
 public final class RenderTreeBuilder {
 
     private static final float DEFAULT_FONT_SIZE = 16f;
+    private static final float DEFAULT_VIEWPORT_WIDTH = 800f;
+    private static final float DEFAULT_VIEWPORT_HEIGHT = 600f;
     private static final CssColor DEFAULT_COLOR = CssColor.rgb(0x1c1b1f);
 
     private static final Set<String> HIDDEN_TAGS =
@@ -26,6 +28,10 @@ public final class RenderTreeBuilder {
             "table", "thead", "tbody", "tfoot", "tr", "td", "th");
 
     private final Function<Element, byte[]> imageData;
+    private float rootFontSizePx = DEFAULT_FONT_SIZE;
+    private float viewportWidth = DEFAULT_VIEWPORT_WIDTH;
+    private float viewportHeight = DEFAULT_VIEWPORT_HEIGHT;
+    private Element documentElement;
 
     public RenderTreeBuilder() {
         this(ignored -> null);
@@ -36,9 +42,18 @@ public final class RenderTreeBuilder {
     }
 
     public RenderTree build(Document document) {
+        return build(document, DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT);
+    }
+
+    public RenderTree build(Document document, float viewportWidth, float viewportHeight) {
+        this.viewportWidth = Math.max(1, viewportWidth);
+        this.viewportHeight = Math.max(1, viewportHeight);
+        documentElement = document.getDocumentElement();
+        rootFontSizePx = resolveRootFontSize(documentElement);
+
         Element rootElement = document.getBody();
         if (rootElement == null) {
-            rootElement = document.getDocumentElement();
+            rootElement = documentElement;
         }
         RenderStyle initial = new RenderStyle(
                 RenderStyle.Display.BLOCK,
@@ -65,16 +80,33 @@ public final class RenderTreeBuilder {
                 RenderStyle.Overflow.VISIBLE,
                 RenderStyle.VerticalAlign.BASELINE);
         if (rootElement == null) {
-            return new RenderTree(new RenderBox(null, initial, List.of()));
+            return renderTree(new RenderBox(null, initial, List.of()));
         }
-        RenderStyle rootStyle = resolveStyle(rootElement, initial);
+        RenderStyle inherited = initial;
+        if (documentElement != null && rootElement != documentElement) {
+            inherited = resolveStyle(documentElement, initial);
+        }
+        RenderStyle rootStyle = resolveStyle(rootElement, inherited);
         if (rootStyle.display() == RenderStyle.Display.NONE) {
-            return new RenderTree(new RenderBox(rootElement, initial, List.of()));
+            return renderTree(new RenderBox(rootElement, initial, List.of()));
         }
         if (rootStyle.display() != RenderStyle.Display.BLOCK) {
             rootStyle = copyWithDisplay(rootStyle, RenderStyle.Display.BLOCK);
         }
-        return new RenderTree(buildBox(rootElement, rootStyle));
+        return renderTree(buildBox(rootElement, rootStyle));
+    }
+
+    private RenderTree renderTree(RenderBox root) {
+        return new RenderTree(root, rootFontSizePx, viewportWidth, viewportHeight);
+    }
+
+    private float resolveRootFontSize(Element root) {
+        if (root == null) {
+            return DEFAULT_FONT_SIZE;
+        }
+        float fallback = defaultFontSize(root.getTagName(), DEFAULT_FONT_SIZE);
+        return resolveLength(root.getComputedStyles().get("font-size"),
+                DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE, fallback);
     }
 
     private RenderBox buildBox(Element element, RenderStyle style) {
@@ -171,6 +203,11 @@ public final class RenderTreeBuilder {
         if (inlineRun.isEmpty()) {
             return;
         }
+        if (inlineRun.stream().allMatch(node -> node instanceof RenderTextRun run
+                && run.text().isBlank())) {
+            inlineRun.clear();
+            return;
+        }
         output.add(new RenderBox(null, anonymousBlockStyle(parentStyle), List.copyOf(inlineRun)));
         inlineRun.clear();
     }
@@ -202,7 +239,7 @@ public final class RenderTreeBuilder {
                 RenderStyle.VerticalAlign.BASELINE);
     }
 
-    private static RenderStyle resolveStyle(Element element, RenderStyle parent) {
+    private RenderStyle resolveStyle(Element element, RenderStyle parent) {
         String tag = element.getTagName();
         Map<String, String> declarations = element.getComputedStyles();
 
@@ -247,7 +284,9 @@ public final class RenderTreeBuilder {
             default -> RenderStyle.Position.STATIC;
         };
         if (declarations.containsKey("font-size")) {
-            fontSize = resolveLength(declarations.get("font-size"), parent.fontSizePx(), fontSize);
+            float remBase = element == documentElement ? DEFAULT_FONT_SIZE : rootFontSizePx;
+            fontSize = resolveLength(
+                    declarations.get("font-size"), parent.fontSizePx(), remBase, fontSize);
         }
         if (declarations.containsKey("font-weight")) {
             fontWeight = parseFontWeight(declarations.get("font-weight"), parent.fontWeight());
@@ -357,22 +396,26 @@ public final class RenderTreeBuilder {
         };
     }
 
-    private static BoxEdges resolveEdges(Map<String, String> declarations,
-                                         String prefix,
-                                         float emBase,
-                                         BoxEdges defaults) {
+    private BoxEdges resolveEdges(Map<String, String> declarations,
+                                  String prefix,
+                                  float emBase,
+                                  BoxEdges defaults) {
         return resolveEdges(declarations, prefix, emBase, defaults, "");
     }
 
-    private static BoxEdges resolveEdges(Map<String, String> declarations,
-                                         String prefix,
-                                         float emBase,
-                                         BoxEdges defaults,
-                                         String suffix) {
-        float top = resolveLength(declarations.get(prefix + "-top" + suffix), emBase, defaults.top());
-        float right = resolveLength(declarations.get(prefix + "-right" + suffix), emBase, defaults.right());
-        float bottom = resolveLength(declarations.get(prefix + "-bottom" + suffix), emBase, defaults.bottom());
-        float left = resolveLength(declarations.get(prefix + "-left" + suffix), emBase, defaults.left());
+    private BoxEdges resolveEdges(Map<String, String> declarations,
+                                  String prefix,
+                                  float emBase,
+                                  BoxEdges defaults,
+                                  String suffix) {
+        float top = resolveLength(declarations.get(prefix + "-top" + suffix), emBase,
+                rootFontSizePx, defaults.top());
+        float right = resolveLength(declarations.get(prefix + "-right" + suffix), emBase,
+                rootFontSizePx, defaults.right());
+        float bottom = resolveLength(declarations.get(prefix + "-bottom" + suffix), emBase,
+                rootFontSizePx, defaults.bottom());
+        float left = resolveLength(declarations.get(prefix + "-left" + suffix), emBase,
+                rootFontSizePx, defaults.left());
         return new BoxEdges(top, right, bottom, left);
     }
 
@@ -405,7 +448,7 @@ public final class RenderTreeBuilder {
                 "solid".equals(declarations.get("border-left-style")));
     }
 
-    private static float resolveLength(String value, float emBase, float fallback) {
+    private float resolveLength(String value, float emBase, float remBase, float fallback) {
         if (value == null) {
             return fallback;
         }
@@ -414,14 +457,20 @@ public final class RenderTreeBuilder {
             return 0;
         }
         try {
-            float number = Float.parseFloat(normalized.substring(0, normalized.length() - 2));
-            return normalized.endsWith("em") ? number * emBase : number;
+            ParsedLength parsed = parseLength(normalized);
+            return switch (parsed.unit()) {
+                case "em" -> parsed.value() * emBase;
+                case "rem" -> parsed.value() * remBase;
+                case "vw" -> parsed.value() * viewportWidth / 100f;
+                case "vh" -> parsed.value() * viewportHeight / 100f;
+                default -> parsed.value();
+            };
         } catch (RuntimeException ignored) {
             return fallback;
         }
     }
 
-    private static RenderLength resolveDimension(String value, float emBase) {
+    private RenderLength resolveDimension(String value, float emBase) {
         if (value == null || "auto".equals(value)) {
             return RenderLength.AUTO;
         }
@@ -433,15 +482,20 @@ public final class RenderTreeBuilder {
                 return new RenderLength(Float.parseFloat(value.substring(0, value.length() - 1)),
                         RenderLength.Unit.PERCENT);
             }
-            float number = Float.parseFloat(value.substring(0, value.length() - 2));
-            return new RenderLength(value.endsWith("em") ? number * emBase : number,
-                    RenderLength.Unit.PX);
+            ParsedLength parsed = parseLength(value);
+            return switch (parsed.unit()) {
+                case "em" -> new RenderLength(parsed.value() * emBase, RenderLength.Unit.PX);
+                case "rem" -> new RenderLength(parsed.value(), RenderLength.Unit.REM);
+                case "vw" -> new RenderLength(parsed.value(), RenderLength.Unit.VW);
+                case "vh" -> new RenderLength(parsed.value(), RenderLength.Unit.VH);
+                default -> new RenderLength(parsed.value(), RenderLength.Unit.PX);
+            };
         } catch (RuntimeException ignored) {
             return RenderLength.AUTO;
         }
     }
 
-    private static RenderOffset resolveOffset(String value, float emBase) {
+    private RenderOffset resolveOffset(String value, float emBase) {
         if (value == null || "auto".equals(value)) return RenderOffset.AUTO;
         if ("0".equals(value)) return new RenderOffset(0, RenderOffset.Unit.PX);
         try {
@@ -449,12 +503,32 @@ public final class RenderTreeBuilder {
                 return new RenderOffset(Float.parseFloat(value.substring(0, value.length() - 1)),
                         RenderOffset.Unit.PERCENT);
             }
-            float number = Float.parseFloat(value.substring(0, value.length() - 2));
-            return new RenderOffset(value.endsWith("em") ? number * emBase : number,
-                    RenderOffset.Unit.PX);
+            ParsedLength parsed = parseLength(value);
+            return switch (parsed.unit()) {
+                case "em" -> new RenderOffset(parsed.value() * emBase, RenderOffset.Unit.PX);
+                case "rem" -> new RenderOffset(parsed.value(), RenderOffset.Unit.REM);
+                case "vw" -> new RenderOffset(parsed.value(), RenderOffset.Unit.VW);
+                case "vh" -> new RenderOffset(parsed.value(), RenderOffset.Unit.VH);
+                default -> new RenderOffset(parsed.value(), RenderOffset.Unit.PX);
+            };
         } catch (RuntimeException ignored) {
             return RenderOffset.AUTO;
         }
+    }
+
+    private static ParsedLength parseLength(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        for (String unit : List.of("rem", "px", "em", "vw", "vh")) {
+            if (normalized.endsWith(unit)) {
+                float number = Float.parseFloat(
+                        normalized.substring(0, normalized.length() - unit.length()));
+                return new ParsedLength(number, unit);
+            }
+        }
+        throw new IllegalArgumentException("Unsupported CSS length: " + value);
+    }
+
+    private record ParsedLength(float value, String unit) {
     }
 
     private static BoxEdges nonNegative(BoxEdges edges) {

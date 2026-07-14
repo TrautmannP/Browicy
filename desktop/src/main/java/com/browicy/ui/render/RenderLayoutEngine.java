@@ -34,10 +34,16 @@ public final class RenderLayoutEngine {
     private static final float PLACEHOLDER_SIZE = 16f;
     private static final int MAX_IMAGE_DIMENSION = 8192;
     private static final long MAX_IMAGE_PIXELS = 32_000_000L;
+    private float rootFontSizePx = 16f;
+    private float viewportWidth = 800f;
+    private float viewportHeight = 600f;
     private final Map<com.browicy.engine.dom.Element, Optional<BufferedImage>> decodedImages =
             java.util.Collections.synchronizedMap(new WeakHashMap<>());
 
     public LayoutResult layout(RenderTree tree, int viewportWidth, Insets insets, Graphics2D graphics) {
+        rootFontSizePx = tree.rootFontSizePx();
+        this.viewportWidth = viewportWidth;
+        this.viewportHeight = tree.viewportHeight();
         float availableWidth = Math.max(1, viewportWidth - insets.left - insets.right);
         List<LineBox> lineBoxes = new ArrayList<>();
         PositionedContext initialContainingBlock = new PositionedContext();
@@ -82,7 +88,7 @@ public final class RenderLayoutEngine {
                     ? shrinkToFitWidth(box, availableContentWidth, graphics)
                     : availableContentWidth;
         } else {
-            contentBoxWidth = Math.max(0, style.width().resolve(availableWidth));
+            contentBoxWidth = Math.max(0, resolve(style.width(), availableWidth));
         }
         contentBoxWidth = constrain(contentBoxWidth,
                 resolveConstraint(style.minWidth(), availableWidth),
@@ -109,23 +115,34 @@ public final class RenderLayoutEngine {
         List<PaintFragment> childFragments = new ArrayList<>();
         List<RenderNode> inlineBuffer = new ArrayList<>();
         float currentY = contentY;
+        Float previousBottomMargin = null;
 
         for (RenderNode child : box.children()) {
             if (child instanceof RenderBox childBox) {
-                currentY += flushInline(inlineBuffer, contentX, currentY, contentWidth,
+                float inlineHeight = flushInline(inlineBuffer, contentX, currentY, contentWidth,
                         childContainingHeight, style.textAlign(), graphics, childFragments,
                         lineBoxes);
+                currentY += inlineHeight;
+                if (inlineHeight > 0) {
+                    previousBottomMargin = null;
+                }
                 if (childBox.style().position() == RenderStyle.Position.ABSOLUTE) {
                     childPositionedContext.requests.add(
                             new AbsoluteRequest(childBox, contentX, currentY));
                     continue;
                 }
+                float collapsedOverlap = previousBottomMargin == null ? 0
+                        : previousBottomMargin + childBox.style().margin().top()
+                        - Math.max(previousBottomMargin, childBox.style().margin().top());
+                currentY -= collapsedOverlap;
                 BlockLayout childLayout = layoutBlock(
                         childBox, contentX, currentY, contentWidth, childContainingHeight,
                         false, graphics, lineBoxes, childPositionedContext);
                 childFragments.addAll(childLayout.fragments());
                 currentY += childLayout.outerHeight();
+                previousBottomMargin = childBox.style().margin().bottom();
             } else {
+                previousBottomMargin = null;
                 inlineBuffer.add(child);
             }
         }
@@ -178,8 +195,8 @@ public final class RenderLayoutEngine {
         List<PaintFragment> result = new ArrayList<>();
         for (AbsoluteRequest request : context.requests) {
             RenderStyle style = request.box().style();
-            float left = style.left().isAuto() ? 0 : style.left().resolve(context.width);
-            float right = style.right().isAuto() ? 0 : style.right().resolve(context.width);
+            float left = style.left().isAuto() ? 0 : resolve(style.left(), context.width);
+            float right = style.right().isAuto() ? 0 : resolve(style.right(), context.width);
             boolean stretchAutoWidth = style.width().isAuto()
                     && !style.left().isAuto() && !style.right().isAuto();
             float availableWidth = stretchAutoWidth
@@ -203,9 +220,9 @@ public final class RenderLayoutEngine {
 
             float desiredY;
             if (!style.top().isAuto()) {
-                desiredY = context.y + style.top().resolve(context.height) + style.margin().top();
+                desiredY = context.y + resolve(style.top(), context.height) + style.margin().top();
             } else if (!style.bottom().isAuto()) {
-                desiredY = context.y + context.height - style.bottom().resolve(context.height)
+                desiredY = context.y + context.height - resolve(style.bottom(), context.height)
                         - style.margin().bottom() - root.height();
             } else {
                 desiredY = request.staticY() + style.margin().top();
@@ -219,16 +236,16 @@ public final class RenderLayoutEngine {
         return result;
     }
 
-    private static float relativeHorizontalOffset(RenderStyle style, float containingWidth) {
-        if (!style.left().isAuto()) return style.left().resolve(containingWidth);
-        if (!style.right().isAuto()) return -style.right().resolve(containingWidth);
+    private float relativeHorizontalOffset(RenderStyle style, float containingWidth) {
+        if (!style.left().isAuto()) return resolve(style.left(), containingWidth);
+        if (!style.right().isAuto()) return -resolve(style.right(), containingWidth);
         return 0;
     }
 
-    private static float relativeVerticalOffset(RenderStyle style, Float containingHeight) {
+    private float relativeVerticalOffset(RenderStyle style, Float containingHeight) {
         float base = containingHeight == null ? 0 : containingHeight;
-        if (!style.top().isAuto()) return style.top().resolve(base);
-        if (!style.bottom().isAuto()) return -style.bottom().resolve(base);
+        if (!style.top().isAuto()) return resolve(style.top(), base);
+        if (!style.bottom().isAuto()) return -resolve(style.bottom(), base);
         return 0;
     }
 
@@ -281,22 +298,30 @@ public final class RenderLayoutEngine {
         return result;
     }
 
-    private static Float resolveConstraint(RenderLength length, float percentageBase) {
-        return length.isAuto() ? null : Math.max(0, length.resolve(percentageBase));
+    private Float resolveConstraint(RenderLength length, float percentageBase) {
+        return length.isAuto() ? null : Math.max(0, resolve(length, percentageBase));
     }
 
-    private static Float resolveDefiniteHeight(RenderLength length, Float containingHeight) {
+    private Float resolveDefiniteHeight(RenderLength length, Float containingHeight) {
         if (length.isAuto()) {
             return null;
         }
         if (length.unit() == RenderLength.Unit.PERCENT) {
-            return containingHeight == null ? null : Math.max(0, length.resolve(containingHeight));
+            return containingHeight == null ? null : Math.max(0, resolve(length, containingHeight));
         }
-        return Math.max(0, length.value());
+        return Math.max(0, resolve(length, containingHeight == null ? 0 : containingHeight));
     }
 
-    private static Float resolveHeightConstraint(RenderLength length, Float containingHeight) {
+    private Float resolveHeightConstraint(RenderLength length, Float containingHeight) {
         return resolveDefiniteHeight(length, containingHeight);
+    }
+
+    private float resolve(RenderLength length, float percentageBase) {
+        return length.resolve(percentageBase, rootFontSizePx, viewportWidth, viewportHeight);
+    }
+
+    private float resolve(com.browicy.engine.render.RenderOffset offset, float percentageBase) {
+        return offset.resolve(percentageBase, rootFontSizePx, viewportWidth, viewportHeight);
     }
 
     private ImageLayout imageLayout(RenderImage image,
@@ -314,7 +339,7 @@ public final class RenderLayoutEngine {
                 : naturalWidth / Math.max(1, naturalHeight);
         Float cssWidth = image.style().width().isAuto()
                 ? null
-                : Math.max(0, image.style().width().resolve(percentageBase));
+                : Math.max(0, resolve(image.style().width(), percentageBase));
         Float cssHeight = resolveDefiniteHeight(image.style().height(), containingHeight);
         float width;
         float height;
@@ -418,7 +443,7 @@ public final class RenderLayoutEngine {
         float decoration = style.margin().horizontal() + style.borderWidth().horizontal()
                 + style.padding().horizontal();
         if (!style.width().isAuto()) {
-            float width = constrain(style.width().resolve(percentageBase),
+            float width = constrain(resolve(style.width(), percentageBase),
                     resolveConstraint(style.minWidth(), percentageBase),
                     resolveConstraint(style.maxWidth(), percentageBase)) + decoration;
             return new IntrinsicWidths(width, width);
@@ -1087,7 +1112,7 @@ public final class RenderLayoutEngine {
         @Override public float descent() { return descent; }
     }
 
-    private static final class LineBuilder {
+    private final class LineBuilder {
         private final Graphics2D graphics;
         private final float containingWidth;
         private final Float containingHeight;
@@ -1335,12 +1360,12 @@ public final class RenderLayoutEngine {
             }
         }
 
-        private static float inlineOffsetX(RenderStyle style, float containingWidth) {
+        private float inlineOffsetX(RenderStyle style, float containingWidth) {
             return style.position() == RenderStyle.Position.RELATIVE
                     ? relativeHorizontalOffset(style, containingWidth) : 0;
         }
 
-        private static float inlineOffsetY(RenderStyle style, Float containingHeight) {
+        private float inlineOffsetY(RenderStyle style, Float containingHeight) {
             return style.position() == RenderStyle.Position.RELATIVE
                     ? relativeVerticalOffset(style, containingHeight) : 0;
         }

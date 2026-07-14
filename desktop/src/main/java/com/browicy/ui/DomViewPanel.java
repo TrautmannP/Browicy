@@ -23,6 +23,7 @@ import com.browicy.ui.render.RenderLayoutEngine.LayoutResult;
 import com.browicy.ui.render.RenderLayoutEngine.PaintFragment;
 import com.browicy.ui.render.RenderLayoutEngine.TextFragment;
 import java.awt.Color;
+import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -38,6 +39,7 @@ import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.List;
 import javax.swing.BorderFactory;
+import javax.swing.JViewport;
 import javax.swing.JPanel;
 import javax.swing.Scrollable;
 
@@ -45,6 +47,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
 
     private static final int CONTENT_PADDING = 16;
     private static final int DEFAULT_LAYOUT_WIDTH = 800;
+    private static final int DEFAULT_VIEWPORT_HEIGHT = 600;
     private static final int SCROLL_UNIT = 24;
 
     private final Document document;
@@ -55,6 +58,8 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private final RenderLayoutEngine layoutEngine = new RenderLayoutEngine();
     private LayoutResult layoutResult;
     private int layoutWidth = -1;
+    private int renderViewportWidth = -1;
+    private int renderViewportHeight = -1;
 
     public DomViewPanel(Document document) {
         this(document, PageRuntime.closed(), new ImageResourceRegistry());
@@ -79,7 +84,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent event) {
-                if (layoutWidth != getWidth()) {
+                if (layoutWidth != getWidth() || renderViewportHeight != currentViewportHeight()) {
                     invalidateReflow();
                     revalidate();
                     repaint();
@@ -156,11 +161,17 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     }
 
     private void rebuildRenderTree() {
+        rebuildRenderTree(currentLayoutWidth(), currentViewportHeight());
+    }
+
+    private void rebuildRenderTree(int viewportWidth, int viewportHeight) {
         synchronized (document) {
             renderTree = new RenderTreeBuilder(element -> images.find(element)
                     .map(com.browicy.engine.net.BinaryResource::content)
-                    .orElse(null)).build(document);
+                    .orElse(null)).build(document, viewportWidth, viewportHeight);
         }
+        renderViewportWidth = viewportWidth;
+        renderViewportHeight = viewportHeight;
         invalidateReflow();
     }
 
@@ -274,6 +285,10 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     }
 
     private boolean ensureLayout(int width, Graphics2D graphics) {
+        int viewportHeight = currentViewportHeight();
+        if (renderViewportWidth != width || renderViewportHeight != viewportHeight) {
+            rebuildRenderTree(width, viewportHeight);
+        }
         if (layoutWidth == width && layoutResult != null) {
             return false;
         }
@@ -370,6 +385,21 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         return DEFAULT_LAYOUT_WIDTH;
     }
 
+    private int currentViewportHeight() {
+        for (Container ancestor = getParent(); ancestor != null; ancestor = ancestor.getParent()) {
+            if (ancestor instanceof JViewport viewport && viewport.getExtentSize().height > 0) {
+                return viewport.getExtentSize().height;
+            }
+        }
+        if (getHeight() > 0) {
+            return getHeight();
+        }
+        if (getParent() != null && getParent().getHeight() > 0) {
+            return getParent().getHeight();
+        }
+        return DEFAULT_VIEWPORT_HEIGHT;
+    }
+
     @Override
     public Dimension getPreferredSize() {
         int width = currentLayoutWidth();
@@ -391,11 +421,18 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     }
 
     LayoutResult layoutForTesting(int width) {
+        return layoutForTesting(width, DEFAULT_VIEWPORT_HEIGHT);
+    }
+
+    LayoutResult layoutForTesting(int width, int viewportHeight) {
         BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = image.createGraphics();
         try {
             configureGraphics(graphics);
-            return layoutEngine.layout(renderTree, width, getInsets(), graphics);
+            RenderTree testingTree = new RenderTreeBuilder(element -> images.find(element)
+                    .map(com.browicy.engine.net.BinaryResource::content)
+                    .orElse(null)).build(document, width, viewportHeight);
+            return layoutEngine.layout(testingTree, width, getInsets(), graphics);
         } finally {
             graphics.dispose();
         }

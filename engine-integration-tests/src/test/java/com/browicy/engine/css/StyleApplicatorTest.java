@@ -29,6 +29,22 @@ public class StyleApplicatorTest {
     }
 
     @Test
+    public void preservesRootAndViewportLengthUnitsThroughTheCascade() {
+        Document document = parse("""
+                html { font-size: 1.25rem; }
+                .hero { width: 80vw; height: 40vh; margin: 2rem; }
+                """, "<div class=\"hero\">Hero</div>");
+        Element html = document.getDocumentElement();
+        Element hero = document.getBody().findFirst("div");
+
+        assertEquals("1.25rem", html.getComputedStyles().get("font-size"));
+        assertEquals("80vw", hero.getComputedStyles().get("width"));
+        assertEquals("40vh", hero.getComputedStyles().get("height"));
+        assertEquals("2rem", hero.getComputedStyles().get("margin-top"));
+        assertEquals("2rem", hero.getComputedStyles().get("margin-left"));
+    }
+
+    @Test
     public void laterRuleWinsAtEqualSpecificity() {
         Element heading = parseHeading("""
                 h1 { color: red; font-size: 18px; }

@@ -106,6 +106,42 @@ public class RenderTreeBuilderTest {
     }
 
     @Test
+    public void resolvesRemAgainstHtmlAndCarriesViewportDimensions() {
+        Document document = new HtmlParser().parse("""
+                <html style="font-size: 20px"><body>
+                  <div style="font-size: 2rem; margin: 1rem; padding: 10vw;
+                    width: 12rem; height: 25vh">content</div>
+                </body></html>
+                """);
+
+        RenderTree tree = new RenderTreeBuilder().build(document, 500, 400);
+        RenderStyle style = boxChildren(tree.root()).stream()
+                .filter(box -> "div".equals(box.tagName()))
+                .findFirst().orElseThrow().style();
+
+        assertEquals(20f, tree.rootFontSizePx(), 0.001f);
+        assertEquals(40f, style.fontSizePx(), 0.001f);
+        assertEquals(new BoxEdges(20, 20, 20, 20), style.margin());
+        assertEquals(new BoxEdges(50, 50, 50, 50), style.padding());
+        assertEquals(new RenderLength(12, RenderLength.Unit.REM), style.width());
+        assertEquals(new RenderLength(25, RenderLength.Unit.VH), style.height());
+    }
+
+    @Test
+    public void rootRemFontSizeUsesTheInitialFontSizeAsItsBase() {
+        RenderTree tree = build("""
+                <html style="font-size: 2rem"><body><div style="font-size: 1rem">x</div>
+                </body></html>
+                """);
+
+        assertEquals(32f, tree.rootFontSizePx(), 0.001f);
+        RenderBox div = boxChildren(tree.root()).stream()
+                .filter(box -> "div".equals(box.tagName()))
+                .findFirst().orElseThrow();
+        assertEquals(32f, div.style().fontSizePx(), 0.001f);
+    }
+
+    @Test
     public void createsSpecializedImageNodesWithHtmlFallbackDimensions() {
         Document document = new HtmlParser().parse("""
                 <body><p>before<img id="hero" src="hero.png" width="120" height="45">after</p></body>

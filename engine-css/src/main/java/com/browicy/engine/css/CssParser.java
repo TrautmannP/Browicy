@@ -15,22 +15,23 @@ public final class CssParser {
     private static final SelectorParser SELECTOR_PARSER = new SelectorParser();
     private static final Pattern RULE = Pattern.compile("([^{}]+)\\{([^{}]*)}");
     private static final Pattern COMMENTS = Pattern.compile("/\\*.*?\\*/", Pattern.DOTALL);
+    private static final String LENGTH_UNIT = "(?:px|em|rem|vw|vh)";
     private static final Pattern POSITIVE_LENGTH = Pattern.compile(
-            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em)|0)", Pattern.CASE_INSENSITIVE);
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)" + LENGTH_UNIT + "|0)", Pattern.CASE_INSENSITIVE);
     private static final Pattern MARGIN_LENGTH = Pattern.compile(
-            "(?:(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em)|0)|auto)",
+            "(?:(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)" + LENGTH_UNIT + "|0)|auto)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern DIMENSION = Pattern.compile(
-            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|%)|0|auto)",
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|auto)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern MAX_DIMENSION = Pattern.compile(
-            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|%)|0|none)",
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|none)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern POSITION_OFFSET = Pattern.compile(
-            "(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|%)|0|auto)",
+            "(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|auto)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_SIZE = Pattern.compile(
-            "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em)", Pattern.CASE_INSENSITIVE);
+            "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_WEIGHT = Pattern.compile("[1-9]00");
     private static final List<String> SIDES = List.of("top", "right", "bottom", "left");
 
