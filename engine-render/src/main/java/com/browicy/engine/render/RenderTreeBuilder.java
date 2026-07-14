@@ -101,7 +101,10 @@ public final class RenderTreeBuilder {
                 RenderStyle.FlexDirection.ROW,
                 RenderStyle.JustifyContent.FLEX_START,
                 RenderStyle.AlignItems.STRETCH,
-                0);
+                0,
+                1,
+                RenderLength.AUTO,
+                1);
         if (rootElement == null) {
             return renderTree(new RenderBox(null, initial, List.of()));
         }
@@ -186,6 +189,10 @@ public final class RenderTreeBuilder {
                         element, style, imageData.apply(element),
                         positiveIntegerAttribute(element, "width"),
                         positiveIntegerAttribute(element, "height")));
+            } else if ("svg".equals(element.getTagName())) {
+                output.add(new RenderImage(element, style, null,
+                        positiveIntegerAttribute(element, "width"),
+                        positiveIntegerAttribute(element, "height"), parseSvg(element, style)));
             } else if (isFlexContainer(parentStyle.display())) {
                 RenderStyle itemStyle = switch (style.display()) {
                     case INLINE -> copyWithDisplay(style, RenderStyle.Display.BLOCK);
@@ -260,6 +267,145 @@ public final class RenderTreeBuilder {
         try {
             int parsed = Integer.parseInt(value.strip());
             return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static SvgImage parseSvg(Element svg, RenderStyle style) {
+        float[] viewBox = parseViewBox(svg.getAttribute("viewbox"));
+        if (viewBox == null) {
+            Integer width = positiveIntegerAttribute(svg, "width");
+            Integer height = positiveIntegerAttribute(svg, "height");
+            viewBox = new float[]{0, 0, width == null ? 300 : width, height == null ? 150 : height};
+        }
+        StringBuilder source = new StringBuilder();
+        serializeSvgElement(svg, source, true, style);
+        return new SvgImage(source.toString(), viewBox[2], viewBox[3]);
+    }
+
+    private static void serializeSvgElement(Element element, StringBuilder target,
+                                            boolean root, RenderStyle rootStyle) {
+        target.append('<').append(svgTagName(element.getTagName()));
+        boolean hasNamespace = false;
+        for (Map.Entry<String, String> attribute : element.getAttributes().entrySet()) {
+            String name = svgAttributeName(attribute.getKey());
+            if (root && name.equals("xmlns")) hasNamespace = true;
+            if (name.equals("style")) continue;
+            target.append(' ').append(name).append("=\"")
+                    .append(escapeXml(attribute.getValue())).append('"');
+        }
+        if (root && !hasNamespace) {
+            target.append(" xmlns=\"http://www.w3.org/2000/svg\"");
+        }
+        String style = svgStyle(element, root, rootStyle);
+        if (!style.isBlank()) {
+            target.append(" style=\"").append(escapeXml(style)).append('"');
+        }
+        target.append('>');
+        for (Node child : element.getChildren()) {
+            if (child instanceof Element childElement) {
+                serializeSvgElement(childElement, target, false, rootStyle);
+            } else if (child instanceof TextNode text) {
+                target.append(escapeXml(text.getData()));
+            }
+        }
+        target.append("</").append(svgTagName(element.getTagName())).append('>');
+    }
+
+    private static String svgStyle(Element element, boolean root, RenderStyle rootStyle) {
+        StringBuilder style = new StringBuilder();
+        String inline = element.getAttribute("style");
+        if (inline != null && !inline.isBlank()) {
+            for (String declaration : inline.split(";")) {
+                int separator = declaration.indexOf(':');
+                if (separator < 1) continue;
+                String property = declaration.substring(0, separator).strip();
+                if (root && property.equalsIgnoreCase("opacity")) continue;
+                appendStyle(style, property, declaration.substring(separator + 1).strip());
+            }
+        }
+        if (root) appendStyle(style, "color", cssColor(rootStyle.color()));
+        for (String property : List.of("fill", "stroke", "fill-opacity", "stroke-opacity")) {
+            String value = element.getComputedStyles().get(property);
+            if (value != null) appendStyle(style, property, value);
+        }
+        if (!root) {
+            String opacity = element.getComputedStyles().get("opacity");
+            if (opacity != null) appendStyle(style, "opacity", opacity);
+        }
+        return style.toString();
+    }
+
+    private static void appendStyle(StringBuilder target, String property, String value) {
+        if (value == null || value.isBlank()) return;
+        if (!target.isEmpty() && target.charAt(target.length() - 1) != ';') target.append(';');
+        target.append(property).append(':').append(value).append(';');
+    }
+
+    private static String cssColor(CssColor color) {
+        return "rgba(" + color.red() + ',' + color.green() + ',' + color.blue() + ','
+                + color.alpha() / 255f + ')';
+    }
+
+    private static String svgTagName(String name) {
+        return switch (name) {
+            case "clippath" -> "clipPath";
+            case "foreignobject" -> "foreignObject";
+            case "lineargradient" -> "linearGradient";
+            case "radialgradient" -> "radialGradient";
+            case "textpath" -> "textPath";
+            case "fegaussianblur" -> "feGaussianBlur";
+            case "fecolormatrix" -> "feColorMatrix";
+            case "fecomponenttransfer" -> "feComponentTransfer";
+            case "fecomposite" -> "feComposite";
+            case "fedropshadow" -> "feDropShadow";
+            case "feflood" -> "feFlood";
+            case "feimage" -> "feImage";
+            case "femerge" -> "feMerge";
+            case "femergenode" -> "feMergeNode";
+            case "feoffset" -> "feOffset";
+            default -> name;
+        };
+    }
+
+    private static String svgAttributeName(String name) {
+        return switch (name) {
+            case "viewbox" -> "viewBox";
+            case "preserveaspectratio" -> "preserveAspectRatio";
+            case "gradientunits" -> "gradientUnits";
+            case "gradienttransform" -> "gradientTransform";
+            case "patternunits" -> "patternUnits";
+            case "patterncontentunits" -> "patternContentUnits";
+            case "markerwidth" -> "markerWidth";
+            case "markerheight" -> "markerHeight";
+            case "markerunits" -> "markerUnits";
+            case "refx" -> "refX";
+            case "refy" -> "refY";
+            case "stddeviation" -> "stdDeviation";
+            case "attributename" -> "attributeName";
+            case "attributetype" -> "attributeType";
+            case "calcmode" -> "calcMode";
+            case "keytimes" -> "keyTimes";
+            case "keysplines" -> "keySplines";
+            case "xlink:href" -> "xlink:href";
+            default -> name;
+        };
+    }
+
+    private static String escapeXml(String value) {
+        return value.replace("&", "&amp;").replace("\"", "&quot;")
+                .replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private static float[] parseViewBox(String source) {
+        if (source == null || source.isBlank()) return null;
+        String[] values = source.strip().split("[\\s,]+");
+        if (values.length != 4) return null;
+        try {
+            float[] parsed = new float[4];
+            for (int index = 0; index < 4; index++) parsed[index] = Float.parseFloat(values[index]);
+            return parsed[2] > 0 && parsed[3] > 0 ? parsed : null;
         } catch (NumberFormatException ignored) {
             return null;
         }
@@ -349,7 +495,10 @@ public final class RenderTreeBuilder {
                 RenderStyle.FlexDirection.ROW,
                 RenderStyle.JustifyContent.FLEX_START,
                 RenderStyle.AlignItems.STRETCH,
-                0);
+                0,
+                1,
+                RenderLength.AUTO,
+                inherited.opacity());
     }
 
     private RenderStyle resolveStyle(Element element, RenderStyle parent) {
@@ -405,6 +554,9 @@ public final class RenderTreeBuilder {
         RenderStyle.JustifyContent justifyContent = RenderStyle.JustifyContent.FLEX_START;
         RenderStyle.AlignItems alignItems = RenderStyle.AlignItems.STRETCH;
         float flexGrow = 0;
+        float flexShrink = 1;
+        RenderLength flexBasis = RenderLength.AUTO;
+        float opacity = parent.opacity();
 
         if (declarations.containsKey("display")) {
             display = switch (declarations.get("display")) {
@@ -524,6 +676,15 @@ public final class RenderTreeBuilder {
         if (declarations.containsKey("flex-grow")) {
             flexGrow = Float.parseFloat(declarations.get("flex-grow"));
         }
+        if (declarations.containsKey("flex-shrink")) {
+            flexShrink = Float.parseFloat(declarations.get("flex-shrink"));
+        }
+        if (declarations.containsKey("flex-basis")) {
+            flexBasis = resolveDimension(declarations.get("flex-basis"), fontSize);
+        }
+        if (declarations.containsKey("opacity")) {
+            opacity *= Float.parseFloat(declarations.get("opacity"));
+        }
         CssColor declaredColor = CssColor.parse(declarations.get("color"));
         if (declaredColor != null) {
             color = declaredColor;
@@ -586,7 +747,9 @@ public final class RenderTreeBuilder {
                 width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,
                 outlineWidth, outlineColor, outlineVisible, borderCollapse, textAlign,
-                overflow, verticalAlign, flexDirection, justifyContent, alignItems, flexGrow);
+                overflow, verticalAlign, flexDirection, justifyContent, alignItems, flexGrow,
+                flexShrink, flexBasis,
+                opacity);
     }
 
     private static RenderStyle.Display defaultDisplay(String tag) {

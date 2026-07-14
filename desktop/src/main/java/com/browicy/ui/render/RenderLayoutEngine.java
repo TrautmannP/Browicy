@@ -298,14 +298,21 @@ public final class RenderLayoutEngine {
                                      List<LineBox> lineBoxes) {
         float[] widths = new float[items.size()];
         float[] minimums = new float[items.size()];
+        float[] shrinkFactors = new float[items.size()];
         float totalGrow = 0;
         for (int index = 0; index < items.size(); index++) {
             IntrinsicWidths intrinsic = intrinsicBoxWidth(items.get(index), contentWidth, graphics);
-            widths[index] = intrinsic.preferred();
+            RenderStyle itemStyle = items.get(index).style();
+            widths[index] = itemStyle.flexBasis().isAuto()
+                    ? intrinsic.preferred()
+                    : resolve(itemStyle.flexBasis(), contentWidth)
+                    + itemStyle.margin().horizontal() + itemStyle.padding().horizontal()
+                    + itemStyle.borderWidth().horizontal();
             minimums[index] = intrinsic.minimum();
-            totalGrow += items.get(index).style().flexGrow();
+            shrinkFactors[index] = itemStyle.flexShrink();
+            totalGrow += itemStyle.flexGrow();
         }
-        shrinkFlexSizes(widths, minimums, contentWidth);
+        shrinkFlexSizes(widths, minimums, shrinkFactors, contentWidth);
         float remaining = Math.max(0, contentWidth - sum(widths));
         if (remaining > 0 && totalGrow > 0) {
             for (int index = 0; index < widths.length; index++) {
@@ -368,7 +375,11 @@ public final class RenderLayoutEngine {
             totalGrow += items.get(index).style().flexGrow();
         }
         float mainSize = contentHeight == null ? sum(heights) : contentHeight;
-        shrinkFlexSizes(heights, new float[heights.length], mainSize);
+        float[] shrinkFactors = new float[heights.length];
+        for (int index = 0; index < shrinkFactors.length; index++) {
+            shrinkFactors[index] = items.get(index).style().flexShrink();
+        }
+        shrinkFlexSizes(heights, new float[heights.length], shrinkFactors, mainSize);
         float remaining = Math.max(0, mainSize - sum(heights));
         if (remaining > 0 && totalGrow > 0) {
             for (int index = 0; index < heights.length; index++) {
@@ -438,17 +449,21 @@ public final class RenderLayoutEngine {
                 style.withHeight(new RenderLength(declared, RenderLength.Unit.PX)), box.children());
     }
 
-    private static void shrinkFlexSizes(float[] sizes, float[] minimums, float available) {
+    private static void shrinkFlexSizes(float[] sizes, float[] minimums,
+                                        float[] factors, float available) {
         float excess = sum(sizes) - available;
         while (excess > 0.01f) {
-            int flexible = 0;
+            float totalWeight = 0;
             for (int index = 0; index < sizes.length; index++) {
-                if (sizes[index] > minimums[index] + 0.01f) flexible++;
+                if (factors[index] > 0 && sizes[index] > minimums[index] + 0.01f) {
+                    totalWeight += factors[index] * sizes[index];
+                }
             }
-            if (flexible == 0) return;
-            float share = excess / flexible;
+            if (totalWeight <= 0) return;
             float removed = 0;
             for (int index = 0; index < sizes.length; index++) {
+                if (factors[index] <= 0) continue;
+                float share = excess * factors[index] * sizes[index] / totalWeight;
                 float reduction = Math.min(share, sizes[index] - minimums[index]);
                 if (reduction > 0) {
                     sizes[index] -= reduction;
@@ -790,7 +805,7 @@ public final class RenderLayoutEngine {
         TextFragment text = (TextFragment) fragment;
         return new TextFragment(text.text(), text.x() + dx, text.width(),
                 text.baseline() + dy, text.top() + dy, text.height(), text.font(),
-                text.color(), text.underline(), text.decorationColor(),
+                text.color(), text.underline(), text.decorationColor(), text.opacity(),
                 translate(text.clip(), dx, dy));
     }
 
@@ -865,13 +880,13 @@ public final class RenderLayoutEngine {
         BufferedImage bitmap = decode(image);
         float naturalWidth = image.htmlWidth() != null
                 ? image.htmlWidth()
-                : bitmap == null ? PLACEHOLDER_SIZE : bitmap.getWidth();
+                : bitmap != null ? bitmap.getWidth()
+                : image.svg() != null ? image.svg().width() : PLACEHOLDER_SIZE;
         float naturalHeight = image.htmlHeight() != null
                 ? image.htmlHeight()
-                : bitmap == null ? PLACEHOLDER_SIZE : bitmap.getHeight();
-        float ratio = bitmap != null && bitmap.getWidth() > 0 && bitmap.getHeight() > 0
-                ? (float) bitmap.getWidth() / bitmap.getHeight()
-                : naturalWidth / Math.max(1, naturalHeight);
+                : bitmap != null ? bitmap.getHeight()
+                : image.svg() != null ? image.svg().height() : PLACEHOLDER_SIZE;
+        float ratio = naturalWidth / Math.max(1, naturalHeight);
         Float cssWidth = image.style().width().isAuto()
                 ? null
                 : Math.max(0, resolve(image.style().width(), percentageBase));
@@ -1049,7 +1064,7 @@ public final class RenderLayoutEngine {
         TextFragment text = (TextFragment) fragment;
         return new TextFragment(text.text(), text.x(), text.width(), text.baseline(), text.top(),
                 text.height(), text.font(), text.color(), text.underline(),
-                text.decorationColor(), effective);
+                text.decorationColor(), text.opacity(), effective);
     }
 
     private static ClipRect intersect(ClipRect first, ClipRect second) {
@@ -1142,12 +1157,13 @@ public final class RenderLayoutEngine {
                                CssColor color,
                                boolean underline,
                                CssColor decorationColor,
+                               float opacity,
                                ClipRect clip) implements InlineFragment {
         public TextFragment(String text, float x, float width, float baseline, float top,
                             float height, Font font, CssColor color, boolean underline,
-                            CssColor decorationColor) {
+                            CssColor decorationColor, float opacity) {
             this(text, x, width, baseline, top, height, font, color, underline,
-                    decorationColor, null);
+                    decorationColor, opacity, null);
         }
         @Override public float bottom() { return top + height; }
     }
@@ -1613,6 +1629,7 @@ public final class RenderLayoutEngine {
                             CssColor color,
                             boolean underline,
                             CssColor decorationColor,
+                            float opacity,
                             float usedLineHeight) implements LineItem {
         private float adjustment() {
             return usedLineHeight <= 0 ? 0 : (usedLineHeight - metrics.getHeight()) / 2f;
@@ -1775,7 +1792,8 @@ public final class RenderLayoutEngine {
                      RenderStyle style) {
             float itemWidth = metrics.stringWidth(text);
             addItem(new TextItem(text, width, itemWidth, font, metrics, style.color(),
-                    style.underline(), style.textDecorationColor(), style.usedLineHeightPx()));
+                    style.underline(), style.textDecorationColor(), style.opacity(),
+                    style.usedLineHeightPx()));
             width += itemWidth;
             placedContent = true;
         }
@@ -1888,7 +1906,8 @@ public final class RenderLayoutEngine {
                             text.font,
                             text.color,
                             text.underline,
-                            text.decorationColor));
+                            text.decorationColor,
+                            text.opacity));
                 } else if (item instanceof BoxItem box) {
                     float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
                     float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
@@ -1985,7 +2004,7 @@ public final class RenderLayoutEngine {
             TextFragment text = (TextFragment) fragment;
             return new TextFragment(text.text(), text.x() + dx, text.width(),
                     text.baseline() + dy, text.top() + dy, text.height(), text.font(),
-                    text.color(), text.underline(), text.decorationColor(),
+                    text.color(), text.underline(), text.decorationColor(), text.opacity(),
                     translate(text.clip(), dx, dy));
         }
 

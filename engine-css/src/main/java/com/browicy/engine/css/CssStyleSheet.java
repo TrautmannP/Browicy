@@ -85,13 +85,7 @@ public final class CssStyleSheet {
     }
 
     synchronized List<CssRule> parsedRules() {
-        List<CssRule> parsed = new ArrayList<>();
         long nextOrder = Math.multiplyExact((long) sourceOrder, RULE_ORDER_RANGE);
-        for (String ruleText : ruleTexts) {
-            List<CssRule> rules = parser.parse(ruleText, nextOrder);
-            parsed.addAll(rules);
-            nextOrder++;
-        }
-        return List.copyOf(parsed);
+        return List.copyOf(parser.parse(sourceText, nextOrder));
     }
 }

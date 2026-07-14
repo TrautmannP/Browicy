@@ -13,7 +13,6 @@ import java.util.regex.Pattern;
 public final class CssParser {
 
     private static final SelectorParser SELECTOR_PARSER = new SelectorParser();
-    private static final Pattern RULE = Pattern.compile("([^{}]+)\\{([^{}]*)}");
     private static final Pattern COMMENTS = Pattern.compile("/\\*.*?\\*/", Pattern.DOTALL);
     private static final Pattern FONT_FACE = Pattern.compile(
             "@font-face\\s*\\{([^}]*)}", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
@@ -57,11 +56,7 @@ public final class CssParser {
         if (css == null || css.isBlank()) {
             return sources;
         }
-        String source = COMMENTS.matcher(css).replaceAll("");
-        var matcher = RULE.matcher(source);
-        while (matcher.find()) {
-            sources.add(matcher.group().strip());
-        }
+        collectRuleSources(COMMENTS.matcher(css).replaceAll(""), sources);
         return List.copyOf(sources);
     }
 
@@ -134,25 +129,102 @@ public final class CssParser {
             return rules;
         }
 
-        String source = COMMENTS.matcher(css).replaceAll("");
-        var matcher = RULE.matcher(source);
-        long sourceOrder = sourceOrderStart;
-        while (matcher.find()) {
-            Map<String, String> declarations = parseDeclarations(matcher.group(2));
-            if (declarations.isEmpty()) {
+        long[] sourceOrder = {sourceOrderStart};
+        parseRuleList(COMMENTS.matcher(css).replaceAll(""), MediaCondition.ALL,
+                sourceOrder, rules);
+        return rules;
+    }
+
+    private void parseRuleList(String source, MediaCondition condition,
+                               long[] sourceOrder, List<CssRule> rules) {
+        int offset = 0;
+        while (offset < source.length()) {
+            int open = source.indexOf('{', offset);
+            if (open < 0) return;
+            String prelude = source.substring(offset, open).strip();
+            boolean media = prelude.toLowerCase(Locale.ROOT).startsWith("@media");
+            int close = media ? matchingBrace(source, open) : source.indexOf('}', open + 1);
+            if (close < 0) {
+                int nested = source.indexOf('{', open + 1);
+                if (!media && nested >= 0) {
+                    offset = selectorStart(source, nested, open + 1);
+                    continue;
+                }
+                return;
+            }
+            int nested = source.indexOf('{', open + 1);
+            if (!media && nested >= 0 && nested < close) {
+                offset = selectorStart(source, nested, open + 1);
                 continue;
             }
-
-            String selectorSource = recoverSelectorPrelude(matcher.group(1));
+            String body = source.substring(open + 1, close);
+            if (media) {
+                String query = prelude.substring(6).strip();
+                parseRuleList(body, condition.and(new MediaCondition(query)), sourceOrder, rules);
+                offset = close + 1;
+                continue;
+            }
+            if (prelude.startsWith("@")) {
+                offset = close + 1;
+                continue;
+            }
+            Map<String, String> declarations = parseDeclarations(body);
+            if (declarations.isEmpty()) {
+                offset = close + 1;
+                continue;
+            }
+            String selectorSource = recoverSelectorPrelude(prelude);
             try {
                 for (var selector : SELECTOR_PARSER.parse(selectorSource).selectors()) {
-                    rules.add(new CssRule(selector, declarations, sourceOrder));
+                    rules.add(new CssRule(selector, declarations, sourceOrder[0], condition));
                 }
             } catch (SelectorParseException ignored) {
             }
-            sourceOrder++;
+            sourceOrder[0]++;
+            offset = close + 1;
         }
-        return rules;
+    }
+
+    private static int selectorStart(String source, int open, int lowerBound) {
+        int line = Math.max(source.lastIndexOf('\n', open), source.lastIndexOf('\r', open));
+        int semicolon = source.lastIndexOf(';', open);
+        return Math.max(lowerBound, Math.max(line, semicolon) + 1);
+    }
+
+    private static void collectRuleSources(String source, List<String> result) {
+        int offset = 0;
+        while (offset < source.length()) {
+            int open = source.indexOf('{', offset);
+            if (open < 0) return;
+            int close = matchingBrace(source, open);
+            if (close < 0) return;
+            String prelude = source.substring(offset, open).strip();
+            String body = source.substring(open + 1, close);
+            if (prelude.toLowerCase(Locale.ROOT).startsWith("@media")) {
+                collectRuleSources(body, result);
+            } else {
+                result.add(source.substring(offset, close + 1).strip());
+            }
+            offset = close + 1;
+        }
+    }
+
+    private static int matchingBrace(String source, int open) {
+        int depth = 0;
+        char quote = 0;
+        for (int index = open; index < source.length(); index++) {
+            char current = source.charAt(index);
+            if (quote != 0) {
+                if (current == quote && (index == 0 || source.charAt(index - 1) != '\\')) quote = 0;
+            } else if (current == '\'' || current == '"') {
+                quote = current;
+            } else if (current == '{') {
+                depth++;
+            } else if (current == '}' && --depth == 0) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private static String recoverSelectorPrelude(String source) {
@@ -198,10 +270,16 @@ public final class CssParser {
             if (separator < 1) {
                 continue;
             }
-            String property = declaration.substring(0, separator).trim().toLowerCase(Locale.ROOT);
+            String propertySource = declaration.substring(0, separator).trim();
+            String property = propertySource.startsWith("--")
+                    ? propertySource : propertySource.toLowerCase(Locale.ROOT);
             String rawValue = declaration.substring(separator + 1).trim();
             String value = rawValue.toLowerCase(Locale.ROOT);
-            if (property.equals("background-image")) {
+            if (property.startsWith("--")) {
+                if (!rawValue.isEmpty()) declarations.put(property, rawValue);
+            } else if (containsVarFunction(rawValue) && supportsProperty(property)) {
+                declarations.put(property, rawValue);
+            } else if (property.equals("background-image")) {
                 putBackgroundImage(declarations, rawValue);
             } else {
                 parseDeclaration(declarations, property, value);
@@ -236,7 +314,10 @@ public final class CssParser {
             case "flex-direction" -> supports(normalized, "row");
             case "justify-content" -> supports(normalized, "flex-start");
             case "align-items" -> supports(normalized, "stretch");
-            case "flex-grow" -> supports(normalized, "1");
+            case "flex", "flex-grow", "flex-shrink" -> supports(normalized, "1");
+            case "flex-basis" -> supports(normalized, "auto");
+            case "opacity" -> supports(normalized, "0.5");
+            case "fill" -> supports(normalized, "black");
             case "position" -> supports(normalized, "static");
             case "z-index" -> supports(normalized, "1");
             case "cursor" -> supports(normalized, "pointer");
@@ -272,7 +353,11 @@ public final class CssParser {
 
     private static void parseDeclaration(Map<String, String> target, String property, String value) {
         switch (property) {
-            case "color", "background-color" -> putColor(target, property, value);
+            case "color" -> {
+                if (value.equals("inherit")) target.put(property, value);
+                else putColor(target, property, value);
+            }
+            case "background-color" -> putColor(target, property, value);
             case "background" -> putColor(target, "background-color", value);
             case "background-repeat" -> {
                 if (value.equals("repeat") || value.equals("repeat-x")
@@ -330,6 +415,14 @@ public final class CssParser {
                 }
             }
             case "flex-grow" -> putIfMatches(target, property, value, NON_NEGATIVE_NUMBER);
+            case "flex-shrink" -> putIfMatches(target, property, value, NON_NEGATIVE_NUMBER);
+            case "flex-basis" -> putIfMatches(target, property, value, DIMENSION);
+            case "flex" -> expandFlex(target, value);
+            case "opacity" -> putUnitInterval(target, property, value);
+            case "fill" -> {
+                if (value.equals("currentcolor") || value.equals("none")
+                        || CssColor.isSupported(value)) target.put(property, value);
+            }
             case "border-collapse" -> {
                 if (value.equals("separate") || value.equals("collapse")) {
                     target.put(property, value);
@@ -429,6 +522,45 @@ public final class CssParser {
         }
         if (com.browicy.engine.render.CssUrl.parseSingle(stripped) != null) {
             target.put("background-image", stripped);
+        }
+    }
+
+    private static boolean containsVarFunction(String value) {
+        return value.toLowerCase(Locale.ROOT).contains("var(");
+    }
+
+    private static void expandFlex(Map<String, String> target, String value) {
+        String normalized = value.strip();
+        if (normalized.equals("none")) {
+            target.put("flex-grow", "0");
+            target.put("flex-shrink", "0");
+            target.put("flex-basis", "auto");
+            return;
+        }
+        if (normalized.equals("auto")) normalized = "1 1 auto";
+        else if (normalized.equals("initial")) normalized = "0 1 auto";
+        String[] tokens = normalized.split("\\s+");
+        if (tokens.length == 1 && NON_NEGATIVE_NUMBER.matcher(tokens[0]).matches()) {
+            target.put("flex-grow", tokens[0]);
+            target.put("flex-shrink", "1");
+            target.put("flex-basis", "0%");
+            return;
+        }
+        if (tokens.length < 2 || tokens.length > 3
+                || !NON_NEGATIVE_NUMBER.matcher(tokens[0]).matches()
+                || !NON_NEGATIVE_NUMBER.matcher(tokens[1]).matches()) return;
+        String basis = tokens.length == 3 ? tokens[2] : "0%";
+        if (!basis.equals("auto") && !DIMENSION.matcher(basis).matches()) return;
+        target.put("flex-grow", tokens[0]);
+        target.put("flex-shrink", tokens[1]);
+        target.put("flex-basis", basis);
+    }
+
+    private static void putUnitInterval(Map<String, String> target, String property, String value) {
+        try {
+            float parsed = Float.parseFloat(value);
+            if (Float.isFinite(parsed) && parsed >= 0 && parsed <= 1) target.put(property, value);
+        } catch (NumberFormatException ignored) {
         }
     }
 

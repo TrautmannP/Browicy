@@ -32,7 +32,6 @@ final class CompatibilityReport {
             Map.entry("video", "HTML media playback"),
             Map.entry("audio", "HTML media playback"),
             Map.entry("iframe", "nested browsing contexts"),
-            Map.entry("svg", "SVG rendering"),
             Map.entry("math", "MathML rendering"),
             Map.entry("object", "embedded object content"),
             Map.entry("embed", "embedded content"),
@@ -64,7 +63,7 @@ final class CompatibilityReport {
             Matcher atRules = CSS_AT_RULE_USAGE.matcher(sheet.sourceText());
             while (atRules.find()) {
                 String name = atRules.group(1).toLowerCase(Locale.ROOT);
-                if (!name.equals("font-face")) {
+                if (!name.equals("font-face") && !name.equals("media")) {
                     add("css", "at-rule:@" + name, "unsupported-at-rule", source,
                             "@" + name, "certain");
                 }
@@ -82,7 +81,7 @@ final class CompatibilityReport {
         String selector = rule.substring(0, openBrace).strip();
         Matcher atRule = CSS_AT_RULE.matcher(selector.toLowerCase(Locale.ROOT));
         if (atRule.find()) {
-            if (atRule.group(1).equals("font-face")) return;
+            return;
         } else {
             try {
                 selectorParser.parse(selector);

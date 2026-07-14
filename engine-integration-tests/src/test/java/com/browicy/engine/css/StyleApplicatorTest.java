@@ -223,6 +223,38 @@ public class StyleApplicatorTest {
         assertFalse(heading.getComputedStyles().containsKey("font-size"));
     }
 
+    @Test
+    public void resolvesInheritedCustomPropertiesFallbacksAndNestedVariables() {
+        Document document = parse("""
+                html { --brand:#4285f4; --button:var(--brand); }
+                .primary { color:var(--button); background-color:var(--missing, rgba(0,0,0,.2)); }
+                """, "<button class=\"primary\">Search</button>");
+        Element button = document.getBody().findFirst("button");
+
+        assertEquals("#4285f4", button.getComputedStyles().get("--brand"));
+        assertEquals("#4285f4", button.getComputedStyles().get("color"));
+        assertEquals("rgba(0,0,0,.2)", button.getComputedStyles().get("background-color"));
+    }
+
+    @Test
+    public void appliesMediaQueriesForTheActiveViewport() {
+        Document document = new HtmlParser().parse("""
+                <html><head><style>
+                  .hero { color:red }
+                  @media (min-width: 569px) and (min-height: 500px) { .hero { color:green } }
+                  @media (max-width: 400px) { .hero { color:blue } }
+                </style></head><body><div class=\"hero\">Hero</div></body></html>
+                """);
+        StyleSheetRegistry registry = new StyleSheetRegistry();
+        registry.register(0, document.getElementsByTagName("style").getFirst().getTextContent());
+        StyleApplicator applicator = new StyleApplicator();
+
+        applicator.apply(document, registry, 800, 600);
+        assertEquals("green", document.getBody().findFirst("div").getComputedStyles().get("color"));
+        applicator.apply(document, registry, 360, 600);
+        assertEquals("blue", document.getBody().findFirst("div").getComputedStyles().get("color"));
+    }
+
     private static Document parse(String css, String body) {
         return new HtmlParser().parse("""
                 <html><head><style>%s</style></head><body>%s</body></html>

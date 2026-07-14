@@ -7,15 +7,21 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-public record CssRule(Selector selector, Map<String, String> declarations, long sourceOrder) {
+public record CssRule(Selector selector, Map<String, String> declarations, long sourceOrder,
+                      MediaCondition mediaCondition) {
 
     public CssRule {
         Objects.requireNonNull(selector, "selector");
+        Objects.requireNonNull(mediaCondition, "mediaCondition");
         declarations = Collections.unmodifiableMap(new LinkedHashMap<>(declarations));
     }
 
     public CssRule(Selector selector, Map<String, String> declarations) {
-        this(selector, declarations, 0);
+        this(selector, declarations, 0, MediaCondition.ALL);
+    }
+
+    public CssRule(Selector selector, Map<String, String> declarations, long sourceOrder) {
+        this(selector, declarations, sourceOrder, MediaCondition.ALL);
     }
 
     public Specificity specificity() {

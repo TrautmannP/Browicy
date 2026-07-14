@@ -12,10 +12,16 @@ public record RenderImage(Element source,
                           RenderStyle style,
                           byte[] data,
                           Integer htmlWidth,
-                          Integer htmlHeight) implements RenderNode {
+                          Integer htmlHeight,
+                          SvgImage svg) implements RenderNode {
 
     public RenderImage {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(style, "style");
+    }
+
+    public RenderImage(Element source, RenderStyle style, byte[] data,
+                       Integer htmlWidth, Integer htmlHeight) {
+        this(source, style, data, htmlWidth, htmlHeight, null);
     }
 }

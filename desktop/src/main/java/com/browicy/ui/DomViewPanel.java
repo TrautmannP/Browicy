@@ -25,8 +25,14 @@ import com.browicy.ui.render.RenderLayoutEngine.ImageFragment;
 import com.browicy.ui.render.RenderLayoutEngine.LayoutResult;
 import com.browicy.ui.render.RenderLayoutEngine.PaintFragment;
 import com.browicy.ui.render.RenderLayoutEngine.TextFragment;
+import com.github.weisj.jsvg.SVGDocument;
+import com.github.weisj.jsvg.parser.LoaderContext;
+import com.github.weisj.jsvg.parser.SVGLoader;
+import com.github.weisj.jsvg.parser.resources.ResourcePolicy;
+import com.github.weisj.jsvg.view.ViewBox;
 import java.awt.Color;
 import java.awt.BasicStroke;
+import java.awt.AlphaComposite;
 import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
@@ -47,6 +53,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -75,6 +82,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private final StyleSheetRegistry styleSheets;
     private final FontResourceRegistry fonts;
     private final Map<URI, Optional<BufferedImage>> backgroundImages = new ConcurrentHashMap<>();
+    private final Map<String, Optional<SVGDocument>> svgDocuments = new ConcurrentHashMap<>();
     private RenderTree renderTree;
     private Element pressedTarget;
     private List<Element> hoveredElements = List.of();
@@ -211,6 +219,9 @@ public final class DomViewPanel extends JPanel implements Scrollable {
 
     private void rebuildRenderTree(int viewportWidth, int viewportHeight) {
         synchronized (document) {
+            StyleApplicator applicator = new StyleApplicator();
+            if (styleSheets == null) applicator.apply(document, viewportWidth, viewportHeight);
+            else applicator.apply(document, styleSheets, viewportWidth, viewportHeight);
             renderTree = new RenderTreeBuilder(element -> images.find(element)
                     .map(com.browicy.engine.net.BinaryResource::content)
                     .orElse(null)).build(document, viewportWidth, viewportHeight);
@@ -296,8 +307,9 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         hoveredElements = List.copyOf(next);
         synchronized (document) {
             StyleApplicator applicator = new StyleApplicator();
-            if (styleSheets == null) applicator.apply(document);
-            else applicator.apply(document, styleSheets);
+            if (styleSheets == null) applicator.apply(
+                    document, currentLayoutWidth(), currentViewportHeight());
+            else applicator.apply(document, styleSheets, currentLayoutWidth(), currentViewportHeight());
         }
         rebuildRenderTree();
         revalidate();
@@ -341,14 +353,18 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                         || fragment.top() >= clip.y + clip.height)) {
                     continue;
                 }
-                Graphics2D fragmentGraphics = g2d;
+                Graphics2D fragmentGraphics = (Graphics2D) g2d.create();
                 if (fragment.clip() != null) {
-                    fragmentGraphics = (Graphics2D) g2d.create();
                     ClipRect fragmentClip = fragment.clip();
                     fragmentGraphics.clip(new Rectangle2D.Float(fragmentClip.x(), fragmentClip.y(),
                             fragmentClip.width(), fragmentClip.height()));
                 }
                 try {
+                    float opacity = fragmentOpacity(fragment);
+                    if (opacity < 1) {
+                        fragmentGraphics.setComposite(
+                                AlphaComposite.getInstance(AlphaComposite.SRC_OVER, opacity));
+                    }
                     if (fragment instanceof BoxFragment box) {
                         paintBox(fragmentGraphics, box);
                     } else if (fragment instanceof InlineBoxFragment inlineBox) {
@@ -367,14 +383,19 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                         paintImage(fragmentGraphics, image);
                     }
                 } finally {
-                    if (fragmentGraphics != g2d) {
-                        fragmentGraphics.dispose();
-                    }
+                    fragmentGraphics.dispose();
                 }
             }
         } finally {
             g2d.dispose();
         }
+    }
+
+    private static float fragmentOpacity(PaintFragment fragment) {
+        if (fragment instanceof BoxFragment box) return box.box().style().opacity();
+        if (fragment instanceof InlineBoxFragment box) return box.box().style().opacity();
+        if (fragment instanceof ImageFragment image) return image.image().style().opacity();
+        return ((TextFragment) fragment).opacity();
     }
 
     private boolean ensureLayout(int width, Graphics2D graphics) {
@@ -418,18 +439,39 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                 fragment.firstFragment(), fragment.lastFragment());
     }
 
-    private static void paintImage(Graphics2D graphics, ImageFragment fragment) {
+    private void paintImage(Graphics2D graphics, ImageFragment fragment) {
         if (fragment.bitmap() != null) {
             graphics.drawImage(fragment.bitmap(),
                     Math.round(fragment.x()), Math.round(fragment.y()),
                     Math.max(0, Math.round(fragment.width())),
                     Math.max(0, Math.round(fragment.height())), null);
+        } else if (fragment.image().svg() != null) {
+            SVGDocument svg = svgDocument(fragment.image().svg().source());
+            if (svg != null) {
+                svg.render(this, graphics, new ViewBox(
+                        fragment.x(), fragment.y(), fragment.width(), fragment.height()));
+            }
         } else {
             graphics.setColor(new Color(0x9e, 0x9e, 0x9e));
             graphics.draw(new Rectangle2D.Float(fragment.x(), fragment.y(),
                     Math.max(0, fragment.width() - 1),
                     Math.max(0, fragment.height() - 1)));
         }
+    }
+
+    private SVGDocument svgDocument(String source) {
+        return svgDocuments.computeIfAbsent(source, ignored -> {
+            LoaderContext context = LoaderContext.builder()
+                    .externalResourcePolicy(ResourcePolicy.DENY_ALL)
+                    .build();
+            try (ByteArrayInputStream input = new ByteArrayInputStream(
+                    source.getBytes(StandardCharsets.UTF_8))) {
+                return Optional.ofNullable(new SVGLoader().load(
+                        input, URI.create("about:blank"), context));
+            } catch (IOException | RuntimeException invalidSvg) {
+                return Optional.empty();
+            }
+        }).orElse(null);
     }
 
     private void paintStyledBox(Graphics2D graphics,
@@ -651,6 +693,9 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         Graphics2D graphics = image.createGraphics();
         try {
             configureGraphics(graphics);
+            StyleApplicator applicator = new StyleApplicator();
+            if (styleSheets == null) applicator.apply(document, width, viewportHeight);
+            else applicator.apply(document, styleSheets, width, viewportHeight);
             RenderTree testingTree = new RenderTreeBuilder(element -> images.find(element)
                     .map(com.browicy.engine.net.BinaryResource::content)
                     .orElse(null)).build(document, width, viewportHeight);

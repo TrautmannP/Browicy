@@ -216,6 +216,25 @@ public class RenderTreeBuilderTest {
         assertTrue(container.children().stream().anyMatch(RenderImage.class::isInstance));
     }
 
+    @Test
+    public void createsScalableRenderImageForInlineSvgPaths() {
+        RenderTree tree = build("""
+                <body style="color:#4285f4"><svg width="24" height="24" viewBox="0 0 48 48"
+                  style="fill:currentColor;opacity:.75">
+                  <path d="M4 4h40v40H4z"></path>
+                </svg></body>
+                """);
+        RenderImage image = imagesRecursively(tree.root()).getFirst();
+
+        assertEquals(Integer.valueOf(24), image.htmlWidth());
+        assertEquals(48f, image.svg().width(), .001f);
+        assertTrue(image.svg().source().contains("viewBox=\"0 0 48 48\""));
+        assertTrue(image.svg().source().contains("<path d=\"M4 4h40v40H4z\""));
+        assertTrue(image.svg().source().contains("color:rgba(66,133,244,1.0)"));
+        assertTrue(image.svg().source().contains("fill:currentcolor"));
+        assertEquals(.75f, image.style().opacity(), .001f);
+    }
+
     private static RenderTree build(String html) {
         Document document = new HtmlParser().parse(html);
         return new RenderTreeBuilder().build(document);
@@ -260,5 +279,15 @@ public class RenderTreeBuilderTest {
         return children.stream()
                 .flatMap(child -> textRunsRecursively(child).stream())
                 .toList();
+    }
+
+    private static List<RenderImage> imagesRecursively(RenderNode node) {
+        if (node instanceof RenderImage image) return List.of(image);
+        List<RenderNode> children;
+        if (node instanceof RenderBox box) children = box.children();
+        else if (node instanceof RenderInlineBox inline) children = inline.children();
+        else if (node instanceof RenderInlineBlock block) children = block.box().children();
+        else return List.of();
+        return children.stream().flatMap(child -> imagesRecursively(child).stream()).toList();
     }
 }

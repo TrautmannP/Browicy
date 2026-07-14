@@ -49,7 +49,10 @@ public record RenderStyle(
         FlexDirection flexDirection,
         JustifyContent justifyContent,
         AlignItems alignItems,
-        float flexGrow) {
+        float flexGrow,
+        float flexShrink,
+        RenderLength flexBasis,
+        float opacity) {
 
     public enum Display {
         BLOCK, INLINE, INLINE_BLOCK, FLEX, INLINE_FLEX, NONE,
@@ -82,6 +85,12 @@ public record RenderStyle(
         }
         if (!Float.isFinite(flexGrow) || flexGrow < 0) {
             throw new IllegalArgumentException("flexGrow must be a finite non-negative number");
+        }
+        if (!Float.isFinite(flexShrink) || flexShrink < 0) {
+            throw new IllegalArgumentException("flexShrink must be a finite non-negative number");
+        }
+        if (!Float.isFinite(opacity) || opacity < 0 || opacity > 1) {
+            throw new IllegalArgumentException("opacity must be between 0 and 1");
         }
     }
 
@@ -121,6 +130,6 @@ public record RenderStyle(
                 maxHeight, boxSizing, margin, autoMargins, padding, borderWidth, borderColor,
                 borderStyle, borderRadius, outlineWidth, outlineColor, outlineVisible,
                 borderCollapse, textAlign, overflow, verticalAlign, flexDirection,
-                justifyContent, alignItems, newFlexGrow);
+                justifyContent, alignItems, newFlexGrow, flexShrink, flexBasis, opacity);
     }
 }

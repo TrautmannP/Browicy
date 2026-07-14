@@ -2,9 +2,14 @@ package com.browicy.engine.render;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Immutable CSS color value independent from a concrete UI toolkit. */
 public record CssColor(int red, int green, int blue, int alpha) {
+
+    private static final Pattern RGB_FUNCTION = Pattern.compile(
+            "rgba?\\s*\\((.*)\\)", Pattern.CASE_INSENSITIVE);
 
     private static final Map<String, CssColor> NAMED = Map.ofEntries(
             Map.entry("black", rgb(0x000000)),
@@ -49,17 +54,61 @@ public record CssColor(int red, int green, int blue, int alpha) {
                 hex = "" + hex.charAt(0) + hex.charAt(0)
                         + hex.charAt(1) + hex.charAt(1)
                         + hex.charAt(2) + hex.charAt(2);
+            } else if (hex.length() == 4) {
+                hex = "" + hex.charAt(0) + hex.charAt(0)
+                        + hex.charAt(1) + hex.charAt(1)
+                        + hex.charAt(2) + hex.charAt(2)
+                        + hex.charAt(3) + hex.charAt(3);
             }
-            if (hex.length() != 6) {
+            if (hex.length() != 6 && hex.length() != 8) {
                 return null;
             }
             try {
-                return rgb(Integer.parseInt(hex, 16));
+                long parsed = Long.parseLong(hex, 16);
+                if (hex.length() == 6) return rgb((int) parsed);
+                return new CssColor((int) (parsed >> 24) & 0xff, (int) (parsed >> 16) & 0xff,
+                        (int) (parsed >> 8) & 0xff, (int) parsed & 0xff);
             } catch (NumberFormatException ignored) {
                 return null;
             }
         }
+        Matcher rgb = RGB_FUNCTION.matcher(normalized);
+        if (rgb.matches()) {
+            String body = rgb.group(1).replace('/', ',');
+            String[] parts = body.split("\\s*,\\s*|\\s+");
+            int expected = normalized.startsWith("rgba") ? 4 : 3;
+            if (parts.length != expected) return null;
+            try {
+                int red = parseRgbChannel(parts[0]);
+                int green = parseRgbChannel(parts[1]);
+                int blue = parseRgbChannel(parts[2]);
+                int alpha = expected == 4 ? parseAlpha(parts[3]) : 255;
+                return new CssColor(red, green, blue, alpha);
+            } catch (IllegalArgumentException ignored) {
+                return null;
+            }
+        }
         return NAMED.get(normalized);
+    }
+
+    private static int parseRgbChannel(String value) {
+        float parsed = value.endsWith("%")
+                ? Float.parseFloat(value.substring(0, value.length() - 1)) * 2.55f
+                : Float.parseFloat(value);
+        if (!Float.isFinite(parsed) || parsed < 0 || parsed > 255) {
+            throw new IllegalArgumentException();
+        }
+        return Math.round(parsed);
+    }
+
+    private static int parseAlpha(String value) {
+        float parsed = value.endsWith("%")
+                ? Float.parseFloat(value.substring(0, value.length() - 1)) / 100f
+                : Float.parseFloat(value);
+        if (!Float.isFinite(parsed) || parsed < 0 || parsed > 1) {
+            throw new IllegalArgumentException();
+        }
+        return Math.round(parsed * 255);
     }
 
     public boolean isTransparent() {

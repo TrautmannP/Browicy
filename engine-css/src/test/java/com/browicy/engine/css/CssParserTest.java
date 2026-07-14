@@ -353,4 +353,45 @@ public class CssParserTest {
         assertFalse(parser.supports("flex-grow", "-1"));
         assertFalse(parser.supports("align-items", "baseline"));
     }
+
+    @Test
+    public void parsesRgbaOpacityFlexShorthandAndSvgFill() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                color:rgba(60, 64, 67, .3);opacity:.75;flex:1 0 auto;fill:currentColor
+                """);
+
+        assertEquals("rgba(60, 64, 67, .3)", declarations.get("color"));
+        assertEquals(".75", declarations.get("opacity"));
+        assertEquals("1", declarations.get("flex-grow"));
+        assertEquals("0", declarations.get("flex-shrink"));
+        assertEquals("auto", declarations.get("flex-basis"));
+        assertEquals("currentcolor", declarations.get("fill"));
+        assertTrue(parser.supportsProperty("flex"));
+        assertTrue(parser.supportsProperty("opacity"));
+        assertTrue(parser.supportsProperty("fill"));
+    }
+
+    @Test
+    public void retainsCustomPropertiesAndDeferredVarValues() {
+        Map<String, String> declarations = new CssParser().parseDeclarations(
+                "--BrandColor: #4285F4;color:var(--BrandColor, blue)");
+
+        assertEquals("#4285F4", declarations.get("--BrandColor"));
+        assertEquals("var(--BrandColor, blue)", declarations.get("color"));
+    }
+
+    @Test
+    public void parsesRulesInsideMediaQueriesWithTheirCondition() {
+        List<CssRule> rules = new CssParser().parse("""
+                .base { color:black }
+                @media (min-width: 569px) and (min-height: 500px) {
+                  .wide { color:green }
+                }
+                """);
+
+        assertEquals(2, rules.size());
+        assertTrue(rules.get(1).mediaCondition().matches(800, 600));
+        assertFalse(rules.get(1).mediaCondition().matches(500, 600));
+    }
 }

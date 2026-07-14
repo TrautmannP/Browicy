@@ -52,7 +52,7 @@ public class CompatibilityReportTest {
     }
 
     @Test
-    public void treatsSupportedFontFaceAndUnsupportedAtRulesAccurately() {
+    public void doesNotReportSupportedFontFaceOrMediaRules() {
         Document document = new HtmlParser().parse(
                 "<html><body><p>ok</p></body></html>", "https://example.test/");
         StyleSheetRegistry styles = new StyleSheetRegistry();
@@ -64,8 +64,8 @@ public class CompatibilityReportTest {
         Map<String, Object> report = CompatibilityReport.build(
                 document, styles, JsExecutionResult.EMPTY);
 
-        assertEquals(1, report.get("unsupportedFeatures"));
-        assertTrue(report.get("issues").toString().contains("at-rule:@media"));
+        assertEquals(0, report.get("unsupportedFeatures"));
+        assertTrue(!report.get("issues").toString().contains("at-rule:@media"));
         assertTrue(!report.get("issues").toString().contains("font-face"));
     }
 }

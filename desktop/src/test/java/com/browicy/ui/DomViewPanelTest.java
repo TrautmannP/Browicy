@@ -414,6 +414,63 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void opacityDoesNotLeakIntoFollowingPaintFragments() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body style="background-color:white">
+                  <div id="faded" style="width:40px;height:20px;background-color:red;opacity:.25"></div>
+                  <div id="opaque" style="width:40px;height:20px;background-color:blue"></div>
+                </body>
+                """));
+        panel.setSize(120, 1);
+        LayoutResult layout = panel.layoutForTesting(120);
+        BoxFragment faded = boxById(layout, "faded");
+        BoxFragment opaque = boxById(layout, "opaque");
+        BufferedImage image = paint(panel);
+
+        int fadedPixel = image.getRGB(Math.round(faded.x() + 10), Math.round(faded.y() + 10));
+        assertTrue(new java.awt.Color(fadedPixel, true).getRed() > 0);
+        assertColor(image, Math.round(opaque.x() + 10), Math.round(opaque.y() + 10),
+                CssColor.parse("blue"));
+    }
+
+    @Test
+    public void rgbaBackgroundIsAlphaCompositedOverThePage() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body style="background-color:white">
+                  <div id="alpha" style="width:30px;height:20px;background-color:rgba(255,0,0,.5)"></div>
+                </body>
+                """));
+        panel.setSize(80, 1);
+        BoxFragment box = boxById(panel.layoutForTesting(80), "alpha");
+        java.awt.Color pixel = new java.awt.Color(paint(panel).getRGB(
+                Math.round(box.x() + 10), Math.round(box.y() + 10)), true);
+
+        assertEquals(255, pixel.getRed(), 2);
+        assertEquals(127, pixel.getGreen(), 2);
+        assertEquals(127, pixel.getBlue(), 2);
+    }
+
+    @Test
+    public void mediaQueriesAreReevaluatedForTheLayoutViewport() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <html><head><style>
+                  .label { color:red }
+                  @media (max-width:400px) { .label { color:blue } }
+                </style></head><body><span class="label">responsive</span></body></html>
+                """));
+
+        TextFragment wide = panel.layoutForTesting(800, 600).fragments().stream()
+                .filter(TextFragment.class::isInstance).map(TextFragment.class::cast)
+                .filter(fragment -> fragment.text().contains("responsive")).findFirst().orElseThrow();
+        TextFragment narrow = panel.layoutForTesting(360, 600).fragments().stream()
+                .filter(TextFragment.class::isInstance).map(TextFragment.class::cast)
+                .filter(fragment -> fragment.text().contains("responsive")).findFirst().orElseThrow();
+
+        assertEquals(CssColor.parse("red"), wide.color());
+        assertEquals(CssColor.parse("blue"), narrow.color());
+    }
+
+    @Test
     public void subtractsPaddingAndBorderFromBorderBoxDimensions() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body><div id="box" style="box-sizing:border-box;width:100px;height:40px;
@@ -760,6 +817,62 @@ public class DomViewPanelTest {
 
         assertEquals(272f, logo.width(), 0.001f);
         assertEquals(92f, logo.height(), 0.001f);
+    }
+
+    @Test
+    public void jsvgPaintsInlineSvgShapesAndGradients() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body style="background-color:white"><svg width="40" height="20" viewBox="0 0 40 20">
+                  <defs><linearGradient id="paint"><stop offset="0" stop-color="red"></stop>
+                    <stop offset="1" stop-color="blue"></stop></linearGradient></defs>
+                  <rect width="40" height="20" fill="url(#paint)"></rect>
+                </svg></body>
+                """));
+        panel.setSize(100, 1);
+        ImageFragment fragment = panel.layoutForTesting(100).fragments().stream()
+                .filter(ImageFragment.class::isInstance).map(ImageFragment.class::cast)
+                .findFirst().orElseThrow();
+        BufferedImage image = paint(panel);
+
+        java.awt.Color left = new java.awt.Color(image.getRGB(
+                Math.round(fragment.x() + 3), Math.round(fragment.y() + 10)), true);
+        java.awt.Color right = new java.awt.Color(image.getRGB(
+                Math.round(fragment.x() + 36), Math.round(fragment.y() + 10)), true);
+        assertTrue(left.getRed() > left.getBlue());
+        assertTrue(right.getBlue() > right.getRed());
+    }
+
+    @Test
+    public void jsvgReceivesCascadedCurrentColor() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <html><head><style>.icon { fill:currentColor }</style></head>
+                  <body style="color:#4285f4;background-color:white">
+                    <svg class="icon" width="20" height="20" viewBox="0 0 20 20">
+                      <rect width="20" height="20"></rect>
+                    </svg>
+                  </body></html>
+                """));
+        panel.setSize(80, 1);
+        ImageFragment fragment = panel.layoutForTesting(80).fragments().stream()
+                .filter(ImageFragment.class::isInstance).map(ImageFragment.class::cast)
+                .findFirst().orElseThrow();
+
+        assertColor(paint(panel), Math.round(fragment.x() + 10), Math.round(fragment.y() + 10),
+                CssColor.parse("#4285f4"));
+    }
+
+    @Test
+    public void flexShorthandControlsBasisShrinkAndGrowthInLayout() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div style="display:flex;width:300px">
+                  <div id="fixed" style="flex:0 0 100px;height:20px"></div>
+                  <div id="grown" style="flex:1 1 0%;height:20px"></div>
+                </div></body>
+                """));
+        LayoutResult layout = panel.layoutForTesting(400);
+
+        assertEquals(100f, boxById(layout, "fixed").width(), .01f);
+        assertEquals(200f, boxById(layout, "grown").width(), .01f);
     }
 
     @Test
