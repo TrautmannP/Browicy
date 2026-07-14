@@ -519,7 +519,8 @@ public final class RenderLayoutEngine {
         TextFragment text = (TextFragment) fragment;
         return new TextFragment(text.text(), text.x() + dx, text.width(),
                 text.baseline() + dy, text.top() + dy, text.height(), text.font(),
-                text.color(), translate(text.clip(), dx, dy));
+                text.color(), text.underline(), text.decorationColor(),
+                translate(text.clip(), dx, dy));
     }
 
     private static ClipRect translate(ClipRect clip, float dx, float dy) {
@@ -776,7 +777,8 @@ public final class RenderLayoutEngine {
         }
         TextFragment text = (TextFragment) fragment;
         return new TextFragment(text.text(), text.x(), text.width(), text.baseline(), text.top(),
-                text.height(), text.font(), text.color(), effective);
+                text.height(), text.font(), text.color(), text.underline(),
+                text.decorationColor(), effective);
     }
 
     private static ClipRect intersect(ClipRect first, ClipRect second) {
@@ -867,10 +869,14 @@ public final class RenderLayoutEngine {
                                float height,
                                Font font,
                                CssColor color,
+                               boolean underline,
+                               CssColor decorationColor,
                                ClipRect clip) implements InlineFragment {
         public TextFragment(String text, float x, float width, float baseline, float top,
-                            float height, Font font, CssColor color) {
-            this(text, x, width, baseline, top, height, font, color, null);
+                            float height, Font font, CssColor color, boolean underline,
+                            CssColor decorationColor) {
+            this(text, x, width, baseline, top, height, font, color, underline,
+                    decorationColor, null);
         }
         @Override public float bottom() { return top + height; }
     }
@@ -1323,6 +1329,8 @@ public final class RenderLayoutEngine {
                             Font font,
                             FontMetrics metrics,
                             CssColor color,
+                            boolean underline,
+                            CssColor decorationColor,
                             float usedLineHeight) implements LineItem {
         private float adjustment() {
             return usedLineHeight <= 0 ? 0 : (usedLineHeight - metrics.getHeight()) / 2f;
@@ -1485,7 +1493,7 @@ public final class RenderLayoutEngine {
                      RenderStyle style) {
             float itemWidth = metrics.stringWidth(text);
             addItem(new TextItem(text, width, itemWidth, font, metrics, style.color(),
-                    style.usedLineHeightPx()));
+                    style.underline(), style.textDecorationColor(), style.usedLineHeightPx()));
             width += itemWidth;
             placedContent = true;
         }
@@ -1596,7 +1604,9 @@ public final class RenderLayoutEngine {
                             baseline - text.metrics.getAscent() + inheritedDy,
                             text.metrics.getHeight(),
                             text.font,
-                            text.color));
+                            text.color,
+                            text.underline,
+                            text.decorationColor));
                 } else if (item instanceof BoxItem box) {
                     float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
                     float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
@@ -1693,7 +1703,8 @@ public final class RenderLayoutEngine {
             TextFragment text = (TextFragment) fragment;
             return new TextFragment(text.text(), text.x() + dx, text.width(),
                     text.baseline() + dy, text.top() + dy, text.height(), text.font(),
-                    text.color(), translate(text.clip(), dx, dy));
+                    text.color(), text.underline(), text.decorationColor(),
+                    translate(text.clip(), dx, dy));
         }
 
         private static ClipRect translate(ClipRect clip, float dx, float dy) {

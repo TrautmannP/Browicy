@@ -235,6 +235,9 @@ public final class CssParser {
             case "max-width", "max-height" -> supports(normalized, "none");
             case "box-sizing" -> supports(normalized, "content-box");
             case "text-align" -> supports(normalized, "left");
+            case "text-decoration", "text-decoration-line" -> supports(normalized, "underline");
+            case "text-decoration-color" -> supports(normalized, "black");
+            case "list-style", "list-style-type" -> supports(normalized, "disc");
             case "overflow" -> supports(normalized, "visible");
             case "vertical-align" -> supports(normalized, "baseline");
             case "border-collapse" -> supports(normalized, "separate");
@@ -344,6 +347,18 @@ public final class CssParser {
                 if (value.equals("left") || value.equals("center") || value.equals("right")) {
                     target.put(property, value);
                 }
+            }
+            case "text-decoration", "text-decoration-line" -> {
+                if (value.equals("none") || value.equals("underline")) {
+                    target.put("text-decoration-line", value);
+                } else if (property.equals("text-decoration")) {
+                    expandTextDecoration(target, value);
+                }
+            }
+            case "text-decoration-color" -> putColor(target, property, value);
+            case "list-style", "list-style-type" -> {
+                String type = listStyleType(value);
+                if (type != null) target.put("list-style-type", type);
             }
             case "margin", "padding" -> expandLengths(target, property, value,
                     property.equals("margin") ? MARGIN_LENGTH : POSITIVE_LENGTH, "");
@@ -557,6 +572,30 @@ public final class CssParser {
         target.put("outline-width", width == null ? "1px" : width);
         target.put("outline-style", style == null ? "none" : style);
         if (color != null) target.put("outline-color", color);
+    }
+
+    private static void expandTextDecoration(Map<String, String> target, String value) {
+        String line = null;
+        String color = null;
+        for (String token : value.split("\\s+")) {
+            if ((token.equals("none") || token.equals("underline")) && line == null) {
+                line = token;
+            } else if (CssColor.isSupported(token) && color == null) {
+                color = token;
+            } else {
+                return;
+            }
+        }
+        if (line != null) target.put("text-decoration-line", line);
+        if (color != null) target.put("text-decoration-color", color);
+    }
+
+    private static String listStyleType(String value) {
+        for (String token : value.split("\\s+")) {
+            if (token.equals("none") || token.equals("disc")
+                    || token.equals("circle") || token.equals("square")) return token;
+        }
+        return null;
     }
 
     private static String[] splitBoxValues(String value) {

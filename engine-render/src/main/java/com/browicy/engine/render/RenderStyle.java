@@ -15,6 +15,9 @@ public record RenderStyle(
         boolean italic,
         float lineHeight,
         CssColor color,
+        ListStyleType listStyleType,
+        boolean underline,
+        CssColor textDecorationColor,
         CssColor backgroundColor,
         String backgroundImageUrl,
         BackgroundRepeat backgroundRepeat,
@@ -48,6 +51,7 @@ public record RenderStyle(
         TABLE_ROW, TABLE_CELL, TABLE_COLUMN_GROUP, TABLE_COLUMN, TABLE_CAPTION
     }
     public enum BorderCollapse { SEPARATE, COLLAPSE }
+    public enum ListStyleType { DISC, CIRCLE, SQUARE, NONE }
     public enum BackgroundRepeat { REPEAT, REPEAT_X, REPEAT_Y, NO_REPEAT }
     public enum BackgroundPositionX { LEFT, CENTER, RIGHT }
     public enum BackgroundPositionY { TOP, CENTER, BOTTOM }

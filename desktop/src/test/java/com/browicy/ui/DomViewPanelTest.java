@@ -911,6 +911,22 @@ public class DomViewPanelTest {
         assertEquals(0x00ff0000, center & 0x00ffffff);
     }
 
+    @Test
+    public void carriesUnderlineIntoPaintFragment() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><a style="color:red;text-decoration:underline blue">decorated</a></body>
+                """));
+
+        TextFragment text = panel.layoutForTesting(200).fragments().stream()
+                .filter(TextFragment.class::isInstance)
+                .map(TextFragment.class::cast)
+                .filter(fragment -> fragment.text().contains("decorated"))
+                .findFirst().orElseThrow();
+
+        assertTrue(text.underline());
+        assertEquals(CssColor.parse("blue"), text.decorationColor());
+    }
+
     private static Document parse(String html) {
         return new HtmlParser().parse(html);
     }

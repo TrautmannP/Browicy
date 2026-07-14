@@ -309,4 +309,17 @@ public class CssParserTest {
         assertTrue(parser.supportsProperty("border-radius"));
         assertTrue(parser.supportsProperty("outline"));
     }
+
+    @Test
+    public void parsesListStyleAndTextDecoration() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations(
+                "list-style:square inside;text-decoration:underline blue");
+
+        assertEquals("square", declarations.get("list-style-type"));
+        assertEquals("underline", declarations.get("text-decoration-line"));
+        assertEquals("blue", declarations.get("text-decoration-color"));
+        assertTrue(parser.supportsProperty("list-style"));
+        assertTrue(parser.supportsProperty("text-decoration"));
+    }
 }

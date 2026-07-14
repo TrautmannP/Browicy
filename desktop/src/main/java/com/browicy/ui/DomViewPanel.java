@@ -337,6 +337,12 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                         fragmentGraphics.setFont(text.font());
                         fragmentGraphics.setColor(toAwtColor(text.color()));
                         fragmentGraphics.drawString(text.text(), text.x(), text.baseline());
+                        if (text.underline()) {
+                            fragmentGraphics.setColor(toAwtColor(text.decorationColor()));
+                            float underlineY = text.baseline() + Math.max(1f, text.font().getSize2D() / 12f);
+                            fragmentGraphics.draw(new java.awt.geom.Line2D.Float(
+                                    text.x(), underlineY, text.x() + text.width(), underlineY));
+                        }
                     } else if (fragment instanceof ImageFragment image) {
                         paintImage(fragmentGraphics, image);
                     }
@@ -385,6 +391,22 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private void paintBox(Graphics2D graphics, BoxFragment fragment) {
         paintStyledBox(graphics, fragment.box().style(),
                 fragment.x(), fragment.y(), fragment.width(), fragment.height(), true, true);
+        paintListMarker(graphics, fragment);
+    }
+
+    private static void paintListMarker(Graphics2D graphics, BoxFragment fragment) {
+        if (!"li".equals(fragment.box().tagName())) return;
+        RenderStyle style = fragment.box().style();
+        if (style.listStyleType() == RenderStyle.ListStyleType.NONE) return;
+        float size = Math.max(4, style.fontSizePx() / 3f);
+        float markerX = fragment.x() - size - 6;
+        float markerY = fragment.y() + Math.max(2, (style.usedLineHeightPx() - size) / 2f);
+        graphics.setColor(toAwtColor(style.color()));
+        var marker = style.listStyleType() == RenderStyle.ListStyleType.SQUARE
+                ? new Rectangle2D.Float(markerX, markerY, size, size)
+                : new java.awt.geom.Ellipse2D.Float(markerX, markerY, size, size);
+        if (style.listStyleType() == RenderStyle.ListStyleType.CIRCLE) graphics.draw(marker);
+        else graphics.fill(marker);
     }
 
     private void paintInlineBox(Graphics2D graphics, InlineBoxFragment fragment) {

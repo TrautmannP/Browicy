@@ -67,6 +67,9 @@ public final class RenderTreeBuilder {
                 false,
                 0,
                 DEFAULT_COLOR,
+                RenderStyle.ListStyleType.DISC,
+                false,
+                DEFAULT_COLOR,
                 null,
                 null,
                 RenderStyle.BackgroundRepeat.REPEAT,
@@ -248,6 +251,9 @@ public final class RenderTreeBuilder {
                 inherited.italic(),
                 inherited.lineHeight(),
                 inherited.color(),
+                inherited.listStyleType(),
+                inherited.underline(),
+                inherited.textDecorationColor(),
                 null,
                 null,
                 RenderStyle.BackgroundRepeat.REPEAT,
@@ -294,6 +300,9 @@ public final class RenderTreeBuilder {
         boolean italic = defaultItalic(tag, parent.italic());
         float lineHeight = parent.lineHeight();
         CssColor color = parent.color();
+        RenderStyle.ListStyleType listStyleType = parent.listStyleType();
+        boolean underline = parent.underline();
+        CssColor textDecorationColor = parent.textDecorationColor();
         CssColor background = null;
         String backgroundImageUrl = null;
         RenderStyle.BackgroundRepeat backgroundRepeat = RenderStyle.BackgroundRepeat.REPEAT;
@@ -411,6 +420,19 @@ public final class RenderTreeBuilder {
         if (declaredColor != null) {
             color = declaredColor;
         }
+        listStyleType = switch (declarations.getOrDefault("list-style-type",
+                listStyleType.name().toLowerCase(Locale.ROOT))) {
+            case "none" -> RenderStyle.ListStyleType.NONE;
+            case "circle" -> RenderStyle.ListStyleType.CIRCLE;
+            case "square" -> RenderStyle.ListStyleType.SQUARE;
+            default -> RenderStyle.ListStyleType.DISC;
+        };
+        if (declarations.containsKey("text-decoration-line")) {
+            underline = "underline".equals(declarations.get("text-decoration-line"));
+        }
+        CssColor declaredDecorationColor = CssColor.parse(declarations.get("text-decoration-color"));
+        if (declaredDecorationColor != null) textDecorationColor = declaredDecorationColor;
+        else if (underline && !parent.underline()) textDecorationColor = color;
         CssColor declaredBackground = CssColor.parse(declarations.get("background-color"));
         if (declaredBackground != null && !declaredBackground.isTransparent()) {
             background = declaredBackground;
@@ -450,7 +472,8 @@ public final class RenderTreeBuilder {
         outlineVisible = "solid".equals(declarations.get("outline-style")) && outlineWidth > 0;
 
         return new RenderStyle(display, position, floatMode, clear, top, right, bottom, left,
-                fontSize, fontFamily, fontWeight, italic, lineHeight, color, background,
+                fontSize, fontFamily, fontWeight, italic, lineHeight, color, listStyleType,
+                underline, textDecorationColor, background,
                 backgroundImageUrl, backgroundRepeat, backgroundPositionX, backgroundPositionY,
                 width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,
@@ -701,7 +724,8 @@ public final class RenderTreeBuilder {
     private static RenderStyle copyWithDisplay(RenderStyle style, RenderStyle.Display display) {
         return new RenderStyle(display, style.position(), style.floatMode(), style.clear(), style.top(), style.right(),
                 style.bottom(), style.left(), style.fontSizePx(), style.fontFamily(), style.fontWeight(), style.italic(), style.lineHeight(),
-                style.color(), style.backgroundColor(), style.backgroundImageUrl(),
+                style.color(), style.listStyleType(), style.underline(), style.textDecorationColor(),
+                style.backgroundColor(), style.backgroundImageUrl(),
                 style.backgroundRepeat(), style.backgroundPositionX(), style.backgroundPositionY(),
                 style.width(), style.height(),
                 style.minWidth(), style.maxWidth(), style.minHeight(), style.maxHeight(),

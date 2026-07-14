@@ -70,6 +70,19 @@ public class RenderTreeBuilderTest {
     }
 
     @Test
+    public void inheritsListStyleAndCarriesTextDecoration() {
+        RenderBox list = boxChildren(build("""
+                <body><ul style="list-style:none"><li><a style="text-decoration:underline blue">x</a></li></ul></body>
+                """).root()).getFirst();
+        RenderBox item = boxChildren(list).getFirst();
+        RenderTextRun text = textRunsRecursively(item).getFirst();
+
+        assertEquals(RenderStyle.ListStyleType.NONE, item.style().listStyleType());
+        assertTrue(text.style().underline());
+        assertEquals(CssColor.parse("blue"), text.style().textDecorationColor());
+    }
+
+    @Test
     public void excludesDisplayNoneSubtreesFromRenderTree() {
         RenderBox paragraph = boxChildren(build("""
                 <body><p>visible <span style="display:none">hidden</span> text</p></body>
