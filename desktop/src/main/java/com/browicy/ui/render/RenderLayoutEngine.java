@@ -20,6 +20,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -433,7 +434,9 @@ public final class RenderLayoutEngine {
                                                         Graphics2D graphics,
                                                         List<LineBox> lineBoxes) {
         List<PaintFragment> result = new ArrayList<>();
-        for (AbsoluteRequest request : context.requests) {
+        for (AbsoluteRequest request : context.requests.stream()
+                .sorted(Comparator.comparingInt(request -> request.box().style().zIndex()))
+                .toList()) {
             RenderStyle style = request.box().style();
             float left = style.left().isAuto() ? 0 : resolve(style.left(), context.width);
             float right = style.right().isAuto() ? 0 : resolve(style.right(), context.width);

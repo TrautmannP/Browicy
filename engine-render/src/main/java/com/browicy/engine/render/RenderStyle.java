@@ -3,6 +3,7 @@ package com.browicy.engine.render;
 public record RenderStyle(
         Display display,
         Position position,
+        int zIndex,
         FloatMode floatMode,
         Clear clear,
         RenderOffset top,
@@ -18,6 +19,7 @@ public record RenderStyle(
         ListStyleType listStyleType,
         boolean underline,
         CssColor textDecorationColor,
+        Cursor cursor,
         CssColor backgroundColor,
         String backgroundImageUrl,
         BackgroundRepeat backgroundRepeat,
@@ -56,6 +58,7 @@ public record RenderStyle(
     public enum BackgroundPositionX { LEFT, CENTER, RIGHT }
     public enum BackgroundPositionY { TOP, CENTER, BOTTOM }
     public enum Position { STATIC, RELATIVE, ABSOLUTE }
+    public enum Cursor { DEFAULT, POINTER, TEXT }
     public enum FloatMode { NONE, LEFT, RIGHT }
     public enum Clear { NONE, LEFT, RIGHT, BOTH }
     public enum TextAlign { LEFT, CENTER, RIGHT }

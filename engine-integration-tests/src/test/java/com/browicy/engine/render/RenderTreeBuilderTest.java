@@ -83,6 +83,17 @@ public class RenderTreeBuilderTest {
     }
 
     @Test
+    public void resolvesZIndexAndInheritedCursor() {
+        RenderBox parent = boxChildren(build("""
+                <body><div style="cursor:pointer"><span style="position:absolute;z-index:7">x</span></div></body>
+                """).root()).getFirst();
+        RenderBox child = boxChildren(parent).getFirst();
+
+        assertEquals(7, child.style().zIndex());
+        assertEquals(RenderStyle.Cursor.POINTER, child.style().cursor());
+    }
+
+    @Test
     public void excludesDisplayNoneSubtreesFromRenderTree() {
         RenderBox paragraph = boxChildren(build("""
                 <body><p>visible <span style="display:none">hidden</span> text</p></body>

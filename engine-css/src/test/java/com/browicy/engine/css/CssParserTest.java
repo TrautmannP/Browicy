@@ -322,4 +322,16 @@ public class CssParserTest {
         assertTrue(parser.supportsProperty("list-style"));
         assertTrue(parser.supportsProperty("text-decoration"));
     }
+
+    @Test
+    public void parsesZIndexAndCursor() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations(
+                "z-index:-2;cursor:pointer");
+
+        assertEquals("-2", declarations.get("z-index"));
+        assertEquals("pointer", declarations.get("cursor"));
+        assertTrue(parser.supportsProperty("z-index"));
+        assertTrue(parser.supportsProperty("cursor"));
+    }
 }

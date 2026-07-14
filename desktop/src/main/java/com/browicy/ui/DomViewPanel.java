@@ -28,6 +28,7 @@ import com.browicy.ui.render.RenderLayoutEngine.TextFragment;
 import java.awt.Color;
 import java.awt.BasicStroke;
 import java.awt.Container;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -148,6 +149,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             public void mouseMoved(MouseEvent event) {
                 Element target = hitTest(event.getX(), event.getY());
                 updateHover(target);
+                updateCursor(target);
                 dispatchDomEvent(target, "mousemove", true, false);
             }
 
@@ -159,6 +161,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             @Override
             public void mouseExited(MouseEvent event) {
                 updateHover(null);
+                setCursor(Cursor.getDefaultCursor());
             }
         };
         addMouseListener(mouseEvents);
@@ -302,6 +305,22 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             dispatchDomEvent(previousTarget, "mouseout", true, false);
             dispatchDomEvent(target, "mouseover", true, false);
         }
+    }
+
+    private void updateCursor(Element target) {
+        String cursor = null;
+        for (com.browicy.engine.dom.Node node = target;
+             node instanceof Element element;
+             node = node.getParent()) {
+            cursor = element.getComputedStyles().get("cursor");
+            if (cursor != null) break;
+        }
+        int type = switch (cursor == null ? "default" : cursor) {
+            case "pointer" -> Cursor.HAND_CURSOR;
+            case "text" -> Cursor.TEXT_CURSOR;
+            default -> Cursor.DEFAULT_CURSOR;
+        };
+        setCursor(Cursor.getPredefinedCursor(type));
     }
 
     @Override

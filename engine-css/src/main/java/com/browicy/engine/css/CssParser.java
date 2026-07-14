@@ -38,6 +38,7 @@ public final class CssParser {
     private static final Pattern FONT_SIZE = Pattern.compile(
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_WEIGHT = Pattern.compile("[1-9]00");
+    private static final Pattern INTEGER = Pattern.compile("-?\\d+");
     private static final Pattern LINE_HEIGHT = Pattern.compile(
             "(?:normal|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:(?:px|em|rem|vw|vh|%)?))",
             Pattern.CASE_INSENSITIVE);
@@ -228,6 +229,8 @@ public final class CssParser {
             case "font-style" -> supports(normalized, "normal");
             case "display" -> supports(normalized, "block");
             case "position" -> supports(normalized, "static");
+            case "z-index" -> supports(normalized, "1");
+            case "cursor" -> supports(normalized, "pointer");
             case "float" -> supports(normalized, "none");
             case "clear" -> supports(normalized, "none");
             case "top", "right", "bottom", "left" -> supports(normalized, "auto");
@@ -305,6 +308,17 @@ public final class CssParser {
             case "position" -> {
                 if (value.equals("static") || value.equals("relative")
                         || value.equals("absolute")) {
+                    target.put(property, value);
+                }
+            }
+            case "z-index" -> {
+                if (value.equals("auto") || INTEGER.matcher(value).matches()) {
+                    target.put(property, value);
+                }
+            }
+            case "cursor" -> {
+                if (value.equals("default") || value.equals("auto")
+                        || value.equals("pointer") || value.equals("text")) {
                     target.put(property, value);
                 }
             }

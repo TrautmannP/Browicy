@@ -927,6 +927,39 @@ public class DomViewPanelTest {
         assertEquals(CssColor.parse("blue"), text.decorationColor());
     }
 
+    @Test
+    public void paintsAbsolutelyPositionedBoxesByZIndex() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div style="position:relative;height:30px">
+                  <div id="high" style="position:absolute;z-index:10;width:20px;height:20px"></div>
+                  <div id="low" style="position:absolute;z-index:1;width:20px;height:20px"></div>
+                </div></body>
+                """));
+        var fragments = panel.layoutForTesting(200).fragments();
+        int lowIndex = fragments.indexOf(boxById(
+                new LayoutResult(200, 0, fragments, List.of()), "low"));
+        int highIndex = fragments.indexOf(boxById(
+                new LayoutResult(200, 0, fragments, List.of()), "high"));
+
+        assertTrue("Ein höherer z-index muss später und damit oben gezeichnet werden",
+                highIndex > lowIndex);
+    }
+
+    @Test
+    public void changesSwingCursorForCssCursorProperty() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="target" style="cursor:pointer;width:50px;height:20px">x</div></body>
+                """));
+        panel.setSize(200, 1);
+        BoxFragment target = boxById(panel.layoutForTesting(200), "target");
+
+        panel.dispatchEvent(new java.awt.event.MouseEvent(
+                panel, java.awt.event.MouseEvent.MOUSE_MOVED, 0, 0,
+                Math.round(target.x() + 1), Math.round(target.y() + 1), 0, false));
+
+        assertEquals(java.awt.Cursor.HAND_CURSOR, panel.getCursor().getType());
+    }
+
     private static Document parse(String html) {
         return new HtmlParser().parse(html);
     }

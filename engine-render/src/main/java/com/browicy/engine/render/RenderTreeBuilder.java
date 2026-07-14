@@ -58,6 +58,7 @@ public final class RenderTreeBuilder {
         RenderStyle initial = new RenderStyle(
                 RenderStyle.Display.BLOCK,
                 RenderStyle.Position.STATIC,
+                0,
                 RenderStyle.FloatMode.NONE,
                 RenderStyle.Clear.NONE,
                 RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO,
@@ -70,6 +71,7 @@ public final class RenderTreeBuilder {
                 RenderStyle.ListStyleType.DISC,
                 false,
                 DEFAULT_COLOR,
+                RenderStyle.Cursor.DEFAULT,
                 null,
                 null,
                 RenderStyle.BackgroundRepeat.REPEAT,
@@ -242,6 +244,7 @@ public final class RenderTreeBuilder {
         return new RenderStyle(
                 RenderStyle.Display.BLOCK,
                 RenderStyle.Position.STATIC,
+                0,
                 RenderStyle.FloatMode.NONE,
                 RenderStyle.Clear.NONE,
                 RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO, RenderOffset.AUTO,
@@ -254,6 +257,7 @@ public final class RenderTreeBuilder {
                 inherited.listStyleType(),
                 inherited.underline(),
                 inherited.textDecorationColor(),
+                inherited.cursor(),
                 null,
                 null,
                 RenderStyle.BackgroundRepeat.REPEAT,
@@ -288,6 +292,7 @@ public final class RenderTreeBuilder {
 
         RenderStyle.Display display = defaultDisplay(tag);
         RenderStyle.Position position = RenderStyle.Position.STATIC;
+        int zIndex = 0;
         RenderStyle.FloatMode floatMode = RenderStyle.FloatMode.NONE;
         RenderStyle.Clear clear = RenderStyle.Clear.NONE;
         RenderOffset top = RenderOffset.AUTO;
@@ -303,6 +308,7 @@ public final class RenderTreeBuilder {
         RenderStyle.ListStyleType listStyleType = parent.listStyleType();
         boolean underline = parent.underline();
         CssColor textDecorationColor = parent.textDecorationColor();
+        RenderStyle.Cursor cursor = parent.cursor();
         CssColor background = null;
         String backgroundImageUrl = null;
         RenderStyle.BackgroundRepeat backgroundRepeat = RenderStyle.BackgroundRepeat.REPEAT;
@@ -355,6 +361,13 @@ public final class RenderTreeBuilder {
             case "relative" -> RenderStyle.Position.RELATIVE;
             case "absolute" -> RenderStyle.Position.ABSOLUTE;
             default -> RenderStyle.Position.STATIC;
+        };
+        zIndex = parseZIndex(declarations.get("z-index"));
+        cursor = switch (declarations.getOrDefault("cursor",
+                cursor.name().toLowerCase(Locale.ROOT))) {
+            case "pointer" -> RenderStyle.Cursor.POINTER;
+            case "text" -> RenderStyle.Cursor.TEXT;
+            default -> RenderStyle.Cursor.DEFAULT;
         };
         floatMode = switch (declarations.getOrDefault("float", "none")) {
             case "left" -> RenderStyle.FloatMode.LEFT;
@@ -471,9 +484,9 @@ public final class RenderTreeBuilder {
         outlineColor = colorOrCurrent(declarations.get("outline-color"), color);
         outlineVisible = "solid".equals(declarations.get("outline-style")) && outlineWidth > 0;
 
-        return new RenderStyle(display, position, floatMode, clear, top, right, bottom, left,
+        return new RenderStyle(display, position, zIndex, floatMode, clear, top, right, bottom, left,
                 fontSize, fontFamily, fontWeight, italic, lineHeight, color, listStyleType,
-                underline, textDecorationColor, background,
+                underline, textDecorationColor, cursor, background,
                 backgroundImageUrl, backgroundRepeat, backgroundPositionX, backgroundPositionY,
                 width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,
@@ -639,6 +652,15 @@ public final class RenderTreeBuilder {
         }
     }
 
+    private static int parseZIndex(String value) {
+        if (value == null || "auto".equals(value)) return 0;
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
     private float resolveLineHeight(String value, float fontSize) {
         if (value == null || value.equals("normal")) return 0;
         try {
@@ -722,9 +744,10 @@ public final class RenderTreeBuilder {
     }
 
     private static RenderStyle copyWithDisplay(RenderStyle style, RenderStyle.Display display) {
-        return new RenderStyle(display, style.position(), style.floatMode(), style.clear(), style.top(), style.right(),
+        return new RenderStyle(display, style.position(), style.zIndex(), style.floatMode(), style.clear(), style.top(), style.right(),
                 style.bottom(), style.left(), style.fontSizePx(), style.fontFamily(), style.fontWeight(), style.italic(), style.lineHeight(),
                 style.color(), style.listStyleType(), style.underline(), style.textDecorationColor(),
+                style.cursor(),
                 style.backgroundColor(), style.backgroundImageUrl(),
                 style.backgroundRepeat(), style.backgroundPositionX(), style.backgroundPositionY(),
                 style.width(), style.height(),
