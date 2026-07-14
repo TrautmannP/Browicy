@@ -151,6 +151,7 @@ public final class CssParser {
             case "top", "right", "bottom", "left" -> supports(normalized, "auto");
             case "width", "height", "min-width", "min-height" -> supports(normalized, "auto");
             case "max-width", "max-height" -> supports(normalized, "none");
+            case "box-sizing" -> supports(normalized, "content-box");
             case "text-align" -> supports(normalized, "left");
             case "overflow" -> supports(normalized, "visible");
             case "vertical-align" -> supports(normalized, "baseline");
@@ -200,6 +201,11 @@ public final class CssParser {
                     putIfMatches(target, property, value, DIMENSION);
             case "max-width", "max-height" ->
                     putIfMatches(target, property, value, MAX_DIMENSION);
+            case "box-sizing" -> {
+                if (value.equals("content-box") || value.equals("border-box")) {
+                    target.put(property, value);
+                }
+            }
             case "overflow" -> {
                 if (value.equals("visible") || value.equals("hidden") || value.equals("auto")
                         || value.equals("scroll")) {

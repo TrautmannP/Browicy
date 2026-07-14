@@ -18,6 +18,7 @@ public record RenderStyle(
         RenderLength maxWidth,
         RenderLength minHeight,
         RenderLength maxHeight,
+        BoxSizing boxSizing,
         BoxEdges margin,
         HorizontalAutoMargins autoMargins,
         BoxEdges padding,
@@ -31,6 +32,7 @@ public record RenderStyle(
     public enum Display { BLOCK, INLINE, INLINE_BLOCK, NONE }
     public enum Position { STATIC, RELATIVE, ABSOLUTE }
     public enum TextAlign { LEFT, CENTER, RIGHT }
+    public enum BoxSizing { CONTENT_BOX, BORDER_BOX }
     public enum Overflow { VISIBLE, HIDDEN, AUTO, SCROLL }
     public enum VerticalAlign { BASELINE, TOP, MIDDLE, BOTTOM }
 

@@ -414,6 +414,27 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void subtractsPaddingAndBorderFromBorderBoxDimensions() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="box" style="box-sizing:border-box;width:100px;height:40px;
+                  padding:10px;border:2px solid blue"><div id="child" style="height:100%"></div>
+                </div><div id="limited" style="box-sizing:border-box;width:200px;max-width:80px;
+                  padding:10px;border:2px solid blue"></div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment box = boxById(layout, "box");
+        BoxFragment child = boxById(layout, "child");
+        BoxFragment limited = boxById(layout, "limited");
+
+        assertEquals(100f, box.width(), 0.001f);
+        assertEquals(40f, box.height(), 0.001f);
+        assertEquals(76f, child.width(), 0.001f);
+        assertEquals(16f, child.height(), 0.001f);
+        assertEquals(80f, limited.width(), 0.001f);
+    }
+
+    @Test
     public void shrinkWrapsAutomaticInlineBlockWidthAroundItsContent() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body><div><span id="chip" style="display:inline-block;padding:4px;

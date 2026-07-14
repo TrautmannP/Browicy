@@ -22,6 +22,7 @@ public class CssParserTest {
                   margin: 1px 2px 3px 4px;
                   padding: 5px 6px;
                   border: 2px solid blue;
+                  box-sizing: border-box;
                 }
                 """);
 
@@ -40,6 +41,17 @@ public class CssParserTest {
         assertEquals("2px", declarations.get("border-left-width"));
         assertEquals("solid", declarations.get("border-bottom-style"));
         assertEquals("blue", declarations.get("border-top-color"));
+        assertEquals("border-box", declarations.get("box-sizing"));
+    }
+
+    @Test
+    public void acceptsOnlySupportedBoxSizingValues() {
+        CssParser parser = new CssParser();
+
+        assertTrue(parser.supportsProperty("box-sizing"));
+        assertTrue(parser.supports("box-sizing", "content-box"));
+        assertTrue(parser.supports("box-sizing", "border-box"));
+        assertFalse(parser.supports("box-sizing", "padding-box"));
     }
 
     @Test

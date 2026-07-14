@@ -43,7 +43,8 @@ public class RenderTreeBuilderTest {
     public void resolvesBoxModelLengthsBackgroundAndBorder() {
         RenderBox box = boxChildren(build("""
                 <body><div style="font-size: 20px; margin: 1px 2px 3px 4px;
-                  padding: .5em; border: 2px solid #123456; background-color: yellow">x</div></body>
+                  padding: .5em; border: 2px solid #123456; background-color: yellow;
+                  box-sizing: border-box">x</div></body>
                 """).root()).getFirst();
         RenderStyle style = box.style();
 
@@ -53,6 +54,7 @@ public class RenderTreeBuilderTest {
         assertEquals(CssColor.parse("yellow"), style.backgroundColor());
         assertEquals(CssColor.parse("#123456"), style.borderColor().top());
         assertTrue(style.borderStyle().left());
+        assertEquals(RenderStyle.BoxSizing.BORDER_BOX, style.boxSizing());
     }
 
     @Test

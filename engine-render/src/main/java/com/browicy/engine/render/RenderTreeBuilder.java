@@ -70,6 +70,7 @@ public final class RenderTreeBuilder {
                 RenderLength.AUTO,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
+                RenderStyle.BoxSizing.CONTENT_BOX,
                 BoxEdges.ZERO,
                 HorizontalAutoMargins.NONE,
                 BoxEdges.ZERO,
@@ -228,6 +229,7 @@ public final class RenderTreeBuilder {
                 RenderLength.AUTO,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
+                RenderStyle.BoxSizing.CONTENT_BOX,
                 BoxEdges.ZERO,
                 HorizontalAutoMargins.NONE,
                 BoxEdges.ZERO,
@@ -260,6 +262,7 @@ public final class RenderTreeBuilder {
         RenderLength maxWidth = RenderLength.AUTO;
         RenderLength minHeight = RenderLength.AUTO;
         RenderLength maxHeight = RenderLength.AUTO;
+        RenderStyle.BoxSizing boxSizing = RenderStyle.BoxSizing.CONTENT_BOX;
         BoxEdges margin = defaultMargin(tag);
         HorizontalAutoMargins autoMargins = HorizontalAutoMargins.NONE;
         BoxEdges padding = BoxEdges.ZERO;
@@ -300,6 +303,9 @@ public final class RenderTreeBuilder {
         maxWidth = resolveDimension(declarations.get("max-width"), fontSize);
         minHeight = resolveDimension(declarations.get("min-height"), fontSize);
         maxHeight = resolveDimension(declarations.get("max-height"), fontSize);
+        if ("border-box".equals(declarations.get("box-sizing"))) {
+            boxSizing = RenderStyle.BoxSizing.BORDER_BOX;
+        }
         top = resolveOffset(declarations.get("top"), fontSize);
         right = resolveOffset(declarations.get("right"), fontSize);
         bottom = resolveOffset(declarations.get("bottom"), fontSize);
@@ -344,7 +350,7 @@ public final class RenderTreeBuilder {
 
         return new RenderStyle(display, position, top, right, bottom, left,
                 fontSize, fontWeight, italic, color, background,
-                width, height, minWidth, maxWidth, minHeight, maxHeight, margin,
+                width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, textAlign,
                 overflow, verticalAlign);
     }
@@ -544,7 +550,8 @@ public final class RenderTreeBuilder {
                 style.bottom(), style.left(), style.fontSizePx(), style.fontWeight(), style.italic(),
                 style.color(), style.backgroundColor(), style.width(), style.height(),
                 style.minWidth(), style.maxWidth(), style.minHeight(), style.maxHeight(),
-                style.margin(), style.autoMargins(), style.padding(), style.borderWidth(),
+                style.boxSizing(), style.margin(), style.autoMargins(), style.padding(),
+                style.borderWidth(),
                 style.borderColor(), style.borderStyle(), style.textAlign(), style.overflow(),
                 style.verticalAlign());
     }
