@@ -8,6 +8,8 @@ public interface SelectorNodeAdapter<N> {
 
     N nextElementSibling(N element);
 
+    String tagName(N element);
+
     boolean matchesType(N element, String typeName);
 
     String id(N element);

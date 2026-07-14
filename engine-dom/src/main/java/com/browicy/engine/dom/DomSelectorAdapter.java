@@ -33,6 +33,11 @@ public final class DomSelectorAdapter implements SelectorNodeAdapter<Element> {
     }
 
     @Override
+    public String tagName(Element element) {
+        return element.getTagName();
+    }
+
+    @Override
     public boolean matchesType(Element element, String typeName) {
         return element.getNamespaceUri() == null
                 ? typeName.equalsIgnoreCase(element.getTagName())

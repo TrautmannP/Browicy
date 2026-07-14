@@ -97,9 +97,48 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void parsesAndMatchesNegationPseudoClass() {
+        TestNode article = new TestNode("article", null, Set.of("published"), null,
+                Map.of("lang", "de"));
+        TestAdapter adapter = new TestAdapter(article);
+
+        ComplexSelector selector = parser.parse("article:not(.draft):not([lang='en'])")
+                .selectors().getFirst();
+
+        assertTrue(selector.matches(article, adapter));
+        assertFalse(parser.parse("article:not(.published)").matchesAny(article, adapter));
+        assertFalse(parser.parse(":not(article)").matchesAny(article, adapter));
+        assertEquals(new Specificity(0, 2, 1), selector.specificity());
+        assertEquals(new Specificity(1, 0, 1), parser.parse("article:not(#featured)")
+                .selectors().getFirst().specificity());
+        assertEquals(Specificity.ZERO, parser.parse(":not(*)")
+                .selectors().getFirst().specificity());
+        assertEquals("article:not(.draft):not([lang=\"en\"])", selector.toString());
+    }
+
+    @Test
+    public void matchesNthAndLastOfTypeAmongMixedSiblings() {
+        TestNode parent = new TestNode("div", null, Set.of(), null);
+        TestNode firstParagraph = new TestNode("p", null, Set.of(), parent);
+        TestNode span = new TestNode("span", null, Set.of(), parent);
+        TestNode secondParagraph = new TestNode("p", null, Set.of(), parent);
+        TestNode secondSpan = new TestNode("span", null, Set.of(), parent);
+        TestAdapter adapter = new TestAdapter(parent, firstParagraph, span,
+                secondParagraph, secondSpan);
+
+        assertTrue(parser.parse("p:nth-of-type(2)").matchesAny(secondParagraph, adapter));
+        assertFalse(parser.parse("p:nth-of-type(2)").matchesAny(firstParagraph, adapter));
+        assertTrue(parser.parse("p:nth-of-type(even)").matchesAny(secondParagraph, adapter));
+        assertTrue(parser.parse("p:last-of-type").matchesAny(secondParagraph, adapter));
+        assertFalse(parser.parse("span:last-of-type").matchesAny(span, adapter));
+        assertTrue(parser.parse("span:last-of-type").matchesAny(secondSpan, adapter));
+    }
+
+    @Test
     public void rejectsInvalidAndUnsupportedSelectorsWithPositions() {
         for (String source : List.of("", "div,", "[attr=value]", ":hover",
-                ":nth-child(2n+)", "div > > p")) {
+                ":nth-child(2n+)", ":nth-of-type()", ":not()", ":not(.a, .b)",
+                ":not(:not(.a))", "div > > p")) {
             SelectorParseException exception = assertThrows(
                     SelectorParseException.class, () -> parser.parse(source));
             assertEquals(source, exception.getSelector());
@@ -139,6 +178,11 @@ public class SelectorParserTest {
         @Override
         public TestNode nextElementSibling(TestNode element) {
             return sibling(element, 1);
+        }
+
+        @Override
+        public String tagName(TestNode element) {
+            return element.tagName();
         }
 
         private TestNode sibling(TestNode element, int offset) {

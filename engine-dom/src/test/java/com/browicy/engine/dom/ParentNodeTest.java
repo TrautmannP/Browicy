@@ -62,6 +62,10 @@ public class ParentNodeTest {
         assertSame(third, document.querySelector("input:last-child"));
         assertSame(second, document.querySelector("span:nth-child(2)"));
         assertEquals(List.of(first, third), document.querySelectorAll(":nth-child(odd)"));
+        assertEquals(List.of(first, third), document.querySelectorAll("input:not([disabled])"));
+        assertSame(third, document.querySelector("input:nth-of-type(2)"));
+        assertSame(third, document.querySelector("input:last-of-type"));
+        assertSame(second, document.querySelector("span:last-of-type"));
     }
 
     @Test

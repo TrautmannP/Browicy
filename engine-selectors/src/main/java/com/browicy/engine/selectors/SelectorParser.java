@@ -78,6 +78,7 @@ public final class SelectorParser {
             List<String> classes = new ArrayList<>();
             List<AttributeSelector> attributes = new ArrayList<>();
             List<StructuralPseudoClass> pseudoClasses = new ArrayList<>();
+            List<CompoundSelector> negations = new ArrayList<>();
 
             if (!atEnd() && consume('*')) {
                 typeName = "*";
@@ -100,17 +101,18 @@ public final class SelectorParser {
                 } else if (peek() == '[') {
                     attributes.add(parseAttributeSelector());
                 } else if (peek() == ':') {
-                    pseudoClasses.add(parsePseudoClass());
+                    parsePseudoClass(pseudoClasses, negations);
                 } else {
                     break;
                 }
             }
 
             if (typeName == null && id == null && classes.isEmpty()
-                    && attributes.isEmpty() && pseudoClasses.isEmpty()) {
+                    && attributes.isEmpty() && pseudoClasses.isEmpty() && negations.isEmpty()) {
                 throw error();
             }
-            return new CompoundSelector(typeName, id, classes, attributes, pseudoClasses);
+            return new CompoundSelector(typeName, id, classes, attributes, pseudoClasses,
+                    negations);
         }
 
         private AttributeSelector parseAttributeSelector() {
@@ -161,16 +163,38 @@ public final class SelectorParser {
             throw error();
         }
 
-        private StructuralPseudoClass parsePseudoClass() {
+        private void parsePseudoClass(List<StructuralPseudoClass> pseudoClasses,
+                                      List<CompoundSelector> negations) {
             consume(':');
             String name = readIdentifier().toLowerCase(java.util.Locale.ROOT);
             if ("first-child".equals(name)) {
-                return StructuralPseudoClass.firstChild();
+                pseudoClasses.add(StructuralPseudoClass.firstChild());
+                return;
             }
             if ("last-child".equals(name)) {
-                return StructuralPseudoClass.lastChild();
+                pseudoClasses.add(StructuralPseudoClass.lastChild());
+                return;
             }
-            if (!"nth-child".equals(name) || !consume('(')) {
+            if ("last-of-type".equals(name)) {
+                pseudoClasses.add(StructuralPseudoClass.lastOfType());
+                return;
+            }
+            if ("not".equals(name)) {
+                if (!consume('(')) {
+                    throw error();
+                }
+                skipWhitespace();
+                CompoundSelector negation = parseCompoundSelector();
+                skipWhitespace();
+                if (!consume(')') || !negation.negations().isEmpty()) {
+                    throw error();
+                }
+                negations.add(negation);
+                return;
+            }
+            boolean nthChild = "nth-child".equals(name);
+            boolean nthOfType = "nth-of-type".equals(name);
+            if ((!nthChild && !nthOfType) || !consume('(')) {
                 throw error();
             }
             int start = position;
@@ -183,7 +207,9 @@ public final class SelectorParser {
             String formula = source.substring(start, position);
             position++;
             int[] coefficients = parseNthFormula(formula);
-            return StructuralPseudoClass.nthChild(coefficients[0], coefficients[1]);
+            pseudoClasses.add(nthChild
+                    ? StructuralPseudoClass.nthChild(coefficients[0], coefficients[1])
+                    : StructuralPseudoClass.nthOfType(coefficients[0], coefficients[1]));
         }
 
         private int[] parseNthFormula(String sourceFormula) {
