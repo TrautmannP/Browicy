@@ -35,6 +35,17 @@ public class DomImplementationTest {
     }
 
     @Test
+    public void createsHtmlDocumentSkeletonWithTitle() {
+        Document document = new DomImplementation().createHTMLDocument("Test title");
+
+        assertEquals("html", ((DocumentType) document.getFirstChild()).getName());
+        assertEquals("html", document.getDocumentElement().getTagName());
+        assertEquals("HEAD", document.getDocumentElement().getFirstChild().getNodeName());
+        assertEquals("body", document.getBody().getTagName());
+        assertEquals("Test title", document.getTitle());
+    }
+
+    @Test
     public void validatesNamesAndNamespaceConstraints() {
         Document document = new Document("about:test");
 

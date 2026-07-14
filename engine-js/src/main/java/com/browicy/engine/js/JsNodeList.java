@@ -3,13 +3,14 @@ package com.browicy.engine.js;
 import com.browicy.engine.dom.Element;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /** Statischer NodeList-Snapshot, wie er von querySelectorAll geliefert wird. */
-final class JsNodeList implements ProxyObject {
+final class JsNodeList implements ProxyObject, ProxyArray {
 
     private final List<Element> elements;
     private final JsDocument document;
@@ -36,6 +37,24 @@ final class JsNodeList implements ProxyObject {
 
     private Object item(int index) {
         return index >= 0 && index < elements.size() ? document.wrap(elements.get(index)) : null;
+    }
+
+    @Override
+    public Object get(long index) {
+        if (index < 0 || index >= elements.size()) {
+            throw new ArrayIndexOutOfBoundsException(Long.toString(index));
+        }
+        return document.wrap(elements.get((int) index));
+    }
+
+    @Override
+    public void set(long index, Value value) {
+        throw new UnsupportedOperationException("NodeList ist schreibgeschützt");
+    }
+
+    @Override
+    public long getSize() {
+        return elements.size();
     }
 
     private static int index(Value[] args) {

@@ -631,6 +631,57 @@ public class JavaScriptEngineTest {
     }
 
     @Test
+    public void domImplementationCreatesHtmlDocuments() {
+        Document document = parse("""
+                <html><body><script>
+                  var created = document.implementation.createHTMLDocument('Created title');
+                  console.log(created.URL, created.title, created.documentElement.tagName,
+                              created.body.tagName, created.childNodes.length);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: about:blank Created title HTML BODY 2"),
+                result.consoleMessages());
+    }
+
+    @Test
+    public void nodeListsCanBeConsumedAsArrayLikeValues() {
+        Document document = parse("""
+                <html><body><p>one</p><p>two</p><script>
+                  var target = [];
+                  Array.prototype.push.apply(target, document.querySelectorAll('p'));
+                  console.log(target.length, target[0].textContent, target[1].textContent);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: 2 one two"), result.consoleMessages());
+    }
+
+    @Test
+    public void htmlCollectionsCanBeConsumedAsArrayLikeValues() {
+        Document document = parse("""
+                <html><body><p>one</p><p>two</p><script>
+                  var target = [];
+                  var collection = document.getElementsByTagName('p');
+                  Array.prototype.push.apply(target, collection);
+                  console.log(target.length, target[0].textContent, target[1].textContent,
+                              collection[collection.length] === undefined);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: 2 one two true"), result.consoleMessages());
+    }
+
+    @Test
     public void invalidQualifiedNamesProduceDomExceptions() {
         Document document = parse("""
                 <html><body><script>

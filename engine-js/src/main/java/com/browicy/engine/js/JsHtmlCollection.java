@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 
 import com.browicy.engine.dom.Element;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
@@ -12,7 +13,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
-final class JsHtmlCollection implements ProxyObject {
+final class JsHtmlCollection implements ProxyObject, ProxyArray {
     private final Supplier<List<Element>> query;
     private final JsDocument document;
 
@@ -32,6 +33,25 @@ final class JsHtmlCollection implements ProxyObject {
 
     private Object item(List<Element> elements, int index) {
         return index >= 0 && index < elements.size() ? document.wrap(elements.get(index)) : null;
+    }
+
+    @Override
+    public Object get(long index) {
+        List<Element> elements = query.get();
+        if (index < 0 || index >= elements.size()) {
+            throw new ArrayIndexOutOfBoundsException(Long.toString(index));
+        }
+        return document.wrap(elements.get((int) index));
+    }
+
+    @Override
+    public void set(long index, org.graalvm.polyglot.Value value) {
+        throw new UnsupportedOperationException("HTMLCollection ist schreibgeschützt");
+    }
+
+    @Override
+    public long getSize() {
+        return query.get().size();
     }
 
     private Object named(List<Element> elements, String name) {

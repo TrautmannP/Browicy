@@ -13,7 +13,8 @@ import java.util.List;
 
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class JsDomImplementation implements ProxyObject {
-    private static final List<String> MEMBERS = List.of("createDocument", "createDocumentType");
+    private static final List<String> MEMBERS =
+            List.of("createDocument", "createDocumentType", "createHTMLDocument");
 
     private final DomImplementation implementation = new DomImplementation();
     private final JsDocument owner;
@@ -37,6 +38,9 @@ final class JsDomImplementation implements ProxyObject {
             });
             case "createDocumentType" -> owner.domOperation((ProxyExecutable) args -> owner.wrap(
                     implementation.createDocumentType(string(args, 0), string(args, 1), string(args, 2))));
+            case "createHTMLDocument" -> owner.domOperation((ProxyExecutable) args ->
+                    owner.wrapDocument(implementation.createHTMLDocument(
+                            args.length == 0 ? "" : string(args, 0))));
             default -> null;
         };
     }
