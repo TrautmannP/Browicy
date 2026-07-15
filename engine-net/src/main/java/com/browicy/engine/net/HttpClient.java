@@ -3,6 +3,7 @@ package com.browicy.engine.net;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -10,7 +11,11 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.zip.GZIPInputStream;
 import javax.net.ssl.SSLParameters;
@@ -31,6 +36,8 @@ public final class HttpClient {
     private static final Set<String> GENERATED_REQUEST_HEADERS = Set.of(
             "host", "content-length", "transfer-encoding", "connection");
     private static final String TOKEN_SEPARATORS = "()<>@,;:\\\"/[]?={} \t";
+
+    private final ConnectionPool pool = new ConnectionPool();
 
     public HttpResponse get(URI url) throws IOException {
         return get(url, "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
@@ -74,19 +81,48 @@ public final class HttpClient {
         int port = url.getPort() != -1 ? url.getPort() : defaultPort;
 
         String requestHead = buildRequestHead(request, host, port, defaultPort, requestBody);
-        try (Socket socket = openSocket(host, port, secure)) {
-            socket.setSoTimeout(READ_TIMEOUT_MS);
-            OutputStream out = socket.getOutputStream();
-            out.write(requestHead.getBytes(StandardCharsets.ISO_8859_1));
-            if (requestBody != null) {
-                out.write(requestBody);
+        boolean retryable = request.method().equals("GET") || request.method().equals("HEAD");
+        String origin = scheme + "://" + host.toLowerCase(Locale.ROOT) + ":" + port;
+
+        for (int attempt = 0; ; attempt++) {
+            PooledConnection connection = attempt == 0 ? pool.acquire(origin) : null;
+            boolean reused = connection != null;
+            if (connection == null) {
+                connection = PooledConnection.open(host, port, secure);
             }
-            out.flush();
-            return readResponse(new BufferedInputStream(
-                            new DeadlineInputStream(
-                                    socket.getInputStream(), MAX_RESPONSE_DURATION_MS)),
-                    budget, request.method());
+            long bytesBefore = connection.bytesReceived();
+            try {
+                connection.socket().setSoTimeout(READ_TIMEOUT_MS);
+                OutputStream out = connection.output();
+                out.write(requestHead.getBytes(StandardCharsets.ISO_8859_1));
+                if (requestBody != null) {
+                    out.write(requestBody);
+                }
+                out.flush();
+                RawResponse raw = readResponse(
+                        new DeadlineInputStream(connection.input(), MAX_RESPONSE_DURATION_MS),
+                        budget, request.method());
+                if (raw.reusable() && !connection.hasPendingInput()) {
+                    pool.release(origin, connection);
+                } else {
+                    connection.close();
+                }
+                return raw.response();
+            } catch (IOException failure) {
+                connection.close();
+                if (reused && retryable && connection.bytesReceived() == bytesBefore) {
+                    continue;
+                }
+                throw failure;
+            } catch (RuntimeException | Error failure) {
+                connection.close();
+                throw failure;
+            }
         }
+    }
+
+    public void close() {
+        pool.closeAll();
     }
 
     private static Socket openSocket(String host, int port, boolean secure) throws IOException {
@@ -146,7 +182,7 @@ public final class HttpClient {
         if (body != null) {
             result.append("Content-Length: ").append(body.length).append("\r\n");
         }
-        return result.append("Connection: close\r\n\r\n").toString();
+        return result.append("Connection: keep-alive\r\n\r\n").toString();
     }
 
     private static void appendDefaultHeader(StringBuilder target,
@@ -182,9 +218,15 @@ public final class HttpClient {
         return normalized;
     }
 
-    private static HttpResponse readResponse(InputStream in,
-                                             DownloadBudget budget,
-                                             String requestMethod) throws IOException {
+    private record RawResponse(HttpResponse response, boolean reusable) {
+    }
+
+    private record BodyResult(byte[] body, boolean framed) {
+    }
+
+    private static RawResponse readResponse(InputStream in,
+                                            DownloadBudget budget,
+                                            String requestMethod) throws IOException {
         String statusLine = readLine(in);
         if (statusLine == null || statusLine.isEmpty()) {
             throw new IOException("Leere Antwort vom Server");
@@ -202,9 +244,23 @@ public final class HttpClient {
         String reasonPhrase = parts.length == 3 ? parts[2] : "";
 
         HttpHeaders headers = readHeaders(in);
-        byte[] body = readBody(in, statusCode, headers, budget, requestMethod);
-        body = decodeContentEncoding(body, headers, budget);
-        return new HttpResponse(statusCode, reasonPhrase, headers, body);
+        BodyResult raw = readBody(in, statusCode, headers, budget, requestMethod);
+        byte[] body = decodeContentEncoding(raw.body(), headers, budget);
+        boolean reusable = parts[0].equalsIgnoreCase("HTTP/1.1")
+                && raw.framed()
+                && !connectionTokenContains(headers, "close");
+        return new RawResponse(new HttpResponse(statusCode, reasonPhrase, headers, body), reusable);
+    }
+
+    private static boolean connectionTokenContains(HttpHeaders headers, String token) {
+        for (String value : headers.all("Connection")) {
+            for (String part : value.split(",")) {
+                if (part.strip().equalsIgnoreCase(token)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static HttpHeaders readHeaders(InputStream in) throws IOException {
@@ -224,18 +280,18 @@ public final class HttpClient {
         return headers;
     }
 
-    private static byte[] readBody(InputStream in,
-                                   int statusCode,
-                                   HttpHeaders headers,
-                                   DownloadBudget budget,
-                                   String requestMethod) throws IOException {
+    private static BodyResult readBody(InputStream in,
+                                       int statusCode,
+                                       HttpHeaders headers,
+                                       DownloadBudget budget,
+                                       String requestMethod) throws IOException {
         boolean bodyless = requestMethod.equals("HEAD")
                 || statusCode / 100 == 1 || statusCode == 204 || statusCode == 304;
         if (bodyless) {
-            return new byte[0];
+            return new BodyResult(new byte[0], true);
         }
         if (headers.hasValue("Transfer-Encoding", "chunked")) {
-            return readChunkedBody(in, budget);
+            return new BodyResult(readChunkedBody(in, budget), true);
         }
         String contentLength = headers.first("Content-Length");
         if (contentLength != null) {
@@ -252,9 +308,9 @@ public final class HttpClient {
                 throw new IOException("Antwort zu groß: " + length + " Bytes");
             }
             if (budget != null) budget.consumeTransfer(length);
-            return readFully(in, (int) length, null);
+            return new BodyResult(readFully(in, (int) length, null), true);
         }
-        return readUntilEof(in, budget);
+        return new BodyResult(readUntilEof(in, budget), false);
     }
 
     private static byte[] readChunkedBody(InputStream in, DownloadBudget budget) throws IOException {
@@ -353,6 +409,164 @@ public final class HttpClient {
         }
         String text = line.toString(StandardCharsets.ISO_8859_1);
         return text.endsWith("\r") ? text.substring(0, text.length() - 1) : text;
+    }
+
+    private static final class PooledConnection implements Closeable {
+
+        private final Socket socket;
+        private final CountingInputStream counting;
+        private final BufferedInputStream in;
+        private final OutputStream out;
+        private long idleSinceNanos;
+
+        static PooledConnection open(String host, int port, boolean secure) throws IOException {
+            return new PooledConnection(openSocket(host, port, secure));
+        }
+
+        private PooledConnection(Socket socket) throws IOException {
+            this.socket = socket;
+            this.counting = new CountingInputStream(socket.getInputStream());
+            this.in = new BufferedInputStream(counting);
+            this.out = socket.getOutputStream();
+        }
+
+        Socket socket() {
+            return socket;
+        }
+
+        InputStream input() {
+            return in;
+        }
+
+        OutputStream output() {
+            return out;
+        }
+
+        long bytesReceived() {
+            return counting.bytesRead;
+        }
+
+        boolean hasPendingInput() {
+            try {
+                return in.available() > 0;
+            } catch (IOException closed) {
+                return true;
+            }
+        }
+
+        void markIdle() {
+            idleSinceNanos = System.nanoTime();
+        }
+
+        long idleSinceNanos() {
+            return idleSinceNanos;
+        }
+
+        @Override
+        public void close() {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private static final class CountingInputStream extends InputStream {
+
+        private final InputStream delegate;
+        private volatile long bytesRead;
+
+        CountingInputStream(InputStream delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int result = delegate.read();
+            if (result != -1) {
+                bytesRead++;
+            }
+            return result;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            int result = delegate.read(buffer, offset, length);
+            if (result > 0) {
+                bytesRead += result;
+            }
+            return result;
+        }
+
+        @Override
+        public int available() throws IOException {
+            return delegate.available();
+        }
+    }
+
+    private static final class ConnectionPool {
+
+        private static final long IDLE_EXPIRY_NANOS = 10_000_000_000L;
+        private static final int MAX_IDLE_PER_ORIGIN = 6;
+        private static final int MAX_IDLE_TOTAL = 32;
+
+        private final Map<String, ArrayDeque<PooledConnection>> idleByOrigin = new HashMap<>();
+        private int idleCount;
+
+        synchronized PooledConnection acquire(String origin) {
+            purgeExpired();
+            ArrayDeque<PooledConnection> idle = idleByOrigin.get(origin);
+            while (idle != null && !idle.isEmpty()) {
+                PooledConnection connection = idle.pollLast();
+                idleCount--;
+                if (idle.isEmpty()) {
+                    idleByOrigin.remove(origin);
+                }
+                if (!connection.socket().isClosed()) {
+                    return connection;
+                }
+                connection.close();
+            }
+            return null;
+        }
+
+        synchronized void release(String origin, PooledConnection connection) {
+            purgeExpired();
+            ArrayDeque<PooledConnection> idle = idleByOrigin.computeIfAbsent(
+                    origin, ignored -> new ArrayDeque<>());
+            if (idleCount >= MAX_IDLE_TOTAL || idle.size() >= MAX_IDLE_PER_ORIGIN) {
+                connection.close();
+                return;
+            }
+            connection.markIdle();
+            idle.addLast(connection);
+            idleCount++;
+        }
+
+        synchronized void closeAll() {
+            for (ArrayDeque<PooledConnection> idle : idleByOrigin.values()) {
+                idle.forEach(PooledConnection::close);
+            }
+            idleByOrigin.clear();
+            idleCount = 0;
+        }
+
+        private void purgeExpired() {
+            long now = System.nanoTime();
+            Iterator<Map.Entry<String, ArrayDeque<PooledConnection>>> origins =
+                    idleByOrigin.entrySet().iterator();
+            while (origins.hasNext()) {
+                ArrayDeque<PooledConnection> idle = origins.next().getValue();
+                while (!idle.isEmpty()
+                        && now - idle.peekFirst().idleSinceNanos() >= IDLE_EXPIRY_NANOS) {
+                    idle.pollFirst().close();
+                    idleCount--;
+                }
+                if (idle.isEmpty()) {
+                    origins.remove();
+                }
+            }
+        }
     }
 
     private static final class DeadlineInputStream extends InputStream {

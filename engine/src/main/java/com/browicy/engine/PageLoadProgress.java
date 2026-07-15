@@ -1,6 +1,7 @@
 package com.browicy.engine;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class PageLoadProgress {
 
@@ -26,6 +27,7 @@ public final class PageLoadProgress {
     }
 
     private final long startedNanos = System.nanoTime();
+    private final AtomicLong firstRenderMillis = new AtomicLong(-1);
     private volatile Phase phase = Phase.QUEUED;
     private volatile String activity = "";
     private final AtomicInteger totalStylesheets = new AtomicInteger();
@@ -44,6 +46,14 @@ public final class PageLoadProgress {
 
     public void activity(String activity) {
         this.activity = activity == null ? "" : activity;
+    }
+
+    public void markFirstRender() {
+        firstRenderMillis.compareAndSet(-1, (System.nanoTime() - startedNanos) / 1_000_000);
+    }
+
+    public long firstRenderMillis() {
+        return firstRenderMillis.get();
     }
 
     public void stylesheetStarted() {
@@ -84,6 +94,7 @@ public final class PageLoadProgress {
     public Snapshot snapshot() {
         return new Snapshot(phase, activity,
                 (System.nanoTime() - startedNanos) / 1_000_000,
+                firstRenderMillis.get(),
                 totalStylesheets.get(), pendingStylesheets.get(),
                 totalScripts.get(), executedScripts.get(),
                 totalImages.get(), pendingImages.get(),
@@ -93,6 +104,7 @@ public final class PageLoadProgress {
     public record Snapshot(Phase phase,
                            String activity,
                            long elapsedMillis,
+                           long firstRenderMillis,
                            int totalStylesheets,
                            int pendingStylesheets,
                            int totalScripts,

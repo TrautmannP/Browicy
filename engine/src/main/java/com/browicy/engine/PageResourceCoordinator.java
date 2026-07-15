@@ -44,7 +44,7 @@ final class PageResourceCoordinator {
     private static final long MAX_TOTAL_IMAGE_BYTES = 128L * 1024 * 1024;
     private static final int MAX_FONT_LOADS_PER_PAGE = 32;
     private static final long MAX_TOTAL_FONT_BYTES = 32L * 1024 * 1024;
-    private static final long RENDER_BLOCKING_TIMEOUT_MILLIS = 15_000;
+    private static final long RENDER_BLOCKING_TIMEOUT_MILLIS = 5_000;
 
     private final DocumentResourceScanner scanner;
     private final SubResourceLoader resourceLoader;
@@ -91,7 +91,7 @@ final class PageResourceCoordinator {
         PageRuntime runtime = javaScriptEngine.createPageRuntime(
                 document, ignored -> updates.flush(), fetchBackend, cookies,
                 styleSheets, () -> updates.invalidate(InvalidationType.STYLE));
-        List<ResourceLoad> cancellableLoads = new ArrayList<>();
+        List<ResourceLoad> cancellableLoads = new java.util.concurrent.CopyOnWriteArrayList<>();
         cancellableLoads.add(fetchBackend);
         ImageResourceRegistry images = new ImageResourceRegistry();
         FontResourceRegistry fonts = new FontResourceRegistry();
@@ -105,43 +105,42 @@ final class PageResourceCoordinator {
             progress.phase(PageLoadProgress.Phase.APPLYING_STYLES, "");
             StyleLoadPlan styleLoads = startStyleLoads(
                     resources, styleSheets, updates, runtime, cancellableLoads, progress);
+            Map<ScriptResource.External, SubResourceLoad> prefetchedScripts =
+                    prefetchScripts(resources, cancellableLoads);
             synchronized (document) {
                 styleApplicator.apply(document, styleSheets);
             }
 
-            progress.phase(PageLoadProgress.Phase.RUNNING_SCRIPTS, "");
-            resources.scripts().forEach(script -> progress.scriptPlanned());
-            for (JavaScriptSource source : scriptSequence(resources, cancellableLoads, progress)) {
-                progress.activity(source.sourceName());
-                runtime.execute(source);
-                progress.scriptExecuted();
-            }
-
-            PageLifecycleCoordinator lifecycle = new PageLifecycleCoordinator(document, runtime);
-            lifecycle.markInteractive();
             progress.phase(PageLoadProgress.Phase.APPLYING_STYLES,
                     "Warte auf render-blockierende Stylesheets");
             awaitRenderBlocking(styleLoads.renderBlockingTasks());
             synchronized (document) {
                 styleApplicator.apply(document, styleSheets);
             }
-            lifecycle.markComplete();
-            progress.phase(PageLoadProgress.Phase.RUNNING_SCRIPTS,
-                    "Warte auf Abschluss der Skript-Warteschlange");
-            runtime.awaitIdle();
-            updates.enableNotifications();
+            progress.markFirstRender();
 
             progress.phase(PageLoadProgress.Phase.LOADING_RESOURCES, "");
+            Map<URI, CompletableFuture<BinaryResource>> imageLoadsByUri =
+                    new java.util.concurrent.ConcurrentHashMap<>();
             List<CompletableFuture<Void>> imageLoads = new ArrayList<>(startImageLoads(
-                    resources, images, updates, cancellableLoads, pageUri, imageBudget, progress));
+                    resources, images, updates, cancellableLoads, pageUri, imageBudget, progress,
+                    imageLoadsByUri));
             imageLoads.addAll(startCssImageLoads(
-                    document, images, updates, cancellableLoads, pageUri, imageBudget, progress));
+                    document, images, updates, cancellableLoads, pageUri, imageBudget, progress,
+                    imageLoadsByUri));
             List<CompletableFuture<Void>> fontLoads = startFontLoads(
                     styleSheets, fonts, updates, cancellableLoads, pageUri, fontBudget, progress);
+
+            resources.scripts().forEach(script -> progress.scriptPlanned());
+            updates.enableNotifications();
+            CompletableFuture<Void> scriptsDone = runScriptsInBackground(
+                    document, resources, prefetchedScripts, runtime, cancellableLoads,
+                    progress, updates, images, pageUri, imageBudget, imageLoadsByUri);
 
             List<CompletableFuture<Void>> allResources = new ArrayList<>(styleLoads.allTasks());
             allResources.addAll(imageLoads);
             allResources.addAll(fontLoads);
+            allResources.add(scriptsDone);
             CompletableFuture<Void> resourcesLoaded = CompletableFuture.allOf(
                     allResources.toArray(CompletableFuture[]::new));
             resourcesLoaded.whenComplete((ignored, failure) ->
@@ -155,6 +154,93 @@ final class PageResourceCoordinator {
             updates.close();
             runtime.close();
             throw failure;
+        }
+    }
+
+    private Map<ScriptResource.External, SubResourceLoad> prefetchScripts(
+            DocumentResources resources, List<ResourceLoad> cancellableLoads) {
+        Map<ScriptResource.External, SubResourceLoad> prefetched = new java.util.IdentityHashMap<>();
+        for (ScriptResource resource : resources.scripts()) {
+            if (!(resource instanceof ScriptResource.External external)) {
+                continue;
+            }
+            try {
+                SubResourceLoad load = resourceLoader.loadAsync(
+                        external.uri(), NetworkResourceType.SCRIPT);
+                cancellableLoads.add(load);
+                prefetched.put(external, load);
+            } catch (IllegalArgumentException invalidUri) {
+            }
+        }
+        return prefetched;
+    }
+
+    private CompletableFuture<Void> runScriptsInBackground(
+            Document document,
+            DocumentResources resources,
+            Map<ScriptResource.External, SubResourceLoad> prefetchedScripts,
+            PageRuntime runtime,
+            List<ResourceLoad> cancellableLoads,
+            PageLoadProgress progress,
+            DocumentUpdateCoordinator updates,
+            ImageResourceRegistry images,
+            URI pageUri,
+            DownloadBudget imageBudget,
+            Map<URI, CompletableFuture<BinaryResource>> imageLoadsByUri) {
+        CompletableFuture<Void> scriptsDone = new CompletableFuture<>();
+        Thread.ofVirtual().name("browicy-page-scripts").start(() -> {
+            try {
+                progress.phase(PageLoadProgress.Phase.RUNNING_SCRIPTS, "");
+                for (JavaScriptSource source
+                        : scriptSequence(resources, prefetchedScripts, cancellableLoads, progress)) {
+                    if (runtime.isClosed()) {
+                        return;
+                    }
+                    progress.activity(source.sourceName());
+                    runtime.execute(source);
+                    progress.scriptExecuted();
+                }
+                PageLifecycleCoordinator lifecycle = new PageLifecycleCoordinator(document, runtime);
+                lifecycle.markInteractive();
+                lifecycle.markComplete();
+                runtime.awaitIdle();
+                loadScriptAddedImages(document, updates, images, cancellableLoads,
+                        pageUri, imageBudget, progress, imageLoadsByUri, runtime);
+            } catch (Throwable failure) {
+                LOGGER.log(System.Logger.Level.DEBUG,
+                        "Skriptausführung der Seite endete vorzeitig", failure);
+            } finally {
+                scriptsDone.complete(null);
+            }
+        });
+        return scriptsDone;
+    }
+
+    private void loadScriptAddedImages(
+            Document document,
+            DocumentUpdateCoordinator updates,
+            ImageResourceRegistry images,
+            List<ResourceLoad> cancellableLoads,
+            URI pageUri,
+            DownloadBudget imageBudget,
+            PageLoadProgress progress,
+            Map<URI, CompletableFuture<BinaryResource>> imageLoadsByUri,
+            PageRuntime runtime) {
+        if (runtime.isClosed() || pageUri == null) {
+            return;
+        }
+        DocumentResources lateResources;
+        synchronized (document) {
+            lateResources = scanner.scan(document);
+        }
+        List<CompletableFuture<Void>> lateLoads = new ArrayList<>(startImageLoads(
+                lateResources, images, updates, cancellableLoads, pageUri, imageBudget, progress,
+                imageLoadsByUri));
+        lateLoads.addAll(startCssImageLoads(
+                document, images, updates, cancellableLoads, pageUri, imageBudget, progress,
+                imageLoadsByUri));
+        if (!lateLoads.isEmpty()) {
+            CompletableFuture.allOf(lateLoads.toArray(CompletableFuture[]::new)).join();
         }
     }
 
@@ -195,10 +281,10 @@ final class PageResourceCoordinator {
             List<ResourceLoad> cancellableLoads,
             URI pageUri,
             DownloadBudget budget,
-            PageLoadProgress progress) {
+            PageLoadProgress progress,
+            Map<URI, CompletableFuture<BinaryResource>> loadsByUri) {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         if (pageUri == null) return List.of();
-        Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
         for (ImageResource image : resources.images()) {
             CompletableFuture<BinaryResource> shared = loadsByUri.get(image.uri());
             if (shared == null) {
@@ -237,10 +323,10 @@ final class PageResourceCoordinator {
             List<ResourceLoad> cancellableLoads,
             URI pageUri,
             DownloadBudget budget,
-            PageLoadProgress progress) {
+            PageLoadProgress progress,
+            Map<URI, CompletableFuture<BinaryResource>> loadsByUri) {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         if (pageUri == null) return List.of();
-        Map<URI, CompletableFuture<BinaryResource>> loadsByUri = new HashMap<>();
         for (com.browicy.engine.dom.Element element : document.getElementsByTagName("*")) {
             URI uri = cssImageUri(
                     element.getComputedStyles().get("background-image"), pageUri);
@@ -421,15 +507,18 @@ final class PageResourceCoordinator {
     }
 
     private Iterable<JavaScriptSource> scriptSequence(
-            DocumentResources resources, List<ResourceLoad> cancellableLoads,
+            DocumentResources resources,
+            Map<ScriptResource.External, SubResourceLoad> prefetchedScripts,
+            List<ResourceLoad> cancellableLoads,
             PageLoadProgress progress) {
         return () -> new ScriptSourceIterator(
-                resources.scripts().iterator(), cancellableLoads, progress);
+                resources.scripts().iterator(), prefetchedScripts, cancellableLoads, progress);
     }
 
     private final class ScriptSourceIterator implements Iterator<JavaScriptSource> {
 
         private final Iterator<ScriptResource> resources;
+        private final Map<ScriptResource.External, SubResourceLoad> prefetchedScripts;
         private final List<ResourceLoad> cancellableLoads;
         private final PageLoadProgress progress;
         private JavaScriptSource next;
@@ -437,9 +526,11 @@ final class PageResourceCoordinator {
         private int inlineIndex;
 
         private ScriptSourceIterator(Iterator<ScriptResource> resources,
+                                     Map<ScriptResource.External, SubResourceLoad> prefetchedScripts,
                                      List<ResourceLoad> cancellableLoads,
                                      PageLoadProgress progress) {
             this.resources = resources;
+            this.prefetchedScripts = prefetchedScripts;
             this.cancellableLoads = cancellableLoads;
             this.progress = progress;
         }
@@ -481,14 +572,16 @@ final class PageResourceCoordinator {
                 }
 
                 ScriptResource.External external = (ScriptResource.External) resource;
-                SubResourceLoad load;
-                try {
-                    load = resourceLoader.loadAsync(
-                            external.uri(), NetworkResourceType.SCRIPT);
-                } catch (IllegalArgumentException invalidUri) {
-                    continue;
+                SubResourceLoad load = prefetchedScripts.get(external);
+                if (load == null) {
+                    try {
+                        load = resourceLoader.loadAsync(
+                                external.uri(), NetworkResourceType.SCRIPT);
+                    } catch (IllegalArgumentException invalidUri) {
+                        continue;
+                    }
+                    cancellableLoads.add(load);
                 }
-                cancellableLoads.add(load);
                 progress.activity("Lade Skript " + external.uri());
                 try {
                     TextResource downloaded = load.await();

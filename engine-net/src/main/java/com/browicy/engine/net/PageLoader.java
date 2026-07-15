@@ -178,6 +178,7 @@ public final class PageLoader implements AutoCloseable {
     @Override
     public void close() {
         executor.close();
+        client.close();
     }
 
     private static String decodeHtml(HttpResponse response) {

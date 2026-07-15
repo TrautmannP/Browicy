@@ -38,7 +38,12 @@ public final class BrowicyEngine implements AutoCloseable {
     private final Map<Document, PageSession> activeSessions = new ConcurrentHashMap<>();
 
     public BrowicyEngine() {
-        this(new PageLoader(), new SubResourceLoader(), new HtmlParser(), new JavaScriptEngine());
+        this(new com.browicy.engine.net.HttpClient());
+    }
+
+    private BrowicyEngine(com.browicy.engine.net.HttpClient sharedClient) {
+        this(new PageLoader(sharedClient), new SubResourceLoader(sharedClient),
+                new HtmlParser(), new JavaScriptEngine());
     }
 
     public BrowicyEngine(PageLoader pageLoader) {

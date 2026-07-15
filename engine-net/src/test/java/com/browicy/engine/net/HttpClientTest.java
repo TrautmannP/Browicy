@@ -45,7 +45,7 @@ public class HttpClientTest {
     }
 
     @Test
-    public void sendsHostUserAgentAndConnectionCloseHeaders() throws IOException {
+    public void sendsHostUserAgentAndKeepAliveHeaders() throws IOException {
         AtomicReference<com.sun.net.httpserver.Headers> seen = new AtomicReference<>();
         server.on("/echo", exchange -> {
             seen.set(exchange.getRequestHeaders());
@@ -59,7 +59,7 @@ public class HttpClientTest {
         assertTrue(userAgent.startsWith("Mozilla/5.0"));
         assertTrue(userAgent.contains("Chrome/"));
         assertTrue(userAgent.endsWith("Browicy/0.1"));
-        assertEquals("close", seen.get().getFirst("Connection"));
+        assertEquals("keep-alive", seen.get().getFirst("Connection"));
     }
 
     @Test

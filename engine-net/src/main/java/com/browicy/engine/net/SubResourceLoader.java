@@ -318,5 +318,6 @@ public final class SubResourceLoader implements AutoCloseable {
     @Override
     public void close() {
         executor.close();
+        client.close();
     }
 }

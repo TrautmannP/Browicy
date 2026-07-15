@@ -27,6 +27,7 @@ import javax.swing.Timer;
 
 public final class ContentPanel extends JPanel {
 
+    private static final System.Logger LOGGER = System.getLogger(ContentPanel.class.getName());
     private static final long SLOW_LOAD_HINT_MILLIS = 20_000;
 
     private final BrowserState state;
@@ -132,6 +133,11 @@ public final class ContentPanel extends JPanel {
                 }
                 loadedTab.attachPageSession(session);
                 if (tabId.equals(renderedTabId) && url.equals(renderedUrl)) {
+                    PageLoadProgress.Snapshot loadStats = session.progress().snapshot();
+                    LOGGER.log(System.Logger.Level.INFO,
+                            "[Perf] Erste Darstellung von {0} nach {1} ms"
+                                    + " (Engine darstellbar nach {2} ms)",
+                            url, loadStats.elapsedMillis(), loadStats.firstRenderMillis());
                     showDocument(tabId, session);
                 }
             }

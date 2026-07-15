@@ -271,7 +271,7 @@ public class BrowicyEngineTest {
     }
 
     @Test
-    public void startsImagesOnlyAfterTheDocumentIsReadyForItsInitialRender() throws Exception {
+    public void rendersInitialContentWhileBlockingScriptIsStillLoading() throws Exception {
         CountDownLatch scriptStarted = new CountDownLatch(1);
         CountDownLatch releaseScript = new CountDownLatch(1);
         CountDownLatch imageStarted = new CountDownLatch(1);
@@ -303,19 +303,62 @@ public class BrowicyEngineTest {
             try {
                 assertTrue("Das blockierende Skript wurde nicht angefordert",
                         scriptStarted.await(2, TimeUnit.SECONDS));
-                assertFalse("Bilder dürfen die initiale Seitenvorbereitung nicht überholen",
-                        imageStarted.await(200, TimeUnit.MILLISECONDS));
+                try (PageSession session = sessionFuture.get(2, TimeUnit.SECONDS)) {
+                    assertEquals("Sichtbarer Inhalt", session.document()
+                            .getElementById("message").getTextContent());
+                    assertTrue("Der First Render sollte in der Metrik vermerkt sein",
+                            session.progress().firstRenderMillis() >= 0);
+                    assertTrue("Bild-Downloads sollten mit dem initialen Render anlaufen",
+                            imageStarted.await(2, TimeUnit.SECONDS));
+                    assertFalse("Skripte laufen noch – die Ressourcen dürfen nicht fertig sein",
+                            session.resourcesLoaded().isDone());
+                    releaseScript.countDown();
+                    session.awaitResources();
+                }
             } finally {
                 releaseScript.countDown();
             }
+        }
+    }
 
-            try (PageSession session = sessionFuture.get(2, TimeUnit.SECONDS)) {
-                assertEquals("Sichtbarer Inhalt", session.document()
-                        .getElementById("message").getTextContent());
-                assertTrue("Bild-Downloads sollten nach dem initialen Render anlaufen",
-                        imageStarted.await(2, TimeUnit.SECONDS));
-                session.awaitResources();
-            }
+    @Test
+    public void prefetchesExternalScriptsInParallelButExecutesThemInOrder() throws Exception {
+        CountDownLatch bothRequested = new CountDownLatch(2);
+        server.serveHtml("/parallel-scripts", """
+                <html><body><p id="message">wartet</p>
+                  <script src="/first.js"></script>
+                  <script src="/second.js"></script>
+                </body></html>
+                """);
+        server.on("/first.js", exchange -> {
+            bothRequested.countDown();
+            awaitQuietly(bothRequested);
+            LocalTestServer.respond(exchange, 200, "application/javascript",
+                    "window.reihenfolge = 'erstes';"
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        });
+        server.on("/second.js", exchange -> {
+            bothRequested.countDown();
+            awaitQuietly(bothRequested);
+            LocalTestServer.respond(exchange, 200, "application/javascript",
+                    ("document.getElementById('message').textContent ="
+                            + " window.reihenfolge + '-dann-zweites';")
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        });
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/parallel-scripts"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            assertEquals("erstes-dann-zweites", session.document()
+                    .getElementById("message").getTextContent());
+        }
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -456,12 +499,13 @@ public class BrowicyEngineTest {
         List<PageUpdate> updates = new CopyOnWriteArrayList<>();
 
         try (PageSession session = engine.loadPageSession(server.url("/interactive"), updates::add)) {
+            session.awaitResources();
             assertEquals(DocumentReadyState.COMPLETE, session.document().getReadyState());
             assertEquals("interactive", session.document().getBody()
                     .getAttribute("data-dom-ready"));
             assertEquals("complete", session.document().getBody()
                     .getAttribute("data-load-ready"));
-            assertTrue(updates.isEmpty());
+            updates.clear();
 
             session.runtime().submitEvent(
                     session.document().getElementById("button"),

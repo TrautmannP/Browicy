@@ -44,7 +44,7 @@ public final class PageSession implements AutoCloseable {
         this.fonts = Objects.requireNonNull(fonts, "fonts");
         this.cookies = Objects.requireNonNull(cookies, "cookies");
         this.resourcesLoaded = Objects.requireNonNull(resourcesLoaded, "resourcesLoaded");
-        this.cancellableLoads = List.copyOf(cancellableLoads);
+        this.cancellableLoads = Objects.requireNonNull(cancellableLoads, "cancellableLoads");
         this.updateCoordinator = updateCoordinator;
         this.progress = progress == null ? new PageLoadProgress() : progress;
         this.onClose = Objects.requireNonNull(onClose, "onClose");
