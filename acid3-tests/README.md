@@ -9,10 +9,13 @@ aufbauen.
 Das Modul gehoert nicht zum Standard-Reaktor. Dadurch bleibt der normale Build gruen,
 solange Browicy noch nicht alle Acid3-Funktionen implementiert hat.
 
-```bat
+```bash
 # Acid3 inklusive benoetigter Module bauen und ausfuehren
-mvn-graal.cmd -Pacid3 -pl acid3-tests -am test
+./mvn-graal.sh -Pacid3 -pl acid3-tests -am test
 ```
+
+Unter Windows lautet der Wrapper-Aufruf entsprechend
+`mvn-graal.cmd -Pacid3 -pl acid3-tests -am test`.
 
 Die eingecheckte Testseite stammt aus dem Web Platform Tests Repository. Ihre
 Revision und Lizenzhinweise stehen unter `src/test/resources/acid3/UPSTREAM.md`.
@@ -25,9 +28,11 @@ werden nicht veraendert.
 Das Profil `compatibility-report` nutzt denselben Acid3-Harness, wartet jedoch auf alle
 asynchron ausgefuehrten Untertests und kombiniert das Ergebnis mit CSS3Test:
 
-```bat
-mvn-graal.cmd -Pcompatibility-report -pl acid3-tests -am verify
+```bash
+./compatibility-report.sh
 ```
+
+Unter Windows steht dafuer `compatibility-report.cmd` bereit.
 
 Die Dateien `target/compatibility-reports/latest.html` und `latest.json` enthalten fuer
 jeden CSS3Test- und Acid3-Untertest Status, Gruppe, Feature und Fehlermeldung. Erwartete

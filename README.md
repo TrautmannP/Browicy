@@ -36,7 +36,7 @@ The Maven modules follow the engine's responsibilities and keep dependencies exp
 - Maven 3.9 or newer
 - A GraalVM JDK is recommended for running pages that use JavaScript and for native-image builds
 
-The build uses GraalJS version `25.1.3`. Use a compatible GraalVM distribution when running the desktop browser or inspector with JavaScript enabled.
+The build uses GraalJS version `25.0.3`. Use a compatible GraalVM distribution when running the desktop browser or inspector with JavaScript enabled.
 
 ## Build and run
 
@@ -51,6 +51,18 @@ Start the desktop browser:
 ```bash
 mvn -pl desktop -am compile exec:java
 ```
+
+On Linux and macOS, the provided helper script starts the browser with the JVM
+options required by GraalJS:
+
+```bash
+./run.sh
+```
+
+Set `JAVA_HOME` before invoking a helper script to select a particular GraalVM
+installation. If it is unset, the scripts use `java` from `PATH`. The equivalent
+Windows helpers are `run.cmd`, `inspect.cmd`, `compatibility-report.cmd`, and
+`mvn-graal.cmd`.
 
 Create the executable desktop JAR:
 
@@ -68,6 +80,14 @@ The headless inspector exercises the same engine as the desktop browser and emit
 ```bash
 mvn -pl browser-cli -am package -DskipTests
 java -jar browser-cli/target/browicy-inspect.jar "https://example.com" --output report.json
+```
+
+The Linux/macOS helper builds the inspector first. Its second argument can be an
+output file or the beginning of the regular inspector options:
+
+```bash
+./inspect.sh "https://example.com" report.json
+./inspect.sh "https://example.com" --screenshot artifacts/example.png --viewport 1280x720
 ```
 
 For visual regression tests, the inspector can capture the same Java2D rendering
@@ -121,6 +141,12 @@ An optional compatibility-report profile runs the CSS3Test CSS-2007 filter and t
 mvn -Pcompatibility-report -pl acid3-tests -am verify
 ```
 
+On Linux and macOS the same report can be generated with:
+
+```bash
+./compatibility-report.sh
+```
+
 Expected conformance gaps are reported without failing this reporting build. The stricter Acid3 test command reports every failing subtest as a JUnit failure.
 
 ## Native image
@@ -129,6 +155,13 @@ The desktop module provides an experimental GraalVM native-image profile:
 
 ```bash
 mvn -Pnative -pl desktop -am package
+```
+
+To select GraalVM explicitly on Linux or macOS, either export `JAVA_HOME` or use
+the Maven wrapper directly:
+
+```bash
+JAVA_HOME=/path/to/graalvm ./mvn-graal.sh -Pnative -pl desktop -am package
 ```
 
 Swing/AWT native-image support depends on the GraalVM version and may require additional reachability metadata.
