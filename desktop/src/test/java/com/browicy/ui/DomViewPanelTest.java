@@ -548,6 +548,43 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void displayTableWithOrdinaryBlockChildrenCreatesAnAnonymousTableWrapper() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="wrapper" style="display:table;max-width:300px;margin:0 auto;
+                  background-color:white"><div id="content" style="height:80px">visible</div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(500);
+        BoxFragment wrapper = boxById(layout, "wrapper");
+        BoxFragment content = boxById(layout, "content");
+
+        assertEquals(300f, wrapper.width(), 0.001f);
+        assertEquals(80f, content.height(), 0.001f);
+        assertTrue(wrapper.x() > 90f);
+        assertTrue(layout.fragments().stream().filter(TextFragment.class::isInstance)
+                .map(TextFragment.class::cast).anyMatch(text -> text.text().equals("visible")));
+    }
+
+    @Test
+    public void flexWrapPlacesItemsOnAdditionalRowsAndExpandsTheContainer() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="flex" style="display:flex;flex-wrap:wrap;width:200px">
+                  <div id="first" style="width:120px;height:30px"></div>
+                  <div id="second" style="width:120px;height:40px"></div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment flex = boxById(layout, "flex");
+        BoxFragment first = boxById(layout, "first");
+        BoxFragment second = boxById(layout, "second");
+
+        assertTrue(second.y() >= first.y() + first.height());
+        assertEquals(70f, flex.height(), 0.001f);
+    }
+
+    @Test
     public void resolvesRootPercentageHeightAgainstViewport() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <html style="height:100%"><body style="height:100%;margin:0">

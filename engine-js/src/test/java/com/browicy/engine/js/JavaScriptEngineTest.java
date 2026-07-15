@@ -97,6 +97,27 @@ public class JavaScriptEngineTest {
     }
 
     @Test
+    public void topParentAndFramesExposeTheTopLevelBrowsingContextAndNamedIframes() {
+        Document document = parse("""
+                <html><body><iframe id="by-id" name="named"></iframe><script>
+                  console.log(top === window, parent === window, frames.length,
+                              frames[0] === document.getElementById('by-id').contentWindow,
+                              frames.named === frames[0], frames['by-id'] === frames[0]);
+                  const dynamic = document.createElement('iframe');
+                  dynamic.name = '__tcfapiLocator';
+                  document.body.appendChild(dynamic);
+                  console.log(frames.length, frames.__tcfapiLocator.document.URL);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: true true 1 true true true",
+                "log: 2 about:blank"), result.consoleMessages());
+    }
+
+    @Test
     public void iframeSrcdocCreatesAReplaceableStyledDocument() {
         Document document = parse("""
                 <html><body><iframe id="frame"></iframe><script>

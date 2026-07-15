@@ -183,7 +183,39 @@ public class CssParserTest {
         assertTrue(parser.supports("height", "10vh"));
         assertTrue(parser.supports("width", "25vw"));
         assertTrue(parser.supports("font-size", "1.5rem"));
+        assertTrue(parser.supports("font-size", "87.5%"));
         assertFalse(parser.supports("text-align", "justify"));
+    }
+
+    @Test
+    public void parsesImportantDeclarationsAndPreservesTheirExpandedProperties() {
+        CssRule rule = new CssParser().parse(
+                "p { color:red!important; margin:1px 2px !important; color:blue }")
+                .getFirst();
+
+        assertEquals("red", rule.declarations().get("color"));
+        assertEquals("2px", rule.declarations().get("margin-left"));
+        assertTrue(rule.importantProperties().contains("color"));
+        assertTrue(rule.importantProperties().contains("margin-left"));
+    }
+
+    @Test
+    public void parsesTextTransformValues() {
+        CssParser parser = new CssParser();
+
+        assertEquals("uppercase",
+                parser.parseDeclarations("text-transform:uppercase").get("text-transform"));
+        assertTrue(parser.supportsProperty("text-transform"));
+        assertFalse(parser.supports("text-transform", "full-width"));
+    }
+
+    @Test
+    public void parsesFlexWrapping() {
+        CssParser parser = new CssParser();
+
+        assertEquals("wrap", parser.parseDeclarations("flex-wrap:wrap").get("flex-wrap"));
+        assertTrue(parser.supportsProperty("flex-wrap"));
+        assertFalse(parser.supports("flex-wrap", "balance"));
     }
 
     @Test

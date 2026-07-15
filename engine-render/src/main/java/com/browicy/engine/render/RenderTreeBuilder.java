@@ -96,9 +96,11 @@ public final class RenderTreeBuilder {
                 false,
                 RenderStyle.BorderCollapse.SEPARATE,
                 RenderStyle.TextAlign.LEFT,
+                RenderStyle.TextTransform.NONE,
                 RenderStyle.Overflow.VISIBLE,
                 RenderStyle.VerticalAlign.BASELINE,
                 RenderStyle.FlexDirection.ROW,
+                RenderStyle.FlexWrap.NOWRAP,
                 RenderStyle.JustifyContent.FLEX_START,
                 RenderStyle.AlignItems.STRETCH,
                 0,
@@ -164,7 +166,8 @@ public final class RenderTreeBuilder {
         for (Node child : parent.getChildren()) {
             if (child instanceof TextNode text) {
                 if (!text.getData().isEmpty()) {
-                    output.add(new RenderTextRun(text, text.getData(), parentStyle));
+                    output.add(new RenderTextRun(text,
+                            transformText(text.getData(), parentStyle.textTransform()), parentStyle));
                 }
                 continue;
             }
@@ -227,7 +230,8 @@ public final class RenderTreeBuilder {
         if (text == null) return;
         RenderStyle style = resolveStyle("span", false, declarations, parentStyle);
         if (style.display() == RenderStyle.Display.NONE) return;
-        RenderTextRun run = new RenderTextRun(null, text, style);
+        RenderTextRun run = new RenderTextRun(null,
+                transformText(text, style.textTransform()), style);
         if (isFlexContainer(parentStyle.display())) {
             RenderStyle itemStyle = switch (style.display()) {
                 case INLINE -> copyWithDisplay(style, RenderStyle.Display.BLOCK);
@@ -562,9 +566,11 @@ public final class RenderTreeBuilder {
                 false,
                 inherited.borderCollapse(),
                 inherited.textAlign(),
+                inherited.textTransform(),
                 RenderStyle.Overflow.VISIBLE,
                 RenderStyle.VerticalAlign.BASELINE,
                 RenderStyle.FlexDirection.ROW,
+                RenderStyle.FlexWrap.NOWRAP,
                 RenderStyle.JustifyContent.FLEX_START,
                 RenderStyle.AlignItems.STRETCH,
                 0,
@@ -624,9 +630,11 @@ public final class RenderTreeBuilder {
         boolean outlineVisible = false;
         RenderStyle.BorderCollapse borderCollapse = RenderStyle.BorderCollapse.SEPARATE;
         RenderStyle.TextAlign textAlign = parent.textAlign();
+        RenderStyle.TextTransform textTransform = parent.textTransform();
         RenderStyle.Overflow overflow = RenderStyle.Overflow.VISIBLE;
         RenderStyle.VerticalAlign verticalAlign = RenderStyle.VerticalAlign.BASELINE;
         RenderStyle.FlexDirection flexDirection = RenderStyle.FlexDirection.ROW;
+        RenderStyle.FlexWrap flexWrap = RenderStyle.FlexWrap.NOWRAP;
         RenderStyle.JustifyContent justifyContent = RenderStyle.JustifyContent.FLEX_START;
         RenderStyle.AlignItems alignItems = RenderStyle.AlignItems.STRETCH;
         float flexGrow = 0;
@@ -717,6 +725,13 @@ public final class RenderTreeBuilder {
                 default -> RenderStyle.TextAlign.LEFT;
             };
         }
+        textTransform = switch (declarations.getOrDefault("text-transform",
+                textTransform.name().toLowerCase(Locale.ROOT))) {
+            case "uppercase" -> RenderStyle.TextTransform.UPPERCASE;
+            case "lowercase" -> RenderStyle.TextTransform.LOWERCASE;
+            case "capitalize" -> RenderStyle.TextTransform.CAPITALIZE;
+            default -> RenderStyle.TextTransform.NONE;
+        };
         overflow = switch (declarations.getOrDefault("overflow", "visible")) {
             case "hidden" -> RenderStyle.Overflow.HIDDEN;
             case "auto" -> RenderStyle.Overflow.AUTO;
@@ -734,6 +749,11 @@ public final class RenderTreeBuilder {
             case "column" -> RenderStyle.FlexDirection.COLUMN;
             case "column-reverse" -> RenderStyle.FlexDirection.COLUMN_REVERSE;
             default -> RenderStyle.FlexDirection.ROW;
+        };
+        flexWrap = switch (declarations.getOrDefault("flex-wrap", "nowrap")) {
+            case "wrap" -> RenderStyle.FlexWrap.WRAP;
+            case "wrap-reverse" -> RenderStyle.FlexWrap.WRAP_REVERSE;
+            default -> RenderStyle.FlexWrap.NOWRAP;
         };
         justifyContent = switch (declarations.getOrDefault("justify-content", "flex-start")) {
             case "center" -> RenderStyle.JustifyContent.CENTER;
@@ -823,10 +843,36 @@ public final class RenderTreeBuilder {
                 backgroundImageUrl, backgroundRepeat, backgroundPositionX, backgroundPositionY,
                 width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,
-                outlineWidth, outlineColor, outlineVisible, borderCollapse, textAlign,
-                overflow, verticalAlign, flexDirection, justifyContent, alignItems, flexGrow,
+                outlineWidth, outlineColor, outlineVisible, borderCollapse, textAlign, textTransform,
+                overflow, verticalAlign, flexDirection, flexWrap, justifyContent, alignItems, flexGrow,
                 flexShrink, flexBasis,
                 opacity);
+    }
+
+    private static String transformText(String text, RenderStyle.TextTransform transform) {
+        return switch (transform) {
+            case UPPERCASE -> text.toUpperCase(Locale.ROOT);
+            case LOWERCASE -> text.toLowerCase(Locale.ROOT);
+            case CAPITALIZE -> capitalize(text);
+            case NONE -> text;
+        };
+    }
+
+    private static String capitalize(String text) {
+        StringBuilder result = new StringBuilder(text.length());
+        boolean wordStart = true;
+        for (int index = 0; index < text.length();) {
+            int codePoint = text.codePointAt(index);
+            if (Character.isLetterOrDigit(codePoint)) {
+                result.appendCodePoint(wordStart ? Character.toTitleCase(codePoint) : codePoint);
+                wordStart = false;
+            } else {
+                result.appendCodePoint(codePoint);
+                wordStart = true;
+            }
+            index += Character.charCount(codePoint);
+        }
+        return result.toString();
     }
 
     private static RenderStyle.Display defaultDisplay(String tag) {
@@ -955,6 +1001,7 @@ public final class RenderTreeBuilder {
                 case "rem" -> parsed.value() * remBase;
                 case "vw" -> parsed.value() * viewportWidth / 100f;
                 case "vh" -> parsed.value() * viewportHeight / 100f;
+                case "%" -> parsed.value() * emBase / 100f;
                 default -> parsed.value();
             };
         } catch (RuntimeException ignored) {
@@ -1059,7 +1106,7 @@ public final class RenderTreeBuilder {
 
     private static ParsedLength parseLength(String value) {
         String normalized = value.toLowerCase(Locale.ROOT);
-        for (String unit : List.of("rem", "px", "em", "vw", "vh")) {
+        for (String unit : List.of("rem", "px", "em", "vw", "vh", "%")) {
             if (normalized.endsWith(unit)) {
                 float number = Float.parseFloat(
                         normalized.substring(0, normalized.length() - unit.length()));

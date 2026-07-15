@@ -18,6 +18,21 @@ public final class JavaScriptEngine {
     static final String BROWSER_BOOTSTRAP = """
             globalThis.window = globalThis;
             globalThis.self = globalThis;
+            globalThis.top = globalThis;
+            globalThis.parent = globalThis;
+            globalThis.frames = new Proxy(Object.create(null), {
+              get: (_, key) => {
+                const frames = Array.from(document.getElementsByTagName('iframe'));
+                if (key === 'length') return frames.length;
+                if (key === Symbol.iterator) return function* () {
+                  for (const frame of frames) yield frame.contentWindow;
+                };
+                const index = String(key).match(/^(0|[1-9]\\d*)$/) ? Number(key) : -1;
+                if (index >= 0) return index < frames.length ? frames[index].contentWindow : undefined;
+                const named = frames.find(frame => frame.name === String(key) || frame.id === String(key));
+                return named == null ? undefined : named.contentWindow;
+              }
+            });
             globalThis.onload = null;
             const __browicyTimeOrigin = Date.now();
             const __browicyNavigationEntry = Object.freeze({

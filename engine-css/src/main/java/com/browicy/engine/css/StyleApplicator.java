@@ -61,12 +61,14 @@ public final class StyleApplicator {
                     Map<String, DeclarationCandidate> target = rule.selector().pseudoElement() == null
                             ? winners : pseudoWinners.computeIfAbsent(
                                     rule.selector().pseudoElement(), ignored -> new LinkedHashMap<>());
-                    addCandidates(target, rule.declarations(), new CascadePriority(
-                            false, rule.specificity(), rule.sourceOrder()));
+                    addCandidates(target, rule.declarations(), rule.importantProperties(),
+                            false, rule.specificity(), rule.sourceOrder());
                 }
             }
-            addCandidates(winners, parser.parseDeclarations(element.getAttribute("style")),
-                    new CascadePriority(true, Specificity.ZERO, Long.MAX_VALUE));
+            CssParser.ParsedDeclarationBlock inline =
+                    parser.parseDeclarationBlock(element.getAttribute("style"));
+            addCandidates(winners, inline.declarations(), inline.importantProperties(),
+                    true, Specificity.ZERO, Long.MAX_VALUE);
             Map<String, String> variables = new LinkedHashMap<>(inheritedVariables);
             winners.forEach((property, candidate) -> {
                 if (property.startsWith("--")) variables.put(property, candidate.value());
@@ -189,6 +191,18 @@ public final class StyleApplicator {
         declarations.forEach((property, value) -> {
             addCandidate(winners, property, new DeclarationCandidate(value, priority));
         });
+    }
+
+    private static void addCandidates(Map<String, DeclarationCandidate> winners,
+                                      Map<String, String> declarations,
+                                      java.util.Set<String> importantProperties,
+                                      boolean inlineStyle,
+                                      Specificity specificity,
+                                      long sourceOrder) {
+        declarations.forEach((property, value) -> addCandidate(winners, property,
+                new DeclarationCandidate(value, new CascadePriority(
+                        importantProperties.contains(property), inlineStyle,
+                        specificity, sourceOrder))));
     }
 
     private static void addCandidate(Map<String, DeclarationCandidate> winners,

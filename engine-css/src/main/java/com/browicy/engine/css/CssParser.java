@@ -5,9 +5,11 @@ import com.browicy.engine.selectors.SelectorParseException;
 import com.browicy.engine.selectors.SelectorParser;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 public final class CssParser {
@@ -36,7 +38,7 @@ public final class CssParser {
             "(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|auto)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_SIZE = Pattern.compile(
-            "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh)", Pattern.CASE_INSENSITIVE);
+            "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_WEIGHT = Pattern.compile("[1-9]00");
     private static final Pattern INTEGER = Pattern.compile("-?\\d+");
     private static final Pattern NON_NEGATIVE_NUMBER = Pattern.compile(
@@ -170,7 +172,8 @@ public final class CssParser {
                 offset = close + 1;
                 continue;
             }
-            Map<String, String> declarations = parseDeclarations(body);
+            ParsedDeclarationBlock declarationBlock = parseDeclarationBlock(body);
+            Map<String, String> declarations = declarationBlock.declarations();
             if (declarations.isEmpty()) {
                 offset = close + 1;
                 continue;
@@ -178,7 +181,8 @@ public final class CssParser {
             String selectorSource = recoverSelectorPrelude(prelude);
             try {
                 for (var selector : SELECTOR_PARSER.parse(selectorSource).selectors()) {
-                    rules.add(new CssRule(selector, declarations, sourceOrder[0], condition));
+                    rules.add(new CssRule(selector, declarations, sourceOrder[0], condition,
+                            declarationBlock.importantProperties()));
                 }
             } catch (SelectorParseException ignored) {
             }
@@ -262,9 +266,14 @@ public final class CssParser {
     }
 
     public Map<String, String> parseDeclarations(String source) {
+        return new LinkedHashMap<>(parseDeclarationBlock(source).declarations());
+    }
+
+    ParsedDeclarationBlock parseDeclarationBlock(String source) {
         Map<String, String> declarations = new LinkedHashMap<>();
+        Set<String> importantProperties = new LinkedHashSet<>();
         if (source == null || source.isBlank()) {
-            return declarations;
+            return new ParsedDeclarationBlock(declarations, importantProperties);
         }
         source = COMMENTS.matcher(source).replaceAll("");
         for (String declaration : source.split(";")) {
@@ -276,20 +285,42 @@ public final class CssParser {
             String property = propertySource.startsWith("--")
                     ? propertySource : propertySource.toLowerCase(Locale.ROOT);
             String rawValue = declaration.substring(separator + 1).trim();
+            boolean important = rawValue.matches("(?is).*?\\s*!important\\s*$");
+            if (important) {
+                rawValue = rawValue.replaceFirst("(?is)\\s*!important\\s*$", "").strip();
+            }
             String value = rawValue.toLowerCase(Locale.ROOT);
+            Map<String, String> parsed = new LinkedHashMap<>();
             if (property.startsWith("--")) {
-                if (!rawValue.isEmpty()) declarations.put(property, rawValue);
+                if (!rawValue.isEmpty()) parsed.put(property, rawValue);
             } else if (containsVarFunction(rawValue) && supportsProperty(property)) {
-                declarations.put(property, rawValue);
+                parsed.put(property, rawValue);
             } else if (property.equals("content")) {
-                putContent(declarations, rawValue);
+                putContent(parsed, rawValue);
             } else if (property.equals("background-image")) {
-                putBackgroundImage(declarations, rawValue);
+                putBackgroundImage(parsed, rawValue);
             } else {
-                parseDeclaration(declarations, property, value);
+                parseDeclaration(parsed, property, value);
+            }
+            for (Map.Entry<String, String> entry : parsed.entrySet()) {
+                if (important || !importantProperties.contains(entry.getKey())) {
+                    declarations.put(entry.getKey(), entry.getValue());
+                    if (important) importantProperties.add(entry.getKey());
+                    else importantProperties.remove(entry.getKey());
+                }
             }
         }
-        return declarations;
+        return new ParsedDeclarationBlock(declarations, importantProperties);
+    }
+
+    record ParsedDeclarationBlock(Map<String, String> declarations,
+                                  Set<String> importantProperties) {
+        ParsedDeclarationBlock {
+            declarations = java.util.Collections.unmodifiableMap(
+                    new LinkedHashMap<>(declarations));
+            importantProperties = java.util.Collections.unmodifiableSet(
+                    new LinkedHashSet<>(importantProperties));
+        }
     }
 
     private static void putContent(Map<String, String> target, String value) {
@@ -344,6 +375,7 @@ public final class CssParser {
             case "font-style" -> supports(normalized, "normal");
             case "display" -> supports(normalized, "block");
             case "flex-direction" -> supports(normalized, "row");
+            case "flex-wrap" -> supports(normalized, "wrap");
             case "justify-content" -> supports(normalized, "flex-start");
             case "align-items" -> supports(normalized, "stretch");
             case "flex", "flex-grow", "flex-shrink" -> supports(normalized, "1");
@@ -360,6 +392,7 @@ public final class CssParser {
             case "max-width", "max-height" -> supports(normalized, "none");
             case "box-sizing" -> supports(normalized, "content-box");
             case "text-align" -> supports(normalized, "left");
+            case "text-transform" -> supports(normalized, "uppercase");
             case "text-decoration", "text-decoration-line" -> supports(normalized, "underline");
             case "text-decoration-color" -> supports(normalized, "black");
             case "list-style", "list-style-type" -> supports(normalized, "disc");
@@ -436,6 +469,12 @@ public final class CssParser {
             case "flex-direction" -> {
                 if (value.equals("row") || value.equals("row-reverse")
                         || value.equals("column") || value.equals("column-reverse")) {
+                    target.put(property, value);
+                }
+            }
+            case "flex-wrap" -> {
+                if (value.equals("nowrap") || value.equals("wrap")
+                        || value.equals("wrap-reverse")) {
                     target.put(property, value);
                 }
             }
@@ -521,6 +560,12 @@ public final class CssParser {
             }
             case "text-align" -> {
                 if (value.equals("left") || value.equals("center") || value.equals("right")) {
+                    target.put(property, value);
+                }
+            }
+            case "text-transform" -> {
+                if (value.equals("none") || value.equals("uppercase")
+                        || value.equals("lowercase") || value.equals("capitalize")) {
                     target.put(property, value);
                 }
             }

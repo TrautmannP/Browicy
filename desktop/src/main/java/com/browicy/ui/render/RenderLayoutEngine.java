@@ -296,6 +296,47 @@ public final class RenderLayoutEngine {
                                      Float contentHeight,
                                      Graphics2D graphics,
                                      List<LineBox> lineBoxes) {
+        if (containerStyle.flexWrap() == RenderStyle.FlexWrap.NOWRAP) {
+            return layoutFlexRowLine(containerStyle, items, contentX, contentY,
+                    contentWidth, contentHeight, graphics, lineBoxes);
+        }
+        List<List<RenderBox>> rows = new ArrayList<>();
+        List<RenderBox> row = new ArrayList<>();
+        float used = 0;
+        for (RenderBox item : items) {
+            float basis = flexBaseOuterWidth(item, contentWidth, graphics);
+            if (!row.isEmpty() && used + basis > contentWidth + 0.01f) {
+                rows.add(List.copyOf(row));
+                row.clear();
+                used = 0;
+            }
+            row.add(item);
+            used += basis;
+        }
+        if (!row.isEmpty()) rows.add(List.copyOf(row));
+        if (containerStyle.flexWrap() == RenderStyle.FlexWrap.WRAP_REVERSE) {
+            java.util.Collections.reverse(rows);
+        }
+        List<PaintFragment> fragments = new ArrayList<>();
+        float offsetY = 0;
+        for (List<RenderBox> flexRow : rows) {
+            FlexLayout layout = layoutFlexRowLine(containerStyle, flexRow, contentX,
+                    contentY + offsetY, contentWidth, null, graphics, lineBoxes);
+            fragments.addAll(layout.fragments());
+            offsetY += layout.height();
+        }
+        return new FlexLayout(contentHeight == null ? offsetY : Math.max(offsetY, contentHeight),
+                List.copyOf(fragments));
+    }
+
+    private FlexLayout layoutFlexRowLine(RenderStyle containerStyle,
+                                         List<RenderBox> items,
+                                         float contentX,
+                                         float contentY,
+                                         float contentWidth,
+                                         Float contentHeight,
+                                         Graphics2D graphics,
+                                         List<LineBox> lineBoxes) {
         float[] widths = new float[items.size()];
         float[] minimums = new float[items.size()];
         float[] shrinkFactors = new float[items.size()];
@@ -368,6 +409,18 @@ public final class RenderLayoutEngine {
             else cursor += widths[index] + spacing.gap();
         }
         return new FlexLayout(crossSize, List.copyOf(fragments));
+    }
+
+    private float flexBaseOuterWidth(RenderBox item,
+                                     float contentWidth,
+                                     Graphics2D graphics) {
+        IntrinsicWidths intrinsic = intrinsicBoxWidth(item, contentWidth, graphics);
+        RenderStyle style = item.style();
+        return style.flexBasis().isAuto()
+                ? intrinsic.preferred()
+                : resolve(style.flexBasis(), contentWidth)
+                + style.margin().horizontal() + style.padding().horizontal()
+                + style.borderWidth().horizontal();
     }
 
     private static float flexItemBaseline(FlexItemLayout item) {
@@ -586,6 +639,12 @@ public final class RenderLayoutEngine {
         float availableContentWidth = Math.max(1,
                 availableWidth - margin.horizontal() - decoration);
         List<TableRow> rows = tableRows(table);
+        if (rows.isEmpty()) {
+            RenderBox anonymousTable = new RenderBox(table.source(),
+                    style.withDisplay(RenderStyle.Display.BLOCK), table.children());
+            return layoutBlock(anonymousTable, containingX, y, availableWidth,
+                    containingHeight, false, graphics, lineBoxes, positionedContext);
+        }
         int columnCount = rows.stream().mapToInt(row -> row.cells().size()).max().orElse(0);
         float[] preferred = new float[columnCount];
         float[] minimum = new float[columnCount];

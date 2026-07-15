@@ -44,9 +44,11 @@ public record RenderStyle(
         boolean outlineVisible,
         BorderCollapse borderCollapse,
         TextAlign textAlign,
+        TextTransform textTransform,
         Overflow overflow,
         VerticalAlign verticalAlign,
         FlexDirection flexDirection,
+        FlexWrap flexWrap,
         JustifyContent justifyContent,
         AlignItems alignItems,
         float flexGrow,
@@ -69,10 +71,12 @@ public record RenderStyle(
     public enum FloatMode { NONE, LEFT, RIGHT }
     public enum Clear { NONE, LEFT, RIGHT, BOTH }
     public enum TextAlign { LEFT, CENTER, RIGHT }
+    public enum TextTransform { NONE, UPPERCASE, LOWERCASE, CAPITALIZE }
     public enum BoxSizing { CONTENT_BOX, BORDER_BOX }
     public enum Overflow { VISIBLE, HIDDEN, AUTO, SCROLL }
     public enum VerticalAlign { BASELINE, TOP, MIDDLE, BOTTOM }
     public enum FlexDirection { ROW, ROW_REVERSE, COLUMN, COLUMN_REVERSE }
+    public enum FlexWrap { NOWRAP, WRAP, WRAP_REVERSE }
     public enum JustifyContent { FLEX_START, CENTER, FLEX_END, SPACE_BETWEEN, SPACE_AROUND, SPACE_EVENLY }
     public enum AlignItems { STRETCH, FLEX_START, CENTER, FLEX_END, BASELINE }
 
@@ -129,7 +133,7 @@ public record RenderStyle(
                 backgroundPositionY, newWidth, newHeight, minWidth, maxWidth, minHeight,
                 maxHeight, boxSizing, margin, autoMargins, padding, borderWidth, borderColor,
                 borderStyle, borderRadius, outlineWidth, outlineColor, outlineVisible,
-                borderCollapse, textAlign, overflow, verticalAlign, flexDirection,
-                justifyContent, alignItems, newFlexGrow, flexShrink, flexBasis, opacity);
+                borderCollapse, textAlign, textTransform, overflow, verticalAlign, flexDirection,
+                flexWrap, justifyContent, alignItems, newFlexGrow, flexShrink, flexBasis, opacity);
     }
 }

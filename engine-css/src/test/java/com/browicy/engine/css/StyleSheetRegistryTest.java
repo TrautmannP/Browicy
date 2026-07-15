@@ -54,6 +54,22 @@ public class StyleSheetRegistryTest {
     }
 
     @Test
+    public void importantAuthorRulesBeatNormalInlineStylesButNotImportantInlineStyles() {
+        Document document = documentWithParagraph();
+        Element paragraph = paragraph(document);
+        paragraph.setAttribute("style", "color: blue");
+        StyleSheetRegistry registry = new StyleSheetRegistry();
+        registry.register(0, "p { color: red !important; }");
+
+        new StyleApplicator().apply(document, registry);
+        assertEquals("red", paragraph.getComputedStyles().get("color"));
+
+        paragraph.setAttribute("style", "color: green !important");
+        new StyleApplicator().apply(document, registry);
+        assertEquals("green", paragraph.getComputedStyles().get("color"));
+    }
+
+    @Test
     public void mutableStyleSheetInsertsAndDeletesRulesAtCssomIndexes() {
         Document document = documentWithParagraph();
         Element owner = document.createElement("style");

@@ -198,6 +198,21 @@ public class RenderTreeBuilderTest {
     }
 
     @Test
+    public void resolvesPercentageFontSizesAndTransformsRenderedText() {
+        RenderTree tree = build("""
+                <body style="font-size:20px;text-transform:uppercase">
+                  <p style="font-size:75%">Hello <span style="text-transform:capitalize">world wide</span></p>
+                </body>
+                """);
+        List<RenderTextRun> runs = textRunsRecursively(tree.root());
+
+        assertEquals(15f, runs.stream().filter(run -> run.text().contains("HELLO"))
+                .findFirst().orElseThrow().style().fontSizePx(), 0.001f);
+        assertTrue(runs.stream().anyMatch(run -> run.text().contains("HELLO")));
+        assertTrue(runs.stream().anyMatch(run -> run.text().contains("World Wide")));
+    }
+
+    @Test
     public void createsSpecializedImageNodesWithHtmlFallbackDimensions() {
         Document document = new HtmlParser().parse("""
                 <body><p>before<img id="hero" src="hero.png" width="120" height="45">after</p></body>
