@@ -17,6 +17,63 @@ import static org.junit.Assert.assertTrue;
 public class JavaScriptEngineTest {
 
     @Test
+    public void exposesHighResolutionTimeApiShape() {
+        Document document = parse("""
+                <html><body><script>
+                  console.log(typeof performance.now, performance.timeOrigin > 0,
+                              performance.timing.navigationStart === performance.timeOrigin,
+                              performance.now() >= 0,
+                              performance.getEntriesByType('navigation').length,
+                              document.fonts.check('10px sans-serif'),
+                              typeof navigator.sendBeacon);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: function true true true 1 true function"),
+                result.consoleMessages());
+    }
+
+    @Test
+    public void documentAcceptsScriptExpandoProperties() {
+        Document document = parse("""
+                <html><body><script>
+                  document.customState = { ready: true };
+                  console.log(document.customState.ready, '__missing' in document);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: true false"), result.consoleMessages());
+    }
+
+    @Test
+    public void exposesDocumentHeadAndElementMatchingHelpers() {
+        Document document = parse("""
+                <html><head></head><body><main class="shell"><span id="child"></span></main>
+                <script>
+                  const child = document.getElementById('child');
+                  console.log(document.head.tagName, child.matches('span#child'),
+                              child.closest('.shell').tagName,
+                              child.closest('.missing') === null);
+                  document.head.append(document.createElement('meta'));
+                  child.scrollIntoView();
+                  console.log(document.head.children.length);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: HEAD true MAIN true", "log: 1"),
+                result.consoleMessages());
+    }
+
+    @Test
     public void iframeExposesStableInitialAboutBlankBrowsingContext() {
         Document document = parse("""
                 <html><body><iframe id="frame"></iframe><script>

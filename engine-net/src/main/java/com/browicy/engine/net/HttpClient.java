@@ -19,7 +19,9 @@ import javax.net.ssl.SSLSocketFactory;
 
 public final class HttpClient {
 
-    private static final String USER_AGENT = "Browicy/0.1";
+    static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            + "AppleWebKit/537.36 (KHTML, like Gecko) "
+            + "Chrome/138.0.0.0 Safari/537.36 Browicy/0.1";
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS = 15_000;
     private static final int MAX_RESPONSE_DURATION_MS = 60_000;
@@ -42,11 +44,6 @@ public final class HttpClient {
         return request(HttpRequest.get(url, accept), budget);
     }
 
-    /**
-     * Führt eine HTTP-Anfrage mit optionalem Body und Request-Headern aus.
-     * {@code Content-Length}, {@code Host} und {@code Connection} werden vom
-     * Client selbst erzeugt und können nicht durch Aufrufer überschrieben werden.
-     */
     public HttpResponse request(String method, URI url, byte[] body, HttpHeaders headers)
             throws IOException {
         return request(new HttpRequest(method, url, headers, body));

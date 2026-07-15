@@ -970,6 +970,16 @@ public final class RenderTreeBuilder {
             return new RenderLength(0, RenderLength.Unit.PX);
         }
         try {
+            java.util.regex.Matcher calc = java.util.regex.Pattern.compile(
+                    "calc\\(\\s*([0-9]*\\.?[0-9]+)%\\s*([+-])\\s*"
+                            + "([0-9]*\\.?[0-9]+)px\\s*\\)",
+                    java.util.regex.Pattern.CASE_INSENSITIVE).matcher(value);
+            if (calc.matches()) {
+                float offset = Float.parseFloat(calc.group(3));
+                if ("-".equals(calc.group(2))) offset = -offset;
+                return new RenderLength(Float.parseFloat(calc.group(1)),
+                        RenderLength.Unit.PERCENT, offset);
+            }
             if (value.endsWith("%")) {
                 return new RenderLength(Float.parseFloat(value.substring(0, value.length() - 1)),
                         RenderLength.Unit.PERCENT);

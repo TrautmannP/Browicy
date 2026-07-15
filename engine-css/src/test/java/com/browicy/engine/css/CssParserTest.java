@@ -201,6 +201,15 @@ public class CssParserTest {
         assertEquals("middle", declarations.get("vertical-align"));
     }
 
+    @Test
+    public void acceptsSimplePercentageLengthCalculations() {
+        var declarations = new CssParser().parseDeclarations(
+                "height:calc(100% - 200px);width:calc(50% + 12px)");
+
+        assertEquals("calc(100% - 200px)", declarations.get("height"));
+        assertEquals("calc(50% + 12px)", declarations.get("width"));
+    }
+
 
     @Test
     public void invalidSelectorListDiscardsTheWholeCssRule() {

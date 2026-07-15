@@ -14,6 +14,30 @@ import static org.junit.Assert.assertTrue;
 
 public class SelectorParserTest {
 
+    @Test
+    public void parsesUnquotedIdentifierAttributeValues() {
+        Selector selector = new SelectorParser().parse("link[blocking=render]")
+                .selectors().getFirst();
+
+        assertEquals("link[blocking=\"render\"]", selector.toString());
+    }
+
+    @Test
+    public void parsesRootAndSiblingStructuralPseudoClasses() {
+        assertEquals(":root", new SelectorParser().parse(":root")
+                .selectors().getFirst().toString());
+        assertEquals("div:only-child", new SelectorParser().parse("div:only-child")
+                .selectors().getFirst().toString());
+        assertEquals("a:first-of-type", new SelectorParser().parse("a:first-of-type")
+                .selectors().getFirst().toString());
+    }
+
+    @Test
+    public void parsesSubstringAttributeSelectors() {
+        assertEquals("[jsaction*=\"trigger.\"]", new SelectorParser()
+                .parse("[jsaction*=\"trigger.\"]").selectors().getFirst().toString());
+    }
+
     private final SelectorParser parser = new SelectorParser();
 
     @Test
@@ -160,7 +184,7 @@ public class SelectorParserTest {
 
     @Test
     public void rejectsInvalidAndUnsupportedSelectorsWithPositions() {
-        for (String source : List.of("", "div,", "[attr=value]",
+        for (String source : List.of("", "div,",
                 ":nth-child(2n+)", ":nth-of-type()", ":not()", ":not(.a, .b)",
                 ":not(:not(.a))", "div > > p")) {
             SelectorParseException exception = assertThrows(

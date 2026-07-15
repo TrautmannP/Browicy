@@ -20,6 +20,7 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -30,7 +31,7 @@ import java.util.stream.Collectors;
 final class JsDocument implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "title", "body", "activeElement", "cookie", "documentElement", "forms", "styleSheets", "implementation", "defaultView", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
+            "title", "head", "body", "activeElement", "cookie", "documentElement", "forms", "styleSheets", "implementation", "defaultView", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
             "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild", "hasChildNodes",
             "appendChild", "insertBefore", "replaceChild", "removeChild",
             "compareDocumentPosition", "isSameNode", "isEqualNode",
@@ -51,6 +52,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private final StyleSheetRegistry styleSheets;
     private final Runnable styleSheetMutationCallback;
     private final Map<CssStyleSheet, JsCssStyleSheet> styleSheetWrappers = new IdentityHashMap<>();
+    private final Map<String, Value> expandos = new LinkedHashMap<>();
     @Setter(AccessLevel.PACKAGE)
     private Element currentScript;
     @Setter(AccessLevel.PACKAGE)
@@ -131,6 +133,10 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         return defaultView == null ? defaultView = new JsWindow(this) : defaultView;
     }
 
+    void setExpando(String name, Value value) {
+        expandos.put(name, value);
+    }
+
     Object wrapOwnerDocument(Node node) {
         Document ownerDocument = node.getOwnerDocument();
         return ownerDocument == null ? null : wrapDocument(ownerDocument);
@@ -204,6 +210,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     public Object getMember(String key) {
         return switch (key) {
             case "title" -> document.getTitle();
+            case "head" -> wrap(firstByTag("head"));
             case "body" -> wrap(document.getBody());
             case "activeElement" -> wrap(document.getFocusedElement());
             case "cookie" -> cookieStore == null ? "" : cookieStore.cookiesForScript(documentUri());
@@ -299,7 +306,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(document, this);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(document, this);
             case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(document);
-            default -> null;
+            default -> expandos.get(key);
         };
     }
 
@@ -357,8 +364,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             }
             return;
         }
-        throw new UnsupportedOperationException(
-                "Eigenschaft nicht unterstützt oder schreibgeschützt: " + key);
+        expandos.put(key, value);
     }
 
     private java.net.URI documentUri() {
@@ -393,12 +399,14 @@ final class JsDocument implements ProxyObject, JsNodeLike {
 
     @Override
     public Object getMemberKeys() {
-        return MEMBERS.toArray();
+        List<String> keys = new ArrayList<>(MEMBERS);
+        keys.addAll(expandos.keySet());
+        return keys.toArray();
     }
 
     @Override
     public boolean hasMember(String key) {
-        return MEMBERS.contains(key);
+        return MEMBERS.contains(key) || expandos.containsKey(key);
     }
 
     private static String asString(Value[] args, int index) {

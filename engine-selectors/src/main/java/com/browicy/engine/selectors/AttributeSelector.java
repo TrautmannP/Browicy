@@ -7,7 +7,8 @@ public record AttributeSelector(String name, Operator operator, String value) {
     public enum Operator {
         PRESENT,
         EQUALS,
-        INCLUDES
+        INCLUDES,
+        CONTAINS
     }
 
     public AttributeSelector {
@@ -34,6 +35,9 @@ public record AttributeSelector(String name, Operator operator, String value) {
         if (operator == Operator.EQUALS) {
             return value.equals(attributeValue);
         }
+        if (operator == Operator.CONTAINS) {
+            return attributeValue != null && !value.isEmpty() && attributeValue.contains(value);
+        }
         if (attributeValue == null || value.isEmpty()) {
             return false;
         }
@@ -51,6 +55,7 @@ public record AttributeSelector(String name, Operator operator, String value) {
             case PRESENT -> "[" + name + "]";
             case EQUALS -> "[" + name + "=\"" + escapedValue() + "\"]";
             case INCLUDES -> "[" + name + "~=\"" + escapedValue() + "\"]";
+            case CONTAINS -> "[" + name + "*=\"" + escapedValue() + "\"]";
         };
     }
 

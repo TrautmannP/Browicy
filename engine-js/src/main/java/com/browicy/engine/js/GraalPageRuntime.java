@@ -276,6 +276,11 @@ final class GraalPageRuntime implements PageRuntime {
             return jsDocument.computedStyle(element);
         });
         context.eval("js", JavaScriptEngine.BROWSER_BOOTSTRAP);
+        jsDocument.setExpando("fonts", context.eval("js", "Object.freeze({"
+                + "status:'loaded', ready:Promise.resolve(undefined),"
+                + "load:()=>Promise.resolve([]), check:()=>true,"
+                + "addEventListener:()=>undefined, removeEventListener:()=>undefined"
+                + "})"));
         windowLoadInvoker = context.eval("js", "(callback, event) => callback.call(window, event)");
         mutationObserverDeliveryInvoker = bindings.getMember("__browicyDeliverMutationObserver");
         jsDocument.setDomOperationWrapper(context.eval("js", JavaScriptEngine.DOM_OPERATION_WRAPPER));

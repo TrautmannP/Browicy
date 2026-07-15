@@ -59,7 +59,7 @@ public final class RenderLayoutEngine {
         List<LineBox> lineBoxes = new ArrayList<>();
         PositionedContext initialContainingBlock = new PositionedContext();
         BlockLayout root = layoutBlock(
-                tree.root(), insets.left, insets.top, availableWidth, null, false,
+                tree.root(), insets.left, insets.top, availableWidth, this.viewportHeight, false,
                 graphics, lineBoxes, initialContainingBlock);
         initialContainingBlock.setGeometry(
                 insets.left, insets.top, availableWidth, root.outerHeight());

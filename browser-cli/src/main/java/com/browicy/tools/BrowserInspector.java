@@ -87,6 +87,9 @@ public final class BrowserInspector {
         domReport.put("elements", dom.elements);
         domReport.put("textNodes", dom.textNodes);
         domReport.put("tags", dom.tags);
+        domReport.put("bodyChildren", document.getBody() == null ? List.of()
+                : document.getBody().getChildElements().stream()
+                .map(BrowserInspector::layoutElement).toList());
 
         Map<String, Object> css = new LinkedHashMap<>();
         css.put("stylesheets", session.styleSheets().size());
@@ -207,6 +210,49 @@ public final class BrowserInspector {
                 item.put("phase", "cancelled"); item.put("url", cancelled.url());
             }
         }
+        return item;
+    }
+
+    private static Map<String, Object> layoutElement(Element element) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("tag", element.getTagName());
+        item.put("id", String.valueOf(element.getAttribute("id") == null
+                ? "" : element.getAttribute("id")));
+        item.put("class", String.valueOf(element.getAttribute("class") == null
+                ? "" : element.getAttribute("class")));
+        Map<String, String> styles = new LinkedHashMap<>();
+        for (String property : List.of("display", "position", "width", "height",
+                "min-height", "flex", "flex-direction", "visibility", "overflow")) {
+            String value = element.getComputedStyles().get(property);
+            if (value != null) styles.put(property, value);
+        }
+        item.put("styles", styles);
+        item.put("children", element.getChildElements().stream()
+                .limit(12).map(BrowserInspector::layoutElementShallow).toList());
+        return item;
+    }
+
+    private static Map<String, Object> layoutElementShallow(Element element) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("tag", element.getTagName());
+        item.put("id", element.getAttribute("id") == null ? "" : element.getAttribute("id"));
+        item.put("class", element.getAttribute("class") == null
+                ? "" : element.getAttribute("class"));
+        item.put("display", element.getComputedStyles().getOrDefault("display", ""));
+        item.put("children", element.getChildElements().stream().limit(8)
+                .map(BrowserInspector::layoutElementLeaf).toList());
+        return item;
+    }
+
+    private static Map<String, Object> layoutElementLeaf(Element element) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("tag", element.getTagName());
+        item.put("id", element.getAttribute("id") == null ? "" : element.getAttribute("id"));
+        item.put("class", element.getAttribute("class") == null
+                ? "" : element.getAttribute("class"));
+        item.put("display", element.getComputedStyles().getOrDefault("display", ""));
+        item.put("width", element.getComputedStyles().getOrDefault("width", ""));
+        item.put("height", element.getComputedStyles().getOrDefault("height", ""));
         return item;
     }
 

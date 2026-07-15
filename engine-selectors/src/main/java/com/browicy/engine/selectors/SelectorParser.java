@@ -148,11 +148,14 @@ public final class SelectorParser {
                 operator = AttributeSelector.Operator.EQUALS;
             } else if (consume('~') && consume('=')) {
                 operator = AttributeSelector.Operator.INCLUDES;
+            } else if (consume('*') && consume('=')) {
+                operator = AttributeSelector.Operator.CONTAINS;
             } else {
                 throw error();
             }
             skipWhitespace();
-            String value = readQuotedString();
+            String value = peek() == '\'' || peek() == '"'
+                    ? readQuotedString() : readIdentifier();
             skipWhitespace();
             if (!consume(']')) {
                 throw error();
@@ -194,6 +197,18 @@ public final class SelectorParser {
             }
             if ("first-child".equals(name)) {
                 pseudoClasses.add(StructuralPseudoClass.firstChild());
+                return;
+            }
+            if ("root".equals(name)) {
+                pseudoClasses.add(StructuralPseudoClass.root());
+                return;
+            }
+            if ("only-child".equals(name)) {
+                pseudoClasses.add(StructuralPseudoClass.onlyChild());
+                return;
+            }
+            if ("first-of-type".equals(name)) {
+                pseudoClasses.add(StructuralPseudoClass.firstOfType());
                 return;
             }
             if ("last-child".equals(name)) {

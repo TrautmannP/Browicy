@@ -19,6 +19,39 @@ public final class JavaScriptEngine {
             globalThis.window = globalThis;
             globalThis.self = globalThis;
             globalThis.onload = null;
+            const __browicyTimeOrigin = Date.now();
+            const __browicyNavigationEntry = Object.freeze({
+              entryType: 'navigation', name: String(document.URL || ''), startTime: 0,
+              duration: 0, responseStart: 0, responseEnd: 0, domInteractive: 0,
+              domContentLoadedEventStart: 0, domContentLoadedEventEnd: 0,
+              loadEventStart: 0, loadEventEnd: 0, type: 'navigate', redirectCount: 0
+            });
+            globalThis.performance = Object.freeze({
+              timeOrigin: __browicyTimeOrigin,
+              timing: Object.freeze({
+                navigationStart: __browicyTimeOrigin,
+                responseStart: __browicyTimeOrigin
+              }),
+              now: () => Math.max(0, Date.now() - __browicyTimeOrigin),
+              mark: () => undefined,
+              measure: () => undefined,
+              getEntriesByType: type => String(type) === 'navigation'
+                ? [__browicyNavigationEntry] : [],
+              getEntriesByName: name => String(name) === __browicyNavigationEntry.name
+                ? [__browicyNavigationEntry] : [],
+              clearMarks: () => undefined,
+              clearMeasures: () => undefined
+            });
+            globalThis.navigator = Object.freeze({
+              userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                + 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 '
+                + 'Safari/537.36 Browicy/0.1',
+              appVersion: '5.0 (Windows NT 10.0; Win64; x64)',
+              vendor: 'Google Inc.', language: 'de-DE', languages: ['de-DE', 'de'],
+              platform: 'Win32', cookieEnabled: true, onLine: true,
+              hardwareConcurrency: 8, maxTouchPoints: 0,
+              sendBeacon: () => false
+            });
             globalThis.Node = function Node() { throw new TypeError('Illegal constructor'); };
             Object.defineProperty(Node, Symbol.hasInstance, {
               value: candidate => candidate != null && typeof candidate.nodeType === 'number'

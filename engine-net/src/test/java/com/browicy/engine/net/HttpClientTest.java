@@ -55,7 +55,10 @@ public class HttpClientTest {
         client.get(URI.create(server.url("/echo")));
 
         assertEquals("127.0.0.1:" + server.port(), seen.get().getFirst("Host"));
-        assertEquals("Browicy/0.1", seen.get().getFirst("User-Agent"));
+        String userAgent = seen.get().getFirst("User-Agent");
+        assertTrue(userAgent.startsWith("Mozilla/5.0"));
+        assertTrue(userAgent.contains("Chrome/"));
+        assertTrue(userAgent.endsWith("Browicy/0.1"));
         assertEquals("close", seen.get().getFirst("Connection"));
     }
 

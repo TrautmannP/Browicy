@@ -548,6 +548,38 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void resolvesRootPercentageHeightAgainstViewport() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <html style="height:100%"><body style="height:100%;margin:0">
+                  <div id="page" style="height:100%;display:flex;flex-direction:column">
+                    <div style="height:40px"></div>
+                    <div id="content" style="flex:1 1 0%"></div>
+                    <div style="height:30px"></div>
+                  </div>
+                </body></html>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400, 700);
+
+        assertEquals(700f, boxById(layout, "page").height(), 0.001f);
+        assertEquals(630f, boxById(layout, "content").height(), 0.001f);
+    }
+
+    @Test
+    public void resolvesSimpleCalcPercentageDimensions() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="box" style="width:calc(100% - 40px);height:200px">
+                  <div id="child" style="height:calc(100% - 25px)"></div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400, 600);
+
+        assertEquals(328f, boxById(layout, "box").width(), 0.001f);
+        assertEquals(175f, boxById(layout, "child").height(), 0.001f);
+    }
+
+    @Test
     public void appliesMinMaxConstraintsAndMarksOverflowForClipping() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body><div id="limited" style="width:40px;min-width:80px;max-width:120px;

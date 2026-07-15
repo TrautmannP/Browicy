@@ -25,7 +25,9 @@ public final class CssParser {
             "(?:(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)" + LENGTH_UNIT + "|0)|auto)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern DIMENSION = Pattern.compile(
-            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|auto)",
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|auto|"
+                    + "calc\\(\\s*(?:\\d+(?:\\.\\d+)?|\\.\\d+)%\\s*[+-]\\s*"
+                    + "(?:\\d+(?:\\.\\d+)?|\\.\\d+)px\\s*\\))",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern MAX_DIMENSION = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|none)",

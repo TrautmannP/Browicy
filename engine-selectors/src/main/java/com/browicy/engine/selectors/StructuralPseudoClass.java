@@ -9,11 +9,18 @@ public record StructuralPseudoClass(Kind kind, int a, int b) {
     }
 
     public enum Kind {
+        ROOT,
         FIRST_CHILD,
+        ONLY_CHILD,
+        FIRST_OF_TYPE,
         LAST_CHILD,
         NTH_CHILD,
         LAST_OF_TYPE,
         NTH_OF_TYPE
+    }
+
+    public static StructuralPseudoClass root() {
+        return new StructuralPseudoClass(Kind.ROOT, 0, 0);
     }
 
     public static StructuralPseudoClass firstChild() {
@@ -22,6 +29,14 @@ public record StructuralPseudoClass(Kind kind, int a, int b) {
 
     public static StructuralPseudoClass lastChild() {
         return new StructuralPseudoClass(Kind.LAST_CHILD, 0, 0);
+    }
+
+    public static StructuralPseudoClass onlyChild() {
+        return new StructuralPseudoClass(Kind.ONLY_CHILD, 0, 0);
+    }
+
+    public static StructuralPseudoClass firstOfType() {
+        return new StructuralPseudoClass(Kind.FIRST_OF_TYPE, 0, 0);
     }
 
     public static StructuralPseudoClass nthChild(int a, int b) {
@@ -37,6 +52,9 @@ public record StructuralPseudoClass(Kind kind, int a, int b) {
     }
 
     <N> boolean matches(N element, SelectorNodeAdapter<N> adapter) {
+        if (kind == Kind.ROOT) {
+            return adapter.parentElement(element) == null;
+        }
         if (adapter.parentElement(element) == null) {
             return false;
         }
@@ -45,6 +63,19 @@ public record StructuralPseudoClass(Kind kind, int a, int b) {
         }
         if (kind == Kind.LAST_CHILD) {
             return adapter.nextElementSibling(element) == null;
+        }
+        if (kind == Kind.ONLY_CHILD) {
+            return adapter.previousElementSibling(element) == null
+                    && adapter.nextElementSibling(element) == null;
+        }
+
+        if (kind == Kind.FIRST_OF_TYPE) {
+            N sibling = adapter.previousElementSibling(element);
+            while (sibling != null) {
+                if (sameType(element, sibling, adapter)) return false;
+                sibling = adapter.previousElementSibling(sibling);
+            }
+            return true;
         }
 
         if (kind == Kind.LAST_OF_TYPE) {
@@ -80,7 +111,10 @@ public record StructuralPseudoClass(Kind kind, int a, int b) {
     @Override
     public String toString() {
         return switch (kind) {
+            case ROOT -> ":root";
             case FIRST_CHILD -> ":first-child";
+            case ONLY_CHILD -> ":only-child";
+            case FIRST_OF_TYPE -> ":first-of-type";
             case LAST_CHILD -> ":last-child";
             case NTH_CHILD -> ":nth-child(" + formula() + ")";
             case LAST_OF_TYPE -> ":last-of-type";

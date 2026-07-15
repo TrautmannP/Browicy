@@ -31,11 +31,11 @@ final class JsElement implements ProxyObject, JsNodeLike {
             "caption", "tHead", "tFoot", "tBodies", "rows", "cells", "rowIndex", "sectionRowIndex", "cellIndex",
             "parentNode", "ownerDocument", "firstChild", "lastChild", "previousSibling", "nextSibling",
             "getAttribute", "setAttribute", "removeAttribute", "hasAttribute", "getElementsByTagName",
-            "querySelector", "querySelectorAll",
+            "querySelector", "querySelectorAll", "matches", "closest",
             "createCaption", "deleteCaption", "createTHead", "deleteTHead", "createTFoot", "deleteTFoot",
             "insertRow", "deleteRow", "insertCell", "deleteCell", "add", "remove",
             "append", "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
-            "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode", "click", "focus", "blur",
+            "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode", "click", "focus", "blur", "scrollIntoView",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
             "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
@@ -129,6 +129,16 @@ final class JsElement implements ProxyObject, JsNodeLike {
                     document.wrap(element.querySelector(asString(args, 0))));
             case "querySelectorAll" -> document.domOperation((ProxyExecutable) args ->
                     new JsNodeList(element.querySelectorAll(asString(args, 0)), document));
+            case "matches" -> document.domOperation((ProxyExecutable) args ->
+                    matchesSelector(element, asString(args, 0)));
+            case "closest" -> document.domOperation((ProxyExecutable) args -> {
+                String selector = asString(args, 0);
+                for (Node candidate = element; candidate instanceof Element ancestor;
+                     candidate = candidate.getParent()) {
+                    if (matchesSelector(ancestor, selector)) return document.wrap(ancestor);
+                }
+                return null;
+            });
             case "createCaption" -> (ProxyExecutable) args -> document.wrap(createTablePart("caption", 0));
             case "deleteCaption" -> removeTablePart("caption");
             case "createTHead" -> (ProxyExecutable) args -> document.wrap(createTablePart("thead", afterCaption()));
@@ -199,6 +209,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
                 if (element.isFocused()) element.getOwnerDocument().setFocusedElement(null);
                 return null;
             };
+            case "scrollIntoView" -> (ProxyExecutable) args -> null;
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(element, document);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(element, document);
             case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(element);
@@ -216,6 +227,11 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC;
             default -> expandos.get(key);
         };
+    }
+
+    private static boolean matchesSelector(Element candidate, String selector) {
+        Document owner = candidate.getOwnerDocument();
+        return owner != null && owner.querySelectorAll(selector).contains(candidate);
     }
 
     @Override
