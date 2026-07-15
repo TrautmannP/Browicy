@@ -4,6 +4,7 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 
 import com.browicy.engine.dom.Event;
+import com.browicy.engine.dom.CustomEvent;
 import com.browicy.engine.dom.UiEvent;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
@@ -19,7 +20,7 @@ final class JsEvent implements ProxyObject {
             "defaultPrevented", "timeStamp", "isTrusted", "view", "detail",
             "NONE", "CAPTURING_PHASE", "AT_TARGET", "BUBBLING_PHASE",
             "stopPropagation", "stopImmediatePropagation", "preventDefault",
-            "initEvent", "initUIEvent");
+            "initEvent", "initUIEvent", "initCustomEvent");
 
     private final Event event;
     private final JsDocument document;
@@ -41,7 +42,8 @@ final class JsEvent implements ProxyObject {
             case "timeStamp" -> event.getTimeStamp();
             case "isTrusted" -> false;
             case "view" -> event instanceof UiEvent uiEvent ? uiEvent.getView() : null;
-            case "detail" -> event instanceof UiEvent uiEvent ? uiEvent.getDetail() : 0;
+            case "detail" -> event instanceof CustomEvent customEvent ? customEvent.getDetail()
+                    : event instanceof UiEvent uiEvent ? uiEvent.getDetail() : 0;
             case "NONE" -> Event.NONE;
             case "CAPTURING_PHASE" -> Event.CAPTURING_PHASE;
             case "AT_TARGET" -> Event.AT_TARGET;
@@ -68,6 +70,14 @@ final class JsEvent implements ProxyObject {
                 }
                 uiEvent.initUiEvent(asString(args, 0), asBoolean(args, 1), asBoolean(args, 2),
                         asNullableObject(args, 3), asInt(args, 4));
+                return null;
+            };
+            case "initCustomEvent" -> (ProxyExecutable) args -> {
+                if (!(event instanceof CustomEvent customEvent)) {
+                    throw new IllegalStateException("Dieses Event ist kein CustomEvent");
+                }
+                customEvent.initCustomEvent(asString(args, 0), asBoolean(args, 1),
+                        asBoolean(args, 2), asNullableObject(args, 3));
                 return null;
             };
             default -> null;

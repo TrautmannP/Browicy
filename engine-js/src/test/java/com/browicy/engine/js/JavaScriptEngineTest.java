@@ -17,6 +17,38 @@ import static org.junit.Assert.assertTrue;
 public class JavaScriptEngineTest {
 
     @Test
+    public void exposesElementConstructorAndPrototypeHierarchy() {
+        Document document = parse("""
+                <!doctype html><html><body><main id="target"></main><script>
+                  const target = document.getElementById('target');
+                  console.log(typeof Element, target instanceof Element,
+                              target instanceof HTMLElement, target instanceof Node,
+                              HTMLElement.prototype instanceof Element);
+                  const text = document.createTextNode('text');
+                  const comment = document.createComment('comment');
+                  console.log(typeof CharacterData, text instanceof CharacterData,
+                              comment instanceof CharacterData,
+                              document.childNodes[0] instanceof DocumentType);
+                  const detached = new Document();
+                  console.log(document instanceof Document, detached instanceof Document,
+                              detached.documentElement.tagName, detached.body.tagName);
+                  const fragment = new DocumentFragment();
+                  fragment.appendChild(document.createElement('span'));
+                  console.log(fragment instanceof DocumentFragment, fragment.childNodes.length);
+                  try { new Element(); } catch (error) { console.log(error.name); }
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: function true true true true",
+                        "log: function true true true", "log: true true HTML BODY",
+                        "log: true 1", "log: TypeError"),
+                result.consoleMessages());
+    }
+
+    @Test
     public void exposesHighResolutionTimeApiShape() {
         Document document = parse("""
                 <html><body><script>
@@ -909,6 +941,31 @@ public class JavaScriptEngineTest {
 
         assertFalse(String.valueOf(result.errors()), result.hasErrors());
         assertEquals(List.of("log: false true 1", "log: true 1"), result.consoleMessages());
+    }
+
+    @Test
+    public void customEventCarriesDetailThroughConstructionAndDispatch() {
+        Document document = parse("""
+                <html><body><button id="button"></button><script>
+                  const button = document.getElementById('button');
+                  let received = null;
+                  button.addEventListener('article', event => received = event.detail.slug);
+                  const event = new CustomEvent('article', {
+                    bubbles: true, cancelable: true, detail: {slug: 'heise'}
+                  });
+                  console.log(event instanceof CustomEvent, event.type, event.bubbles,
+                              event.cancelable, event.detail.slug, button.dispatchEvent(event), received);
+                  const legacy = document.createEvent('CustomEvent');
+                  legacy.initCustomEvent('legacy', false, false, 42);
+                  console.log(legacy.detail);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: true article true true heise true heise", "log: 42"),
+                result.consoleMessages());
     }
 
     @Test

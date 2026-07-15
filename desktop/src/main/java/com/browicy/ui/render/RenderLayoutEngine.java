@@ -126,6 +126,11 @@ public final class RenderLayoutEngine {
         float verticalDecoration = border.vertical() + padding.vertical();
         Float specifiedContentHeight = resolveContentHeight(
                 style, style.height(), containingHeight, verticalDecoration);
+        if (specifiedContentHeight == null && Float.isFinite(style.aspectRatio())) {
+            specifiedContentHeight = style.boxSizing() == RenderStyle.BoxSizing.BORDER_BOX
+                    ? Math.max(0, borderBoxWidth / style.aspectRatio() - verticalDecoration)
+                    : contentBoxWidth / style.aspectRatio();
+        }
         Float childContainingHeight = specifiedContentHeight == null
                 ? null
                 : constrain(specifiedContentHeight,
@@ -305,13 +310,15 @@ public final class RenderLayoutEngine {
         float used = 0;
         for (RenderBox item : items) {
             float basis = flexBaseOuterWidth(item, contentWidth, graphics);
-            if (!row.isEmpty() && used + basis > contentWidth + 0.01f) {
+            float gap = row.isEmpty() ? 0 : containerStyle.columnGapPx();
+            if (!row.isEmpty() && used + gap + basis > contentWidth + 0.01f) {
                 rows.add(List.copyOf(row));
                 row.clear();
                 used = 0;
+                gap = 0;
             }
             row.add(item);
-            used += basis;
+            used += gap + basis;
         }
         if (!row.isEmpty()) rows.add(List.copyOf(row));
         if (containerStyle.flexWrap() == RenderStyle.FlexWrap.WRAP_REVERSE) {
@@ -323,8 +330,9 @@ public final class RenderLayoutEngine {
             FlexLayout layout = layoutFlexRowLine(containerStyle, flexRow, contentX,
                     contentY + offsetY, contentWidth, null, graphics, lineBoxes);
             fragments.addAll(layout.fragments());
-            offsetY += layout.height();
+            offsetY += layout.height() + containerStyle.rowGapPx();
         }
+        if (!rows.isEmpty()) offsetY -= containerStyle.rowGapPx();
         return new FlexLayout(contentHeight == null ? offsetY : Math.max(offsetY, contentHeight),
                 List.copyOf(fragments));
     }
@@ -353,8 +361,10 @@ public final class RenderLayoutEngine {
             shrinkFactors[index] = itemStyle.flexShrink();
             totalGrow += itemStyle.flexGrow();
         }
-        shrinkFlexSizes(widths, minimums, shrinkFactors, contentWidth);
-        float remaining = Math.max(0, contentWidth - sum(widths));
+        float declaredGaps = containerStyle.columnGapPx() * Math.max(0, items.size() - 1);
+        float availableForItems = Math.max(0, contentWidth - declaredGaps);
+        shrinkFlexSizes(widths, minimums, shrinkFactors, availableForItems);
+        float remaining = Math.max(0, availableForItems - sum(widths));
         if (remaining > 0 && totalGrow > 0) {
             for (int index = 0; index < widths.length; index++) {
                 widths[index] += remaining * items.get(index).style().flexGrow() / totalGrow;
@@ -392,7 +402,7 @@ public final class RenderLayoutEngine {
         }
 
         AxisSpacing spacing = axisSpacing(containerStyle.justifyContent(),
-                Math.max(0, contentWidth - sum(widths)), items.size());
+                Math.max(0, contentWidth - sum(widths) - declaredGaps), items.size());
         boolean reverse = containerStyle.flexDirection() == RenderStyle.FlexDirection.ROW_REVERSE;
         float cursor = reverse ? contentWidth - spacing.offset() : spacing.offset();
         List<PaintFragment> fragments = new ArrayList<>();
@@ -405,8 +415,9 @@ public final class RenderLayoutEngine {
                             item.layout().outerHeight());
             appendFlexItem(item, contentX + cursor, contentY + crossOffset,
                     fragments, lineBoxes);
-            if (reverse) cursor -= spacing.gap();
-            else cursor += widths[index] + spacing.gap();
+            float gap = containerStyle.columnGapPx() + spacing.gap();
+            if (reverse) cursor -= gap;
+            else cursor += widths[index] + gap;
         }
         return new FlexLayout(crossSize, List.copyOf(fragments));
     }
@@ -446,13 +457,15 @@ public final class RenderLayoutEngine {
             heights[index] = layout.layout().outerHeight();
             totalGrow += items.get(index).style().flexGrow();
         }
-        float mainSize = contentHeight == null ? sum(heights) : contentHeight;
+        float declaredGaps = containerStyle.rowGapPx() * Math.max(0, items.size() - 1);
+        float mainSize = contentHeight == null ? sum(heights) + declaredGaps : contentHeight;
         float[] shrinkFactors = new float[heights.length];
         for (int index = 0; index < shrinkFactors.length; index++) {
             shrinkFactors[index] = items.get(index).style().flexShrink();
         }
-        shrinkFlexSizes(heights, new float[heights.length], shrinkFactors, mainSize);
-        float remaining = Math.max(0, mainSize - sum(heights));
+        float availableForItems = Math.max(0, mainSize - declaredGaps);
+        shrinkFlexSizes(heights, new float[heights.length], shrinkFactors, availableForItems);
+        float remaining = Math.max(0, availableForItems - sum(heights));
         if (remaining > 0 && totalGrow > 0) {
             for (int index = 0; index < heights.length; index++) {
                 heights[index] += remaining * items.get(index).style().flexGrow() / totalGrow;
@@ -466,7 +479,7 @@ public final class RenderLayoutEngine {
         }
 
         AxisSpacing spacing = axisSpacing(containerStyle.justifyContent(),
-                Math.max(0, mainSize - sum(heights)), items.size());
+                Math.max(0, mainSize - sum(heights) - declaredGaps), items.size());
         boolean reverse = containerStyle.flexDirection()
                 == RenderStyle.FlexDirection.COLUMN_REVERSE;
         float cursor = reverse ? mainSize - spacing.offset() : spacing.offset();
@@ -478,8 +491,9 @@ public final class RenderLayoutEngine {
             float outerWidth = root.width() + item.box().style().margin().horizontal();
             float x = crossOffset(containerStyle.alignItems(), contentWidth, outerWidth);
             appendFlexItem(item, contentX + x, contentY + cursor, fragments, lineBoxes);
-            if (reverse) cursor -= spacing.gap();
-            else cursor += heights[index] + spacing.gap();
+            float gap = containerStyle.rowGapPx() + spacing.gap();
+            if (reverse) cursor -= gap;
+            else cursor += heights[index] + gap;
         }
         return new FlexLayout(mainSize, List.copyOf(fragments));
     }
@@ -956,15 +970,15 @@ public final class RenderLayoutEngine {
                                     float percentageBase,
                                     Float containingHeight) {
         BufferedImage bitmap = decode(image);
-        float naturalWidth = image.htmlWidth() != null
-                ? image.htmlWidth()
-                : bitmap != null ? bitmap.getWidth()
+        float intrinsicWidth = bitmap != null ? bitmap.getWidth()
                 : image.svg() != null ? image.svg().width() : PLACEHOLDER_SIZE;
-        float naturalHeight = image.htmlHeight() != null
-                ? image.htmlHeight()
-                : bitmap != null ? bitmap.getHeight()
+        float intrinsicHeight = bitmap != null ? bitmap.getHeight()
                 : image.svg() != null ? image.svg().height() : PLACEHOLDER_SIZE;
-        float ratio = naturalWidth / Math.max(1, naturalHeight);
+        float naturalWidth = image.htmlWidth() != null ? image.htmlWidth() : intrinsicWidth;
+        float naturalHeight = image.htmlHeight() != null ? image.htmlHeight() : intrinsicHeight;
+        float naturalRatio = intrinsicWidth / Math.max(1, intrinsicHeight);
+        float ratio = Float.isFinite(image.style().aspectRatio())
+                ? image.style().aspectRatio() : naturalRatio;
         Float cssWidth = image.style().width().isAuto()
                 ? null
                 : Math.max(0, resolve(image.style().width(), percentageBase));
@@ -979,6 +993,12 @@ public final class RenderLayoutEngine {
             height = width / Math.max(0.0001f, ratio);
         } else if (cssHeight != null) {
             height = cssHeight;
+            width = height * ratio;
+        } else if (image.htmlWidth() != null && image.htmlHeight() == null) {
+            width = naturalWidth;
+            height = width / Math.max(0.0001f, ratio);
+        } else if (image.htmlHeight() != null && image.htmlWidth() == null) {
+            height = naturalHeight;
             width = height * ratio;
         } else {
             width = naturalWidth;

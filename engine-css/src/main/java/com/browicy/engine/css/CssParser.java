@@ -43,6 +43,10 @@ public final class CssParser {
     private static final Pattern INTEGER = Pattern.compile("-?\\d+");
     private static final Pattern NON_NEGATIVE_NUMBER = Pattern.compile(
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)");
+    private static final Pattern ASPECT_RATIO = Pattern.compile(
+            "(?:auto|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:\\s*/\\s*"
+                    + "(?:\\d+(?:\\.\\d+)?|\\.\\d+))?)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern LINE_HEIGHT = Pattern.compile(
             "(?:normal|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:(?:px|em|rem|vw|vh|%)?))",
             Pattern.CASE_INSENSITIVE);
@@ -378,8 +382,11 @@ public final class CssParser {
             case "flex-wrap" -> supports(normalized, "wrap");
             case "justify-content" -> supports(normalized, "flex-start");
             case "align-items" -> supports(normalized, "stretch");
+            case "gap", "row-gap", "column-gap" -> supports(normalized, "1px");
             case "flex", "flex-grow", "flex-shrink" -> supports(normalized, "1");
             case "flex-basis" -> supports(normalized, "auto");
+            case "aspect-ratio" -> supports(normalized, "16 / 9");
+            case "object-fit" -> supports(normalized, "cover");
             case "opacity" -> supports(normalized, "0.5");
             case "fill" -> supports(normalized, "black");
             case "position" -> supports(normalized, "static");
@@ -492,11 +499,21 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
+            case "gap" -> expandGap(target, value);
+            case "row-gap", "column-gap" ->
+                    putIfMatches(target, property, value, POSITIVE_LENGTH);
             case "flex-grow" -> putIfMatches(target, property, value, NON_NEGATIVE_NUMBER);
             case "flex-shrink" -> putIfMatches(target, property, value, NON_NEGATIVE_NUMBER);
             case "flex-basis" -> putIfMatches(target, property, value, DIMENSION);
             case "flex" -> expandFlex(target, value);
             case "opacity" -> putUnitInterval(target, property, value);
+            case "aspect-ratio" -> putIfMatches(target, property, value, ASPECT_RATIO);
+            case "object-fit" -> {
+                if (value.equals("fill") || value.equals("contain") || value.equals("cover")
+                        || value.equals("none") || value.equals("scale-down")) {
+                    target.put(property, value);
+                }
+            }
             case "fill" -> {
                 if (value.equals("currentcolor") || value.equals("none")
                         || CssColor.isSupported(value)) target.put(property, value);
@@ -638,6 +655,17 @@ public final class CssParser {
         target.put("flex-grow", tokens[0]);
         target.put("flex-shrink", tokens[1]);
         target.put("flex-basis", basis);
+    }
+
+    private static void expandGap(Map<String, String> target, String value) {
+        String[] tokens = value.strip().split("\\s+");
+        if (tokens.length < 1 || tokens.length > 2
+                || !POSITIVE_LENGTH.matcher(tokens[0]).matches()
+                || tokens.length == 2 && !POSITIVE_LENGTH.matcher(tokens[1]).matches()) {
+            return;
+        }
+        target.put("row-gap", tokens[0]);
+        target.put("column-gap", tokens.length == 1 ? tokens[0] : tokens[1]);
     }
 
     private static void putUnitInterval(Map<String, String> target, String property, String value) {

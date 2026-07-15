@@ -17,12 +17,12 @@ public class CompatibilityReportTest {
     @Test
     public void reportsAndDeduplicatesUnsupportedFeatures() {
         Document document = new HtmlParser().parse("""
-                <html><head><style>.card { gap: 1rem; display: grid; color: red }</style></head>
-                <body><div id='app' style='gap: 2rem'><canvas></canvas><my-widget></my-widget></div></body></html>
+                <html><head><style>.card { box-shadow: 0 1px black; display: grid; color: red }</style></head>
+                <body><div id='app' style='box-shadow: 0 2px black'><canvas></canvas><my-widget></my-widget></div></body></html>
                 """, "https://example.test/");
         StyleSheetRegistry styles = new StyleSheetRegistry();
         styles.register(0, document.getElementsByTagName("style").getFirst(),
-                ".card { gap: 1rem; display: grid; color: red }");
+                ".card { box-shadow: 0 1px black; display: grid; color: red }");
         JsExecutionResult javascript = new JsExecutionResult(List.of(), List.of(
                 "ReferenceError: ResizeObserver is not defined (app.js:3:2)"));
 
@@ -31,7 +31,7 @@ public class CompatibilityReportTest {
         assertEquals(5, report.get("unsupportedFeatures"));
         assertEquals(6, report.get("occurrences"));
         String issues = report.get("issues").toString();
-        assertTrue(issues.contains("property:gap"));
+        assertTrue(issues.contains("property:box-shadow"));
         assertTrue(issues.contains("value:display"));
         assertTrue(issues.contains("global:ResizeObserver"));
         assertTrue(issues.contains("element:canvas"));
@@ -41,7 +41,8 @@ public class CompatibilityReportTest {
     @Test
     public void doesNotReportSupportedCssOrArbitraryApplicationErrors() {
         Document document = new HtmlParser().parse(
-                "<p style='color: red; display: block'>ok</p>", "https://example.test/");
+                "<div style='color:red;display:flex;gap:1rem;aspect-ratio:16/9'>"
+                        + "<img style='object-fit:cover'></div>", "https://example.test/");
         JsExecutionResult javascript = new JsExecutionResult(List.of(), List.of(
                 "Error: application failed (app.js:1:1)"));
 

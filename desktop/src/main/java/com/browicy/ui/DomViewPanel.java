@@ -631,10 +631,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
 
     private void paintImage(Graphics2D graphics, ImageFragment fragment) {
         if (fragment.bitmap() != null) {
-            graphics.drawImage(fragment.bitmap(),
-                    Math.round(fragment.x()), Math.round(fragment.y()),
-                    Math.max(0, Math.round(fragment.width())),
-                    Math.max(0, Math.round(fragment.height())), null);
+            paintBitmap(graphics, fragment);
         } else if (fragment.image().svg() != null) {
             SVGDocument svg = svgDocument(fragment.image().svg().source());
             if (svg != null) {
@@ -646,6 +643,42 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             graphics.draw(new Rectangle2D.Float(fragment.x(), fragment.y(),
                     Math.max(0, fragment.width() - 1),
                     Math.max(0, fragment.height() - 1)));
+        }
+    }
+
+    private static void paintBitmap(Graphics2D graphics, ImageFragment fragment) {
+        BufferedImage bitmap = fragment.bitmap();
+        int destinationX = Math.round(fragment.x());
+        int destinationY = Math.round(fragment.y());
+        int destinationWidth = Math.max(0, Math.round(fragment.width()));
+        int destinationHeight = Math.max(0, Math.round(fragment.height()));
+        RenderStyle.ObjectFit fit = fragment.image().style().objectFit();
+        if (fit == RenderStyle.ObjectFit.FILL || destinationWidth == 0 || destinationHeight == 0) {
+            graphics.drawImage(bitmap, destinationX, destinationY,
+                    destinationWidth, destinationHeight, null);
+            return;
+        }
+
+        double scaleX = destinationWidth / (double) bitmap.getWidth();
+        double scaleY = destinationHeight / (double) bitmap.getHeight();
+        double scale = switch (fit) {
+            case COVER -> Math.max(scaleX, scaleY);
+            case CONTAIN -> Math.min(scaleX, scaleY);
+            case NONE -> 1;
+            case SCALE_DOWN -> Math.min(1, Math.min(scaleX, scaleY));
+            default -> throw new IllegalStateException("Unexpected object-fit: " + fit);
+        };
+        int paintedWidth = Math.max(1, (int) Math.round(bitmap.getWidth() * scale));
+        int paintedHeight = Math.max(1, (int) Math.round(bitmap.getHeight() * scale));
+        int paintedX = destinationX + (destinationWidth - paintedWidth) / 2;
+        int paintedY = destinationY + (destinationHeight - paintedHeight) / 2;
+        Graphics2D clipped = (Graphics2D) graphics.create();
+        try {
+            clipped.clip(new Rectangle2D.Float(destinationX, destinationY,
+                    destinationWidth, destinationHeight));
+            clipped.drawImage(bitmap, paintedX, paintedY, paintedWidth, paintedHeight, null);
+        } finally {
+            clipped.dispose();
         }
     }
 

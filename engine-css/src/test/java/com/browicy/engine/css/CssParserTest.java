@@ -320,6 +320,21 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesAspectRatioObjectFitAndFlexGaps() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations(
+                "aspect-ratio:16 / 9;object-fit:cover;gap:8px 1.5rem");
+
+        assertEquals("16 / 9", declarations.get("aspect-ratio"));
+        assertEquals("cover", declarations.get("object-fit"));
+        assertEquals("8px", declarations.get("row-gap"));
+        assertEquals("1.5rem", declarations.get("column-gap"));
+        assertTrue(parser.supportsProperty("aspect-ratio"));
+        assertTrue(parser.supportsProperty("object-fit"));
+        assertTrue(parser.supportsProperty("gap"));
+    }
+
+    @Test
     public void extractsFontFaceSourcesWithoutTreatingThemAsStyleRules() {
         CssParser parser = new CssParser();
         List<CssFontFace> faces = parser.fontFaces("""

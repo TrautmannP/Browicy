@@ -7,6 +7,7 @@ import com.browicy.engine.css.CssStyleSheet;
 import com.browicy.engine.css.StyleApplicator;
 import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.dom.Document;
+import com.browicy.engine.dom.CustomEvent;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Event;
 import com.browicy.engine.dom.Node;
@@ -314,6 +315,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         return switch (interfaceName.toLowerCase(Locale.ROOT)) {
             case "event", "events", "htmlevents" -> new Event();
             case "uievent", "uievents" -> new UiEvent();
+            case "customevent", "customevents" -> new CustomEvent();
             default -> throw new IllegalArgumentException("Nicht unterstütztes Event-Interface: " + interfaceName);
         };
     }

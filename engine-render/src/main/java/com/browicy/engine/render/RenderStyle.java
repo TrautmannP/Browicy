@@ -31,6 +31,8 @@ public record RenderStyle(
         RenderLength maxWidth,
         RenderLength minHeight,
         RenderLength maxHeight,
+        float aspectRatio,
+        ObjectFit objectFit,
         BoxSizing boxSizing,
         BoxEdges margin,
         HorizontalAutoMargins autoMargins,
@@ -51,6 +53,8 @@ public record RenderStyle(
         FlexWrap flexWrap,
         JustifyContent justifyContent,
         AlignItems alignItems,
+        float rowGapPx,
+        float columnGapPx,
         float flexGrow,
         float flexShrink,
         RenderLength flexBasis,
@@ -79,6 +83,7 @@ public record RenderStyle(
     public enum FlexWrap { NOWRAP, WRAP, WRAP_REVERSE }
     public enum JustifyContent { FLEX_START, CENTER, FLEX_END, SPACE_BETWEEN, SPACE_AROUND, SPACE_EVENLY }
     public enum AlignItems { STRETCH, FLEX_START, CENTER, FLEX_END, BASELINE }
+    public enum ObjectFit { FILL, CONTAIN, COVER, NONE, SCALE_DOWN }
 
     public RenderStyle {
         if (fontSizePx <= 0) {
@@ -89,6 +94,14 @@ public record RenderStyle(
         }
         if (!Float.isFinite(flexGrow) || flexGrow < 0) {
             throw new IllegalArgumentException("flexGrow must be a finite non-negative number");
+        }
+        if (!Float.isNaN(aspectRatio)
+                && (!Float.isFinite(aspectRatio) || aspectRatio <= 0)) {
+            throw new IllegalArgumentException("aspectRatio must be positive or NaN");
+        }
+        if (!Float.isFinite(rowGapPx) || rowGapPx < 0
+                || !Float.isFinite(columnGapPx) || columnGapPx < 0) {
+            throw new IllegalArgumentException("flex gaps must be finite and non-negative");
         }
         if (!Float.isFinite(flexShrink) || flexShrink < 0) {
             throw new IllegalArgumentException("flexShrink must be a finite non-negative number");
@@ -131,9 +144,10 @@ public record RenderStyle(
                 lineHeight, color, listStyleType, underline, textDecorationColor, cursor,
                 backgroundColor, backgroundImageUrl, backgroundRepeat, backgroundPositionX,
                 backgroundPositionY, newWidth, newHeight, minWidth, maxWidth, minHeight,
-                maxHeight, boxSizing, margin, autoMargins, padding, borderWidth, borderColor,
+                maxHeight, aspectRatio, objectFit, boxSizing, margin, autoMargins, padding, borderWidth, borderColor,
                 borderStyle, borderRadius, outlineWidth, outlineColor, outlineVisible,
                 borderCollapse, textAlign, textTransform, overflow, verticalAlign, flexDirection,
-                flexWrap, justifyContent, alignItems, newFlexGrow, flexShrink, flexBasis, opacity);
+                flexWrap, justifyContent, alignItems, rowGapPx, columnGapPx,
+                newFlexGrow, flexShrink, flexBasis, opacity);
     }
 }

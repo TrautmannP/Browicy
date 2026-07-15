@@ -83,6 +83,8 @@ public final class RenderTreeBuilder {
                 RenderLength.AUTO,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
+                Float.NaN,
+                RenderStyle.ObjectFit.FILL,
                 RenderStyle.BoxSizing.CONTENT_BOX,
                 BoxEdges.ZERO,
                 HorizontalAutoMargins.NONE,
@@ -103,6 +105,8 @@ public final class RenderTreeBuilder {
                 RenderStyle.FlexWrap.NOWRAP,
                 RenderStyle.JustifyContent.FLEX_START,
                 RenderStyle.AlignItems.STRETCH,
+                0,
+                0,
                 0,
                 1,
                 RenderLength.AUTO,
@@ -553,6 +557,8 @@ public final class RenderTreeBuilder {
                 RenderLength.AUTO,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
+                Float.NaN,
+                RenderStyle.ObjectFit.FILL,
                 RenderStyle.BoxSizing.CONTENT_BOX,
                 BoxEdges.ZERO,
                 HorizontalAutoMargins.NONE,
@@ -573,6 +579,8 @@ public final class RenderTreeBuilder {
                 RenderStyle.FlexWrap.NOWRAP,
                 RenderStyle.JustifyContent.FLEX_START,
                 RenderStyle.AlignItems.STRETCH,
+                0,
+                0,
                 0,
                 1,
                 RenderLength.AUTO,
@@ -617,6 +625,8 @@ public final class RenderTreeBuilder {
         RenderLength maxWidth = RenderLength.AUTO;
         RenderLength minHeight = RenderLength.AUTO;
         RenderLength maxHeight = RenderLength.AUTO;
+        float aspectRatio = Float.NaN;
+        RenderStyle.ObjectFit objectFit = RenderStyle.ObjectFit.FILL;
         RenderStyle.BoxSizing boxSizing = RenderStyle.BoxSizing.CONTENT_BOX;
         BoxEdges margin = defaultMargin(tag);
         HorizontalAutoMargins autoMargins = HorizontalAutoMargins.NONE;
@@ -637,6 +647,8 @@ public final class RenderTreeBuilder {
         RenderStyle.FlexWrap flexWrap = RenderStyle.FlexWrap.NOWRAP;
         RenderStyle.JustifyContent justifyContent = RenderStyle.JustifyContent.FLEX_START;
         RenderStyle.AlignItems alignItems = RenderStyle.AlignItems.STRETCH;
+        float rowGapPx = 0;
+        float columnGapPx = 0;
         float flexGrow = 0;
         float flexShrink = 1;
         RenderLength flexBasis = RenderLength.AUTO;
@@ -711,6 +723,14 @@ public final class RenderTreeBuilder {
         maxWidth = resolveDimension(declarations.get("max-width"), fontSize);
         minHeight = resolveDimension(declarations.get("min-height"), fontSize);
         maxHeight = resolveDimension(declarations.get("max-height"), fontSize);
+        aspectRatio = parseAspectRatio(declarations.get("aspect-ratio"));
+        objectFit = switch (declarations.getOrDefault("object-fit", "fill")) {
+            case "contain" -> RenderStyle.ObjectFit.CONTAIN;
+            case "cover" -> RenderStyle.ObjectFit.COVER;
+            case "none" -> RenderStyle.ObjectFit.NONE;
+            case "scale-down" -> RenderStyle.ObjectFit.SCALE_DOWN;
+            default -> RenderStyle.ObjectFit.FILL;
+        };
         if ("border-box".equals(declarations.get("box-sizing"))) {
             boxSizing = RenderStyle.BoxSizing.BORDER_BOX;
         }
@@ -770,6 +790,10 @@ public final class RenderTreeBuilder {
             case "baseline" -> RenderStyle.AlignItems.BASELINE;
             default -> RenderStyle.AlignItems.STRETCH;
         };
+        rowGapPx = Math.max(0, resolveLength(
+                declarations.get("row-gap"), fontSize, rootFontSizePx, 0));
+        columnGapPx = Math.max(0, resolveLength(
+                declarations.get("column-gap"), fontSize, rootFontSizePx, 0));
         if (declarations.containsKey("flex-grow")) {
             flexGrow = Float.parseFloat(declarations.get("flex-grow"));
         }
@@ -841,10 +865,12 @@ public final class RenderTreeBuilder {
                 fontSize, fontFamily, fontWeight, italic, lineHeight, color, listStyleType,
                 underline, textDecorationColor, cursor, background,
                 backgroundImageUrl, backgroundRepeat, backgroundPositionX, backgroundPositionY,
-                width, height, minWidth, maxWidth, minHeight, maxHeight, boxSizing, margin,
+                width, height, minWidth, maxWidth, minHeight, maxHeight,
+                aspectRatio, objectFit, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,
                 outlineWidth, outlineColor, outlineVisible, borderCollapse, textAlign, textTransform,
-                overflow, verticalAlign, flexDirection, flexWrap, justifyContent, alignItems, flexGrow,
+                overflow, verticalAlign, flexDirection, flexWrap, justifyContent, alignItems,
+                rowGapPx, columnGapPx, flexGrow,
                 flexShrink, flexBasis,
                 opacity);
     }
@@ -1050,6 +1076,20 @@ public final class RenderTreeBuilder {
             return Integer.parseInt(value);
         } catch (NumberFormatException ignored) {
             return 0;
+        }
+    }
+
+    private static float parseAspectRatio(String value) {
+        if (value == null || value.isBlank() || value.equals("auto")) return Float.NaN;
+        String[] parts = value.split("/", -1);
+        try {
+            float numerator = Float.parseFloat(parts[0].strip());
+            float denominator = parts.length == 1 ? 1 : Float.parseFloat(parts[1].strip());
+            float ratio = numerator / denominator;
+            return parts.length <= 2 && Float.isFinite(ratio) && ratio > 0
+                    ? ratio : Float.NaN;
+        } catch (NumberFormatException invalid) {
+            return Float.NaN;
         }
     }
 

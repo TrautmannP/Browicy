@@ -962,6 +962,59 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void usesCssAspectRatioForBoxesAndReplacedImages() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body>
+                  <div id="card" style="width:160px;aspect-ratio:16 / 9"></div>
+                  <img id="image" width="120" src="missing.png" style="aspect-ratio:3 / 2">
+                </body>
+                """));
+        LayoutResult layout = panel.layoutForTesting(300);
+        BoxFragment card = boxById(layout, "card");
+        ImageFragment image = layout.fragments().stream()
+                .filter(ImageFragment.class::isInstance).map(ImageFragment.class::cast)
+                .findFirst().orElseThrow();
+
+        assertEquals(160f, card.width(), 0.001f);
+        assertEquals(90f, card.height(), 0.001f);
+        assertEquals(120f, image.width(), 0.001f);
+        assertEquals(80f, image.height(), 0.001f);
+    }
+
+    @Test
+    public void objectFitCoverCentersAndClipsTheBitmap() throws Exception {
+        Document document = parse("""
+                <body style="background-color:white"><img id="image"
+                  src="https://example.test/wide.png"
+                  style="width:20px;height:20px;object-fit:cover"></body>
+                """);
+        BufferedImage source = new BufferedImage(40, 20, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D sourceGraphics = source.createGraphics();
+        sourceGraphics.setColor(java.awt.Color.RED);
+        sourceGraphics.fillRect(0, 0, 20, 20);
+        sourceGraphics.setColor(java.awt.Color.BLUE);
+        sourceGraphics.fillRect(20, 0, 20, 20);
+        sourceGraphics.dispose();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(source, "png", bytes);
+        ImageResourceRegistry images = new ImageResourceRegistry();
+        images.register(document.getElementById("image"), new BinaryResource(
+                URI.create("https://example.test/wide.png"), 200, bytes.toByteArray(),
+                NetworkResourceType.IMAGE));
+        DomViewPanel panel = new DomViewPanel(document, PageRuntime.closed(), images);
+        panel.setSize(100, 1);
+        ImageFragment fragment = panel.layoutForTesting(100).fragments().stream()
+                .filter(ImageFragment.class::isInstance).map(ImageFragment.class::cast)
+                .findFirst().orElseThrow();
+        BufferedImage painted = paint(panel);
+
+        assertColor(painted, Math.round(fragment.x() + 2), Math.round(fragment.y() + 10),
+                CssColor.parse("red"));
+        assertColor(painted, Math.round(fragment.x() + 17), Math.round(fragment.y() + 10),
+                CssColor.parse("blue"));
+    }
+
+    @Test
     public void jsvgPaintsInlineSvgShapesAndGradients() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body style="background-color:white"><svg width="40" height="20" viewBox="0 0 40 20">
@@ -1015,6 +1068,26 @@ public class DomViewPanelTest {
 
         assertEquals(100f, boxById(layout, "fixed").width(), .01f);
         assertEquals(200f, boxById(layout, "grown").width(), .01f);
+    }
+
+    @Test
+    public void flexGapParticipatesInSizingAndWrappedRowPlacement() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="row" style="display:flex;flex-wrap:wrap;width:250px;
+                     column-gap:10px;row-gap:7px">
+                  <div id="first" style="flex:1 0 100px;height:20px"></div>
+                  <div id="second" style="flex:1 0 100px;height:20px"></div>
+                  <div id="third" style="width:250px;height:20px"></div>
+                </div></body>
+                """));
+        LayoutResult layout = panel.layoutForTesting(300);
+        BoxFragment first = boxById(layout, "first");
+        BoxFragment second = boxById(layout, "second");
+        BoxFragment third = boxById(layout, "third");
+
+        assertEquals(120f, first.width(), 0.001f);
+        assertEquals(first.x() + first.width() + 10, second.x(), 0.001f);
+        assertEquals(first.y() + first.height() + 7, third.y(), 0.001f);
     }
 
     @Test

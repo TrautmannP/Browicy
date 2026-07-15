@@ -87,8 +87,51 @@ public final class JavaScriptEngine {
             Object.defineProperty(EventTarget, Symbol.hasInstance, {
               value: candidate => candidate != null && typeof candidate.addEventListener === 'function'
             });
+            globalThis.Element = function Element() { throw new TypeError('Illegal constructor'); };
+            Element.prototype = Object.create(Node.prototype);
+            Object.defineProperty(Element, Symbol.hasInstance, {
+              value: candidate => candidate != null && (
+                Element.prototype.isPrototypeOf(candidate)
+                || candidate.nodeType === Node.ELEMENT_NODE)
+            });
+            globalThis.CharacterData = function CharacterData() {
+              throw new TypeError('Illegal constructor');
+            };
+            CharacterData.prototype = Object.create(Node.prototype);
+            Object.defineProperty(CharacterData, Symbol.hasInstance, {
+              value: candidate => candidate != null && (
+                CharacterData.prototype.isPrototypeOf(candidate)
+                || candidate.nodeType === Node.TEXT_NODE || candidate.nodeType === Node.COMMENT_NODE)
+            });
+            globalThis.DocumentType = function DocumentType() {
+              throw new TypeError('Illegal constructor');
+            };
+            DocumentType.prototype = Object.create(Node.prototype);
+            Object.defineProperty(DocumentType, Symbol.hasInstance, {
+              value: candidate => candidate != null && (
+                DocumentType.prototype.isPrototypeOf(candidate)
+                || candidate.nodeType === Node.DOCUMENT_TYPE_NODE)
+            });
+            globalThis.Document = function Document() {
+              return document.implementation.createHTMLDocument('');
+            };
+            Document.prototype = Object.create(Node.prototype);
+            Object.defineProperty(Document, Symbol.hasInstance, {
+              value: candidate => candidate != null && (
+                Document.prototype.isPrototypeOf(candidate)
+                || candidate.nodeType === Node.DOCUMENT_NODE)
+            });
+            globalThis.DocumentFragment = function DocumentFragment() {
+              return document.createDocumentFragment();
+            };
+            DocumentFragment.prototype = Object.create(Node.prototype);
+            Object.defineProperty(DocumentFragment, Symbol.hasInstance, {
+              value: candidate => candidate != null && (
+                DocumentFragment.prototype.isPrototypeOf(candidate)
+                || candidate.nodeType === Node.DOCUMENT_FRAGMENT_NODE)
+            });
             globalThis.HTMLElement = function HTMLElement() { throw new TypeError('Illegal constructor'); };
-            HTMLElement.prototype = Object.create(Node.prototype);
+            HTMLElement.prototype = Object.create(Element.prototype);
             Object.defineProperty(HTMLElement, Symbol.hasInstance, {
               value: candidate => candidate != null && candidate.nodeType === 1
             });
@@ -191,6 +234,17 @@ public final class JavaScriptEngine {
             UIEvent.CAPTURING_PHASE = Event.CAPTURING_PHASE;
             UIEvent.AT_TARGET = Event.AT_TARGET;
             UIEvent.BUBBLING_PHASE = Event.BUBBLING_PHASE;
+            globalThis.CustomEvent = function CustomEvent(type, init) {
+              init = init || {};
+              const event = document.createEvent('CustomEvent');
+              event.initCustomEvent(String(type), Boolean(init.bubbles), Boolean(init.cancelable),
+                                    init.detail === undefined ? null : init.detail);
+              return event;
+            };
+            CustomEvent.prototype = Object.create(Event.prototype);
+            Object.defineProperty(CustomEvent, Symbol.hasInstance, {
+              value: candidate => candidate != null && typeof candidate.initCustomEvent === 'function'
+            });
             const __browicyMutationObservers = new Map();
             const __browicyMutationObserverState = new WeakMap();
             let __browicyNextMutationObserverId = 0;
