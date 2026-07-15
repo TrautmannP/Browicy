@@ -49,7 +49,7 @@
         <junit.version>4.13.2</junit.version>
         <lombok.version>1.18.46</lombok.version>
         <!-- Muss zur installierten GraalVM passen (siehe mvn-graal.cmd) -->
-        <graaljs.version>25.1.3</graaljs.version>
+        <graaljs.version>25.0.3</graaljs.version>
         <jsvg.version>2.1.0</jsvg.version>
         <!-- exec:java als CLI-Goal läuft auf jedem Reaktor-Modul. Nur desktop
              schaltet die Ausführung frei (exec.skip=false); exec.mainClass muss
