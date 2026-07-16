@@ -14,9 +14,9 @@ java --sun-misc-unsafe-memory-access=allow -jar browser-cli/target/browicy-inspe
   "https://css3test.com/?filter=css2007" --output target/css3test-css2007.json
 ```
 
-Baseline recorded on 2026-07-14:
+Baseline recorded on 2026-07-16:
 
-- CSS3Test CSS-2007 reports **33/94 passed (23%)**.
+- CSS3Test CSS-2007 reports **44/94 passed (46%)**.
 - The page contains 777 DOM nodes: 400 elements, 375 text nodes, and 97 result-list items.
 - The engine loads two stylesheets and accepts 36 CSS rules.
 - The render tree contains 554 nodes: 246 block boxes, 81 inline boxes, and 227 text runs.
@@ -48,7 +48,7 @@ Acid3 harness during Maven's `verify` lifecycle:
 mvn -Pcompatibility-report -pl acid3-tests -am verify
 ```
 
-The run on 2026-07-14 recorded 33/94 CSS3Test cases (23%) and 65/100 Acid3 subtests,
-for 98/194 cases overall. Reports are written to `target/compatibility-reports`: `latest.html`
+The run on 2026-07-16 recorded 44/94 CSS3Test cases (46%) and 65/100 Acid3 subtests,
+for 109/194 cases overall. Reports are written to `target/compatibility-reports`: `latest.html`
 is intended for human review, while `latest.json` is intended for CI and automated analysis.
 Timestamped copies are retained for trend tracking.
