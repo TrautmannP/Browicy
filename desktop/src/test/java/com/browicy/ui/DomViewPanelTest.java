@@ -1222,6 +1222,37 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void scalesCssBackgroundImagesWhilePreservingTheirRatio() throws Exception {
+        URI uri = URI.create("https://example.test/background-sized.png");
+        Document document = parse("""
+                <body><div id="box" style="width:20px;height:20px;background-color:blue;
+                  background-image:url('https://example.test/background-sized.png');
+                  background-repeat:no-repeat;background-position:left top;
+                  background-size:50% auto"></div></body>
+                """);
+        BufferedImage source = new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D sourceGraphics = source.createGraphics();
+        sourceGraphics.setColor(java.awt.Color.RED);
+        sourceGraphics.fillRect(0, 0, 2, 2);
+        sourceGraphics.dispose();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(source, "png", bytes);
+        ImageResourceRegistry images = new ImageResourceRegistry();
+        images.register(uri, new BinaryResource(
+                uri, 200, bytes.toByteArray(), NetworkResourceType.IMAGE));
+        DomViewPanel panel = new DomViewPanel(document, PageRuntime.closed(), images);
+        panel.setSize(100, 1);
+        BoxFragment box = boxById(panel.layoutForTesting(100), "box");
+
+        BufferedImage painted = paint(panel);
+
+        assertColor(painted, Math.round(box.x() + 9), Math.round(box.y() + 9),
+                CssColor.rgb(0xff0000));
+        assertColor(painted, Math.round(box.x() + 11), Math.round(box.y() + 11),
+                CssColor.rgb(0x0000ff));
+    }
+
+    @Test
     public void refusesOversizedCssBackgroundBeforePixelAllocation() throws Exception {
         URI uri = URI.create("https://example.test/oversized-background.png");
         Document document = parse("""

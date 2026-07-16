@@ -116,7 +116,18 @@ public final class SelectorParser {
                         if (!atEnd() && peek() != ',' && !Character.isWhitespace(peek())
                                 && !isCombinator(peek())) throw error();
                     } else {
-                        parsePseudoClass(pseudoClasses, statePseudoClasses, negations);
+                        int start = position;
+                        position++;
+                        String name = readIdentifier().toLowerCase(java.util.Locale.ROOT);
+                        if (name.equals("before") || name.equals("after")) {
+                            if (pseudoElement != null) throw error();
+                            pseudoElement = name;
+                            if (!atEnd() && peek() != ',' && !Character.isWhitespace(peek())
+                                    && !isCombinator(peek())) throw error();
+                        } else {
+                            position = start;
+                            parsePseudoClass(pseudoClasses, statePseudoClasses, negations);
+                        }
                     }
                 } else {
                     break;

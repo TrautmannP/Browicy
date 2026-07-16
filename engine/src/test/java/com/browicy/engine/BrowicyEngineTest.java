@@ -12,6 +12,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -267,6 +268,65 @@ public class BrowicyEngineTest {
                     session.document().getElementById("hero")).isPresent());
             assertEquals(NetworkResourceType.IMAGE, session.images().find(
                     session.document().getElementById("hero")).orElseThrow().resourceType());
+        }
+    }
+
+    @Test
+    public void loadsCssBackgroundImagesUsedByGeneratedPseudoElements() {
+        byte[] imageBytes = new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47};
+        AtomicInteger requests = new AtomicInteger();
+        server.serveHtml("/pseudo-background", """
+                <html><head><style>
+                  #hero::after {
+                    content:'';
+                    background:url('/pseudo.png') no-repeat center/100% auto;
+                  }
+                </style></head><body><div id="hero"></div></body></html>
+                """);
+        server.on("/pseudo.png", exchange -> {
+            requests.incrementAndGet();
+            LocalTestServer.respond(exchange, 200, "image/png", imageBytes);
+        });
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/pseudo-background"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            assertTrue(session.images().find(java.net.URI.create(
+                    server.url("/pseudo.png"))).isPresent());
+            assertEquals(1, requests.get());
+        }
+    }
+
+    @Test
+    public void loadsAndExecutesDynamicallyInsertedScriptsBeforeCompletingResources() {
+        AtomicInteger requests = new AtomicInteger();
+        server.serveHtml("/dynamic-script", """
+                <html><head><title>Dynamic</title></head><body data-state="initial"><script>
+                  const script = document.createElement('script');
+                  script.src = '/dynamic.js';
+                  script.onload = script.onreadystatechange = function () {
+                    if (!this.readyState || /loaded|complete/.test(this.readyState)) {
+                      document.body.setAttribute('data-state', window.dynamicValue);
+                    }
+                  };
+                  document.head.appendChild(script);
+                </script></body></html>
+                """);
+        server.on("/dynamic.js", exchange -> {
+            requests.incrementAndGet();
+            LocalTestServer.respond(exchange, 200, "application/javascript",
+                    "window.dynamicValue = 'loaded';".getBytes(StandardCharsets.UTF_8));
+        });
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/dynamic-script"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            assertEquals(
+                    "requests=" + requests.get() + ", errors="
+                            + session.runtime().snapshot().errors(),
+                    "loaded", session.document().getBody().getAttribute("data-state"));
+            assertEquals(1, requests.get());
+            assertTrue(session.runtime().snapshot().errors().isEmpty());
         }
     }
 

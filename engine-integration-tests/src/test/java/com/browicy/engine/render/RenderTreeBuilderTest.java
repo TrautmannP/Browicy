@@ -268,6 +268,27 @@ public class RenderTreeBuilderTest {
         assertEquals(.75f, image.style().opacity(), .001f);
     }
 
+    @Test
+    public void recognizesExternalSvgImageDataAndItsIntrinsicRatio() {
+        Document document = new HtmlParser().parse(
+                "<body><img src='logo.svg' style='width:125px'></body>");
+        byte[] source = """
+                <?xml version="1.0"?>
+                <svg xmlns="http://www.w3.org/2000/svg" width="88" height="22"
+                     viewBox="0 0 88 22">
+                  <path fill="#fff" d="M0 0h88v22H0z"/>
+                </svg>
+                """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        RenderImage image = imagesRecursively(
+                new RenderTreeBuilder(ignored -> source).build(document).root()).getFirst();
+
+        assertNull(image.data());
+        assertTrue(image.svg().source().contains("fill=\"#fff\""));
+        assertEquals(88f, image.svg().width(), .001f);
+        assertEquals(22f, image.svg().height(), .001f);
+    }
+
     private static RenderTree build(String html) {
         Document document = new HtmlParser().parse(html);
         return new RenderTreeBuilder().build(document);

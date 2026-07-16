@@ -4,6 +4,7 @@ import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Node;
 import com.browicy.engine.dom.TextNode;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -77,6 +78,10 @@ public final class RenderTreeBuilder {
                 RenderStyle.BackgroundRepeat.REPEAT,
                 RenderStyle.BackgroundPositionX.LEFT,
                 RenderStyle.BackgroundPositionY.TOP,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
@@ -195,10 +200,12 @@ public final class RenderTreeBuilder {
             if ("br".equals(element.getTagName())) {
                 output.add(new RenderLineBreak(style));
             } else if ("img".equals(element.getTagName())) {
+                byte[] data = imageData.apply(element);
+                SvgImage svg = parseExternalSvg(data);
                 output.add(new RenderImage(
-                        element, style, imageData.apply(element),
+                        element, style, svg == null ? data : null,
                         positiveIntegerAttribute(element, "width"),
-                        positiveIntegerAttribute(element, "height")));
+                        positiveIntegerAttribute(element, "height"), svg));
             } else if ("svg".equals(element.getTagName())) {
                 output.add(new RenderImage(element, style, null,
                         positiveIntegerAttribute(element, "width"),
@@ -362,6 +369,44 @@ public final class RenderTreeBuilder {
         StringBuilder source = new StringBuilder();
         serializeSvgElement(svg, source, true, style);
         return new SvgImage(source.toString(), viewBox[2], viewBox[3]);
+    }
+
+    private static SvgImage parseExternalSvg(byte[] data) {
+        if (data == null || data.length == 0) return null;
+        String source = new String(data, StandardCharsets.UTF_8);
+        var root = java.util.regex.Pattern.compile(
+                "(?is)^\\s*(?:<\\?xml[^>]*>\\s*)?<svg\\b([^>]*)>")
+                .matcher(source);
+        if (!root.find()) return null;
+        String attributes = root.group(1);
+        float[] viewBox = parseViewBox(svgAttribute(attributes, "viewBox"));
+        if (viewBox != null) return new SvgImage(source, viewBox[2], viewBox[3]);
+        Float width = svgDimension(svgAttribute(attributes, "width"));
+        Float height = svgDimension(svgAttribute(attributes, "height"));
+        return new SvgImage(source, width == null ? 300 : width,
+                height == null ? 150 : height);
+    }
+
+    private static String svgAttribute(String attributes, String name) {
+        var matcher = java.util.regex.Pattern.compile(
+                "(?is)(?:^|\\s)" + java.util.regex.Pattern.quote(name)
+                        + "\\s*=\\s*(['\"])(.*?)\\1")
+                .matcher(attributes);
+        return matcher.find() ? matcher.group(2) : null;
+    }
+
+    private static Float svgDimension(String value) {
+        if (value == null) return null;
+        var matcher = java.util.regex.Pattern.compile(
+                "(?i)^\\s*([0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)(?:px)?\\s*$")
+                .matcher(value);
+        if (!matcher.matches()) return null;
+        try {
+            float parsed = Float.parseFloat(matcher.group(1));
+            return Float.isFinite(parsed) && parsed > 0 ? parsed : null;
+        } catch (NumberFormatException invalid) {
+            return null;
+        }
     }
 
     private static void serializeSvgElement(Element element, StringBuilder target,
@@ -557,6 +602,10 @@ public final class RenderTreeBuilder {
                 RenderLength.AUTO,
                 RenderLength.AUTO,
                 RenderLength.AUTO,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
+                RenderLength.AUTO,
                 Float.NaN,
                 RenderStyle.ObjectFit.FILL,
                 RenderStyle.BoxSizing.CONTENT_BOX,
@@ -619,6 +668,10 @@ public final class RenderTreeBuilder {
         RenderStyle.BackgroundRepeat backgroundRepeat = RenderStyle.BackgroundRepeat.REPEAT;
         RenderStyle.BackgroundPositionX backgroundPositionX = RenderStyle.BackgroundPositionX.LEFT;
         RenderStyle.BackgroundPositionY backgroundPositionY = RenderStyle.BackgroundPositionY.TOP;
+        RenderLength backgroundPositionOffsetX = RenderLength.AUTO;
+        RenderLength backgroundPositionOffsetY = RenderLength.AUTO;
+        RenderLength backgroundSizeX = RenderLength.AUTO;
+        RenderLength backgroundSizeY = RenderLength.AUTO;
         RenderLength width = RenderLength.AUTO;
         RenderLength height = RenderLength.AUTO;
         RenderLength minWidth = RenderLength.AUTO;
@@ -844,6 +897,12 @@ public final class RenderTreeBuilder {
             case "bottom" -> RenderStyle.BackgroundPositionY.BOTTOM;
             default -> RenderStyle.BackgroundPositionY.TOP;
         };
+        backgroundPositionOffsetX = resolveDimension(
+                declarations.get("background-position-x-offset"), fontSize);
+        backgroundPositionOffsetY = resolveDimension(
+                declarations.get("background-position-y-offset"), fontSize);
+        backgroundSizeX = resolveDimension(declarations.get("background-size-x"), fontSize);
+        backgroundSizeY = resolveDimension(declarations.get("background-size-y"), fontSize);
 
         margin = resolveEdges(declarations, "margin", fontSize, margin);
         autoMargins = new HorizontalAutoMargins(
@@ -865,6 +924,8 @@ public final class RenderTreeBuilder {
                 fontSize, fontFamily, fontWeight, italic, lineHeight, color, listStyleType,
                 underline, textDecorationColor, cursor, background,
                 backgroundImageUrl, backgroundRepeat, backgroundPositionX, backgroundPositionY,
+                backgroundPositionOffsetX, backgroundPositionOffsetY,
+                backgroundSizeX, backgroundSizeY,
                 width, height, minWidth, maxWidth, minHeight, maxHeight,
                 aspectRatio, objectFit, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,

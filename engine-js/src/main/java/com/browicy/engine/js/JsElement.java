@@ -253,7 +253,18 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "selected", "defaultSelected" -> booleanAttribute("selected", value.asBoolean());
             case "selectedIndex" -> setSelectedIndex(value.asInt());
             case "src", "srcdoc" -> element.setAttribute(key, toText(value));
-            default -> expandos.put(key, value);
+            default -> {
+                Value previous = expandos.put(key, value);
+                if (key.length() > 2 && key.startsWith("on")) {
+                    String eventType = key.substring(2).toLowerCase(Locale.ROOT);
+                    if (previous != null && previous.canExecute()) {
+                        document.removeEventListener(element, eventType, previous, false);
+                    }
+                    if (!value.isNull() && value.canExecute()) {
+                        document.addEventListener(element, eventType, value, false);
+                    }
+                }
+            }
         }
     }
 

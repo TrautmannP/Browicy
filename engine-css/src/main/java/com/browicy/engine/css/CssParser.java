@@ -50,6 +50,9 @@ public final class CssParser {
     private static final Pattern LINE_HEIGHT = Pattern.compile(
             "(?:normal|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:(?:px|em|rem|vw|vh|%)?))",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern BACKGROUND_LENGTH = Pattern.compile(
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_SHORTHAND = Pattern.compile(
             "^(.*?)(" + FONT_SIZE.pattern() + ")(?:\\s*/\\s*(" + LINE_HEIGHT.pattern()
                     + "))?\\s+(.+)$", Pattern.CASE_INSENSITIVE);
@@ -301,6 +304,8 @@ public final class CssParser {
                 parsed.put(property, rawValue);
             } else if (property.equals("content")) {
                 putContent(parsed, rawValue);
+            } else if (property.equals("background")) {
+                putBackground(parsed, rawValue);
             } else if (property.equals("background-image")) {
                 putBackgroundImage(parsed, rawValue);
             } else {
@@ -371,6 +376,7 @@ public final class CssParser {
             case "background-image" -> supports(normalized, "url(example.png)");
             case "background-repeat" -> supports(normalized, "repeat");
             case "background-position" -> supports(normalized, "left top");
+            case "background-size" -> supports(normalized, "100% auto");
             case "font-size" -> supports(normalized, "16px");
             case "font", "font-family" -> supports(normalized, "16px sans-serif");
             case "line-height" -> supports(normalized, "normal");
@@ -436,7 +442,7 @@ public final class CssParser {
                 else putColor(target, property, value);
             }
             case "background-color" -> putColor(target, property, value);
-            case "background" -> putColor(target, "background-color", value);
+            case "background" -> putBackground(target, value);
             case "background-repeat" -> {
                 if (value.equals("repeat") || value.equals("repeat-x")
                         || value.equals("repeat-y") || value.equals("no-repeat")) {
@@ -444,6 +450,7 @@ public final class CssParser {
                 }
             }
             case "background-position" -> putBackgroundPosition(target, value);
+            case "background-size" -> putBackgroundSize(target, value);
             case "font-size" -> putIfMatches(target, property, value, FONT_SIZE);
             case "font-family" -> {
                 if (!value.isBlank()) target.put(property, value);
@@ -626,6 +633,91 @@ public final class CssParser {
         }
     }
 
+    private static void putBackground(Map<String, String> target, String value) {
+        String stripped = value.strip();
+        List<com.browicy.engine.render.CssUrl.Token> urls =
+                com.browicy.engine.render.CssUrl.tokens(stripped);
+        if (urls.size() > 1) return;
+
+        String withoutUrl = stripped;
+        String image = "none";
+        if (!urls.isEmpty()) {
+            var token = urls.getFirst();
+            image = stripped.substring(token.start(), token.end());
+            withoutUrl = (stripped.substring(0, token.start())
+                    + " " + stripped.substring(token.end())).strip();
+        }
+
+        int slash = topLevelSlash(withoutUrl);
+        String beforeSlash = slash < 0 ? withoutUrl : withoutUrl.substring(0, slash).strip();
+        String afterSlash = slash < 0 ? "" : withoutUrl.substring(slash + 1).strip();
+        List<String> position = new ArrayList<>();
+        String repeat = "repeat";
+        String color = "transparent";
+
+        for (String token : beforeSlash.split("\\s+")) {
+            if (token.isBlank()) continue;
+            String normalized = token.toLowerCase(Locale.ROOT);
+            if (isBackgroundRepeat(normalized)) repeat = normalized;
+            else if (CssColor.isSupported(normalized)) color = normalized;
+            else position.add(normalized);
+        }
+
+        List<String> size = new ArrayList<>();
+        if (!afterSlash.isEmpty()) {
+            for (String token : afterSlash.split("\\s+")) {
+                if (token.isBlank()) continue;
+                String normalized = token.toLowerCase(Locale.ROOT);
+                if (size.size() < 2 && isBackgroundSizeToken(normalized)) size.add(normalized);
+                else if (CssColor.isSupported(normalized)) color = normalized;
+                else return;
+            }
+            if (size.isEmpty()) return;
+        }
+
+        Map<String, String> parsedPosition = new LinkedHashMap<>();
+        if (!position.isEmpty() && !putBackgroundPosition(parsedPosition,
+                String.join(" ", position))) return;
+        Map<String, String> parsedSize = new LinkedHashMap<>();
+        if (!size.isEmpty() && !putBackgroundSize(parsedSize, String.join(" ", size))) return;
+
+        target.put("background-color", color);
+        target.put("background-image", image);
+        target.put("background-repeat", repeat);
+        target.put("background-position-x", "left");
+        target.put("background-position-y", "top");
+        target.put("background-position-x-offset", "0");
+        target.put("background-position-y-offset", "0");
+        target.put("background-size-x", "auto");
+        target.put("background-size-y", "auto");
+        target.putAll(parsedPosition);
+        target.putAll(parsedSize);
+    }
+
+    private static int topLevelSlash(String value) {
+        char quote = 0;
+        int parentheses = 0;
+        for (int index = 0; index < value.length(); index++) {
+            char current = value.charAt(index);
+            if (quote != 0) {
+                if (current == quote && (index == 0 || value.charAt(index - 1) != '\\')) quote = 0;
+            } else if (current == '\'' || current == '"') quote = current;
+            else if (current == '(') parentheses++;
+            else if (current == ')') parentheses--;
+            else if (current == '/' && parentheses == 0) return index;
+        }
+        return -1;
+    }
+
+    private static boolean isBackgroundRepeat(String value) {
+        return value.equals("repeat") || value.equals("repeat-x")
+                || value.equals("repeat-y") || value.equals("no-repeat");
+    }
+
+    private static boolean isBackgroundSizeToken(String value) {
+        return value.equals("auto") || BACKGROUND_LENGTH.matcher(value).matches();
+    }
+
     private static boolean containsVarFunction(String value) {
         return value.toLowerCase(Locale.ROOT).contains("var(");
     }
@@ -676,25 +768,65 @@ public final class CssParser {
         }
     }
 
-    private static void putBackgroundPosition(Map<String, String> target, String value) {
+    private static boolean putBackgroundPosition(Map<String, String> target, String value) {
         String[] tokens = value.strip().split("\\s+");
-        String x = "center";
-        String y = "center";
-        if (tokens.length == 1) {
-            if (tokens[0].equals("left") || tokens[0].equals("right")) x = tokens[0];
-            else if (tokens[0].equals("top") || tokens[0].equals("bottom")) y = tokens[0];
-            else if (!tokens[0].equals("center")) return;
-        } else if (tokens.length == 2) {
-            for (String token : tokens) {
-                if (token.equals("left") || token.equals("right")) x = token;
-                else if (token.equals("top") || token.equals("bottom")) y = token;
-                else if (!token.equals("center")) return;
+        if (tokens.length < 1 || tokens.length > 4) return false;
+        String x = null;
+        String y = null;
+        String xOffset = "0";
+        String yOffset = "0";
+        List<String> numeric = new ArrayList<>();
+        for (int index = 0; index < tokens.length; index++) {
+            String token = tokens[index];
+            boolean hasOffset = index + 1 < tokens.length
+                    && BACKGROUND_LENGTH.matcher(tokens[index + 1]).matches();
+            if (token.equals("left") || token.equals("right")) {
+                if (x != null) return false;
+                x = token;
+                if (hasOffset) xOffset = tokens[++index];
+            } else if (token.equals("top") || token.equals("bottom")) {
+                if (y != null) return false;
+                y = token;
+                if (hasOffset) yOffset = tokens[++index];
+            } else if (token.equals("center")) {
+                String next = index + 1 < tokens.length ? tokens[index + 1] : "";
+                if (x == null && y == null
+                        && (next.equals("left") || next.equals("right"))) {
+                    y = "center";
+                } else if (x == null) {
+                    x = "center";
+                } else if (y == null) y = "center";
+                else return false;
+            } else if (BACKGROUND_LENGTH.matcher(token).matches()) {
+                numeric.add(token);
+            } else {
+                return false;
             }
-        } else {
-            return;
         }
-        target.put("background-position-x", x);
-        target.put("background-position-y", y);
+        for (String token : numeric) {
+            if (x == null) {
+                x = "left";
+                xOffset = token;
+            } else if (y == null) {
+                y = "top";
+                yOffset = token;
+            } else return false;
+        }
+        target.put("background-position-x", x == null ? "center" : x);
+        target.put("background-position-y", y == null ? "center" : y);
+        target.put("background-position-x-offset", xOffset);
+        target.put("background-position-y-offset", yOffset);
+        return true;
+    }
+
+    private static boolean putBackgroundSize(Map<String, String> target, String value) {
+        String[] tokens = value.strip().split("\\s+");
+        if (tokens.length < 1 || tokens.length > 2
+                || !isBackgroundSizeToken(tokens[0])
+                || tokens.length == 2 && !isBackgroundSizeToken(tokens[1])) return false;
+        target.put("background-size-x", tokens[0]);
+        target.put("background-size-y", tokens.length == 1 ? "auto" : tokens[1]);
+        return true;
     }
 
     private static void expandFont(Map<String, String> target, String value) {

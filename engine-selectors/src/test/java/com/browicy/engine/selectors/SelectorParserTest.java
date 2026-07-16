@@ -183,6 +183,18 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void acceptsLegacySingleColonGeneratedPseudoElements() {
+        ComplexSelector before = parser.parse(".badge:before").selectors().getFirst();
+        ComplexSelector after = parser.parse("li:last-child:after").selectors().getFirst();
+
+        assertEquals("before", before.pseudoElement());
+        assertEquals("after", after.pseudoElement());
+        assertEquals(new Specificity(0, 1, 1), before.specificity());
+        assertEquals(".badge::before", before.toString());
+        assertEquals("li:last-child::after", after.toString());
+    }
+
+    @Test
     public void rejectsInvalidAndUnsupportedSelectorsWithPositions() {
         for (String source : List.of("", "div,",
                 ":nth-child(2n+)", ":nth-of-type()", ":not()", ":not(.a, .b)",

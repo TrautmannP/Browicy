@@ -20,6 +20,8 @@ public record CssColor(int red, int green, int blue, int alpha) {
             Map.entry("yellow", rgb(0xffff00)),
             Map.entry("gray", rgb(0x808080)),
             Map.entry("grey", rgb(0x808080)),
+            Map.entry("dimgray", rgb(0x696969)),
+            Map.entry("dimgrey", rgb(0x696969)),
             Map.entry("orange", rgb(0xffa500)),
             Map.entry("pink", rgb(0xffc0cb)),
             Map.entry("cyan", rgb(0x00ffff)),

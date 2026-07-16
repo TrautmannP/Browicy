@@ -4,6 +4,8 @@ import com.browicy.engine.css.StyleApplicator;
 import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.css.CssFontFace;
 import com.browicy.engine.dom.Document;
+import com.browicy.engine.dom.Element;
+import com.browicy.engine.dom.Event;
 import com.browicy.engine.html.DocumentResourceScanner;
 import com.browicy.engine.html.DocumentResources;
 import com.browicy.engine.html.ImageResource;
@@ -27,12 +29,16 @@ import java.net.URI;
 import java.awt.Font;
 import java.awt.FontFormatException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 final class PageResourceCoordinator {
@@ -44,6 +50,7 @@ final class PageResourceCoordinator {
     private static final long MAX_TOTAL_IMAGE_BYTES = 128L * 1024 * 1024;
     private static final int MAX_FONT_LOADS_PER_PAGE = 32;
     private static final long MAX_TOTAL_FONT_BYTES = 32L * 1024 * 1024;
+    private static final int MAX_DYNAMIC_SCRIPT_EXECUTIONS = 64;
     private static final long RENDER_BLOCKING_TIMEOUT_MILLIS = 5_000;
 
     private final DocumentResourceScanner scanner;
@@ -200,6 +207,12 @@ final class PageResourceCoordinator {
                     runtime.execute(source);
                     progress.scriptExecuted();
                 }
+                Set<Element> executedScripts = Collections.newSetFromMap(new IdentityHashMap<>());
+                resources.scripts().stream()
+                        .map(ScriptResource::element)
+                        .forEach(executedScripts::add);
+                runDynamicallyAddedScripts(
+                        document, runtime, cancellableLoads, progress, executedScripts);
                 PageLifecycleCoordinator lifecycle = new PageLifecycleCoordinator(document, runtime);
                 lifecycle.markInteractive();
                 lifecycle.markComplete();
@@ -214,6 +227,50 @@ final class PageResourceCoordinator {
             }
         });
         return scriptsDone;
+    }
+
+    private void runDynamicallyAddedScripts(
+            Document document,
+            PageRuntime runtime,
+            List<ResourceLoad> cancellableLoads,
+            PageLoadProgress progress,
+            Set<Element> executedScripts) {
+        int remaining = MAX_DYNAMIC_SCRIPT_EXECUTIONS;
+        while (!runtime.isClosed() && remaining > 0) {
+            DocumentResources current;
+            synchronized (document) {
+                current = scanner.scan(document);
+            }
+            List<ScriptResource> added = current.scripts().stream()
+                    .filter(script -> !executedScripts.contains(script.element()))
+                    .limit(remaining)
+                    .toList();
+            if (added.isEmpty()) {
+                return;
+            }
+            added.stream().map(ScriptResource::element).forEach(executedScripts::add);
+            remaining -= added.size();
+            added.forEach(ignored -> progress.scriptPlanned());
+
+            DocumentResources dynamicResources = new DocumentResources(
+                    List.of(), added, List.of());
+            Map<ScriptResource.External, SubResourceLoad> prefetchedScripts =
+                    prefetchScripts(dynamicResources, cancellableLoads);
+            for (JavaScriptSource source : scriptSequence(
+                    dynamicResources, prefetchedScripts, cancellableLoads, progress)) {
+                if (runtime.isClosed()) {
+                    return;
+                }
+                progress.activity(source.sourceName());
+                runtime.execute(source);
+                progress.scriptExecuted();
+                if (source.element() != null) {
+                    runtime.submitEvent(
+                            source.element(), new Event("load", false, false)).join();
+                }
+            }
+            runtime.awaitIdle();
+        }
     }
 
     private void loadScriptAddedImages(
@@ -328,30 +385,38 @@ final class PageResourceCoordinator {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         if (pageUri == null) return List.of();
         for (com.browicy.engine.dom.Element element : document.getElementsByTagName("*")) {
-            URI uri = cssImageUri(
-                    element.getComputedStyles().get("background-image"), pageUri);
-            if (uri == null || loadsByUri.size() >= MAX_IMAGE_LOADS_PER_PAGE) continue;
-            CompletableFuture<BinaryResource> shared = loadsByUri.get(uri);
-            if (shared == null) {
-                BinarySubResourceLoad load;
-                try {
-                    load = resourceLoader.loadImageAsync(uri, pageUri, budget);
-                } catch (IllegalArgumentException invalidUri) {
-                    continue;
-                }
-                cancellableLoads.add(load);
-                progress.imageStarted();
-                shared = load.future();
-                shared.whenComplete((ignored, failure) -> progress.imageFinished());
-                loadsByUri.put(uri, shared);
+            LinkedHashSet<URI> imageUris = new LinkedHashSet<>();
+            for (Map<String, String> styles : List.of(
+                    element.getComputedStyles(),
+                    element.getPseudoComputedStyles("before"),
+                    element.getPseudoComputedStyles("after"))) {
+                URI uri = cssImageUri(styles.get("background-image"), pageUri);
+                if (uri != null) imageUris.add(uri);
             }
-            CompletableFuture<Void> task = shared.thenAccept(resource -> {
-                if (resource != null) {
-                    images.register(uri, resource);
-                    updates.invalidate(InvalidationType.PAINT);
+            for (URI uri : imageUris) {
+                if (loadsByUri.size() >= MAX_IMAGE_LOADS_PER_PAGE) break;
+                CompletableFuture<BinaryResource> shared = loadsByUri.get(uri);
+                if (shared == null) {
+                    BinarySubResourceLoad load;
+                    try {
+                        load = resourceLoader.loadImageAsync(uri, pageUri, budget);
+                    } catch (IllegalArgumentException invalidUri) {
+                        continue;
+                    }
+                    cancellableLoads.add(load);
+                    progress.imageStarted();
+                    shared = load.future();
+                    shared.whenComplete((ignored, failure) -> progress.imageFinished());
+                    loadsByUri.put(uri, shared);
                 }
-            }).exceptionally(failure -> null);
-            tasks.add(task);
+                CompletableFuture<Void> task = shared.thenAccept(resource -> {
+                    if (resource != null) {
+                        images.register(uri, resource);
+                        updates.invalidate(InvalidationType.PAINT);
+                    }
+                }).exceptionally(failure -> null);
+                tasks.add(task);
+            }
         }
         return List.copyOf(tasks);
     }

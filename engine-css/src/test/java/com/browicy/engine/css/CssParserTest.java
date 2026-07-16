@@ -453,4 +453,25 @@ public class CssParserTest {
         assertTrue(rules.get(1).mediaCondition().matches(800, 600));
         assertFalse(rules.get(1).mediaCondition().matches(500, 600));
     }
+
+    @Test
+    public void expandsBackgroundShorthandWithEdgeOffsetAndSize() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations(
+                "background:repeat-y top 64px center/100% dimgray url('/blur.jpg')");
+
+        assertEquals("dimgray", declarations.get("background-color"));
+        assertEquals("url('/blur.jpg')", declarations.get("background-image"));
+        assertEquals("repeat-y", declarations.get("background-repeat"));
+        assertEquals("center", declarations.get("background-position-x"));
+        assertEquals("top", declarations.get("background-position-y"));
+        assertEquals("64px", declarations.get("background-position-y-offset"));
+        assertEquals("100%", declarations.get("background-size-x"));
+        assertEquals("auto", declarations.get("background-size-y"));
+        assertTrue(parser.supportsProperty("background-size"));
+        assertEquals("50%", parser.parseDeclarations(
+                "background-position:0 50%").get("background-position-y-offset"));
+        assertEquals("right", parser.parseDeclarations(
+                "background-position:center right").get("background-position-x"));
+    }
 }

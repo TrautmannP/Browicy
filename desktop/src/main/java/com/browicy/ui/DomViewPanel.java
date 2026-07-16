@@ -14,6 +14,7 @@ import com.browicy.engine.js.PageRuntime;
 import com.browicy.engine.render.BoxBorders;
 import com.browicy.engine.render.BoxEdges;
 import com.browicy.engine.render.CssColor;
+import com.browicy.engine.render.RenderLength;
 import com.browicy.engine.render.RenderStyle;
 import com.browicy.engine.render.RenderTree;
 import com.browicy.engine.render.RenderTreeBuilder;
@@ -774,30 +775,51 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                                       float height) {
         BufferedImage image = decodedBackground(style.backgroundImageUrl());
         if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) return;
+        float imageWidth = image.getWidth();
+        float imageHeight = image.getHeight();
+        if (!style.backgroundSizeX().isAuto() && !style.backgroundSizeY().isAuto()) {
+            imageWidth = resolveBackgroundLength(style.backgroundSizeX(), width);
+            imageHeight = resolveBackgroundLength(style.backgroundSizeY(), height);
+        } else if (!style.backgroundSizeX().isAuto()) {
+            imageWidth = resolveBackgroundLength(style.backgroundSizeX(), width);
+            imageHeight *= imageWidth / image.getWidth();
+        } else if (!style.backgroundSizeY().isAuto()) {
+            imageHeight = resolveBackgroundLength(style.backgroundSizeY(), height);
+            imageWidth *= imageHeight / image.getHeight();
+        }
+        imageWidth = Math.max(1, imageWidth);
+        imageHeight = Math.max(1, imageHeight);
+        if (!(imageWidth > 0) || !(imageHeight > 0)) return;
+        float freeX = width - imageWidth;
+        float freeY = height - imageHeight;
+        float offsetX = resolveBackgroundLength(style.backgroundPositionOffsetX(), freeX);
+        float offsetY = resolveBackgroundLength(style.backgroundPositionOffsetY(), freeY);
         float imageX = switch (style.backgroundPositionX()) {
-            case LEFT -> x;
-            case CENTER -> x + (width - image.getWidth()) / 2f;
-            case RIGHT -> x + width - image.getWidth();
+            case LEFT -> x + offsetX;
+            case CENTER -> x + freeX / 2f + offsetX;
+            case RIGHT -> x + freeX - offsetX;
         };
         float imageY = switch (style.backgroundPositionY()) {
-            case TOP -> y;
-            case CENTER -> y + (height - image.getHeight()) / 2f;
-            case BOTTOM -> y + height - image.getHeight();
+            case TOP -> y + offsetY;
+            case CENTER -> y + freeY / 2f + offsetY;
+            case BOTTOM -> y + freeY - offsetY;
         };
         boolean repeatX = style.backgroundRepeat() == RenderStyle.BackgroundRepeat.REPEAT
                 || style.backgroundRepeat() == RenderStyle.BackgroundRepeat.REPEAT_X;
         boolean repeatY = style.backgroundRepeat() == RenderStyle.BackgroundRepeat.REPEAT
                 || style.backgroundRepeat() == RenderStyle.BackgroundRepeat.REPEAT_Y;
-        float startX = repeatX ? tileStart(imageX, x, image.getWidth()) : imageX;
-        float startY = repeatY ? tileStart(imageY, y, image.getHeight()) : imageY;
+        float startX = repeatX ? tileStart(imageX, x, imageWidth) : imageX;
+        float startY = repeatY ? tileStart(imageY, y, imageHeight) : imageY;
         float endX = repeatX ? x + width : imageX + 1;
         float endY = repeatY ? y + height : imageY + 1;
         Graphics2D clipped = (Graphics2D) graphics.create();
         try {
             clipped.clip(new Rectangle2D.Float(x, y, width, height));
-            for (float tileY = startY; tileY < endY; tileY += image.getHeight()) {
-                for (float tileX = startX; tileX < endX; tileX += image.getWidth()) {
-                    clipped.drawImage(image, Math.round(tileX), Math.round(tileY), null);
+            for (float tileY = startY; tileY < endY; tileY += imageHeight) {
+                for (float tileX = startX; tileX < endX; tileX += imageWidth) {
+                    clipped.drawImage(image, Math.round(tileX), Math.round(tileY),
+                            Math.max(1, Math.round(imageWidth)),
+                            Math.max(1, Math.round(imageHeight)), null);
                 }
             }
         } finally {
@@ -805,7 +827,13 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         }
     }
 
-    private static float tileStart(float origin, float edge, int tileSize) {
+    private float resolveBackgroundLength(RenderLength length, float percentageBase) {
+        if (length.isAuto()) return 0;
+        return length.resolve(percentageBase, 16,
+                Math.max(1, currentLayoutWidth()), Math.max(1, currentViewportHeight()));
+    }
+
+    private static float tileStart(float origin, float edge, float tileSize) {
         while (origin > edge) origin -= tileSize;
         while (origin + tileSize <= edge) origin += tileSize;
         return origin;
