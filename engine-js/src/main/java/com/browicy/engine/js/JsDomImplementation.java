@@ -6,7 +6,9 @@ import lombok.RequiredArgsConstructor;
 import com.browicy.engine.dom.DocumentType;
 import com.browicy.engine.dom.DomImplementation;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.List;
@@ -45,7 +47,7 @@ final class JsDomImplementation implements ProxyObject {
         };
     }
 
-    @Override public Object getMemberKeys() { return MEMBERS.toArray(); }
+    @Override public Object getMemberKeys() { return ProxyArray.fromArray(MEMBERS.toArray()); }
     @Override public boolean hasMember(String key) { return MEMBERS.contains(key); }
     @Override public void putMember(String key, Value value) { throw new UnsupportedOperationException(key); }
 

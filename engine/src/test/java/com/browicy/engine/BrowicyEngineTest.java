@@ -201,8 +201,30 @@ public class BrowicyEngineTest {
     }
 
     @Test
-    public void failedSubresourcesDoNotPreventRemainingPageProcessing() {
-        server.serveHtml("/robust", """
+    public void failedExternalScriptsAreReportedAsJavaScriptErrors() {
+        server.serveHtml("/missing-visible", """
+                <html><body>
+                  <script src="/weg.js"></script>
+                  <script>document.body.setAttribute('data-state', 'weiter');</script>
+                </body></html>
+                """);
+        server.on("/weg.js", exchange -> {
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+        });
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/missing-visible"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            assertEquals("weiter", session.document().getBody().getAttribute("data-state"));
+            assertFalse("Fehlgeschlagenes Skript muss als Fehler sichtbar sein: "
+                    + session.runtime().snapshot().errors(),
+                    session.runtime().snapshot().errors().isEmpty());
+        }
+    }
+
+    @Test
+    public void failedSubresourcesDoNotPreventRemainingPageProcessing() {        server.serveHtml("/robust", """
                 <html><head>
                   <link rel="stylesheet" href="/missing.css">
                 </head><body>
@@ -645,6 +667,226 @@ public class BrowicyEngineTest {
         Document document = engine.loadPage(server.url("/modules"));
 
         assertEquals("module-loaded", document.getElementById("message").getTextContent());
+    }
+
+    @Test
+    public void loadsNamedExportsAndAliasesFromExternalEsModules() {
+        server.serveHtml("/named", """
+                <html><body><p id="message">before</p>
+                  <script type="module" src="/app.js"></script>
+                </body></html>
+                """);
+        server.serveText("/app.js", "text/javascript", """
+                import { answer, greet, auchAntwort } from './lib.js';
+                import * as lib from './lib.js';
+                onload = () => document.getElementById('message').textContent =
+                    answer + '|' + greet() + '|' + auchAntwort + '|' + lib.name;
+                """);
+        server.serveText("/lib.js", "text/javascript", """
+                export const answer = 42;
+                export function greet() { return 'hallo'; }
+                export { answer as auchAntwort };
+                export const name = 'lib';
+                """);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/named"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            List<String> jsErrors = session.runtime().snapshot().errors();
+            assertTrue("errors=" + jsErrors, jsErrors.isEmpty());
+            assertEquals("42|hallo|42|lib", session.document()
+                    .getElementById("message").getTextContent());
+        }
+    }
+
+    @Test
+    public void evaluatesRspackStyleModuleHeaderWithWebpackModules() {
+        server.serveHtml("/rspack", """
+                <html><body><p id="message">before</p>
+                  <script type="module" src="/app.js"></script>
+                </body></html>
+                """);
+        server.serveText("/rspack.js", "text/javascript", """
+                export const __rspack_esm_id = 'abc123';
+                export const __rspack_esm_ids = ['abc123', 'def456'];
+                export const __webpack_modules__ = { main: () => 'rspack-laeuft' };
+                export default __webpack_modules__.main();
+                """);
+        server.serveText("/app.js", "text/javascript", """
+                import { __rspack_esm_id, __rspack_esm_ids, __webpack_modules__ } from './rspack.js';
+                onload = () => document.getElementById('message').textContent =
+                    __rspack_esm_id + '|' + __rspack_esm_ids.join(',') + '|'
+                    + __webpack_modules__.main();
+                """);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/rspack"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            assertTrue(session.runtime().snapshot().errors().isEmpty());
+            assertEquals("abc123|abc123,def456|rspack-laeuft", session.document()
+                    .getElementById("message").getTextContent());
+        }
+    }
+
+    @Test
+    public void resolvesImportMetaUrlOfExternalEsModuleToModuleUrl() {
+        server.serveHtml("/meta", """
+                <html><body><p id="message">before</p>
+                  <script type="module" src="/meta.js"></script>
+                </body></html>
+                """);
+        server.serveText("/meta.js", "text/javascript", """
+                onload = () => document.getElementById('message').textContent = import.meta.url;
+                """);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/meta"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            assertEquals(server.url("/meta.js"), session.document()
+                    .getElementById("message").getTextContent());
+            assertTrue(session.runtime().snapshot().errors().isEmpty());
+        }
+    }
+
+    @Test
+    public void loadsModuleChunksViaDynamicImportWithTopLevelAwait() {
+        server.serveHtml("/dyn", """
+                <html><body><p id="message">before</p>
+                  <script type="module" src="/dyn.js"></script>
+                </body></html>
+                """);
+        server.serveText("/dyn.js", "text/javascript", """
+                const chunk = await import('./chunk.js');
+                const second = await import('./chunk2.js');
+                onload = () => document.getElementById('message').textContent =
+                    chunk.default + '|' + second.default;
+                """);
+        server.serveText("/chunk.js", "text/javascript", """
+                export default 'chunk-geladen';
+                """);
+        server.serveText("/chunk2.js", "text/javascript", """
+                export default 'chunk-zwei';
+                """);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/dyn"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            assertEquals("chunk-geladen|chunk-zwei", session.document()
+                    .getElementById("message").getTextContent());
+            assertTrue(session.runtime().snapshot().errors().isEmpty());
+        }
+    }
+
+    @Test
+    public void templateContentPrependAndTextCodecsAreAvailableToScripts() {
+        server.serveHtml("/web-platform", """
+                <html><body><p id="message">before</p><script>
+                  const template = document.createElement('template');
+                  template.innerHTML = '<span>teil</span>';
+                  const content = template.content;
+                  const item = document.createElement('b');
+                  item.textContent = 'neu';
+                  content.appendChild(item);
+                  const clone = content.cloneNode(true);
+                  const host = document.createElement('div');
+                  host.prepend(clone);
+                  const encoded = new TextEncoder().encode('ä');
+                  const decoded = new TextDecoder().decode(encoded);
+                  const params = new URLSearchParams('?a=1&b=zwei');
+                  params.set('c', 'drei');
+                  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+                  document.getElementById('message').textContent =
+                      host.querySelector('b').textContent + '|' + decoded
+                      + '|' + content.childNodes.length
+                      + '|' + params.get('b') + '|' + params.has('c')
+                      + '|' + (typeof mediaQuery.addListener === 'function');
+                </script></body></html>
+                """);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/web-platform"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            List<String> jsErrors = session.runtime().snapshot().errors();
+            assertTrue("errors=" + jsErrors, jsErrors.isEmpty());
+            assertEquals("neu|ä|2|zwei|true|true", session.document()
+                    .getElementById("message").getTextContent());
+        }
+    }
+
+    @Test
+    public void customElementsDefineUpgradesAndFireLifecycleCallbacks() {
+        server.serveHtml("/custom-elements", """
+                <html><body><x-tag id="parsed" status="alt"></x-tag>
+                  <p id="message">before</p><script>
+                  const callbacks = [];
+                  class XTag extends HTMLElement {
+                    static get observedAttributes() { return ['status']; }
+                    connectedCallback() { callbacks.push('connected'); }
+                    disconnectedCallback() { callbacks.push('disconnected'); }
+                    attributeChangedCallback(name, oldValue, newValue) {
+                      callbacks.push('attr:' + name + ':' + oldValue + ':' + newValue);
+                    }
+                  }
+                  customElements.define('x-tag', XTag);
+                  const registered = customElements.get('x-tag') === XTag;
+                  const parsed = document.getElementById('parsed');
+                  const el = document.createElement('x-tag');
+                  document.getElementById('message').textContent =
+                      'registered:' + registered
+                      + '|instance:' + (el instanceof XTag)
+                      + '|parsedInstance:' + (parsed instanceof XTag);
+                  document.body.appendChild(el);
+                  el.setAttribute('status', 'a');
+                  el.setAttribute('status', 'b');
+                  document.body.removeChild(el);
+                  window.__result = () => callbacks.join(',');
+                </script></body></html>
+                """);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/custom-elements"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            assertEquals("registered:true|instance:true|parsedInstance:true", session.document()
+                    .getElementById("message").getTextContent());
+            session.runtime().awaitIdle();
+            List<String> jsErrors = session.runtime().snapshot().errors();
+            assertTrue("errors=" + jsErrors, jsErrors.isEmpty());
+            session.runtime().execute(new com.browicy.engine.js.JavaScriptSource(
+                    "document.body.setAttribute('data-callbacks', window.__result());",
+                    null, "callbacks.js"));
+            assertEquals(
+                    "attr:status:null:alt,connected,connected,"
+                            + "attr:status:null:a,attr:status:a:b,disconnected",
+                    session.document().getBody().getAttribute("data-callbacks"));
+        }
+    }
+
+    @Test
+    public void loadsDynamicallyImportedChunkThatImportsAnotherChunk() {
+        server.serveHtml("/nested-dyn", """
+                <html><body><p id="message">before</p>
+                  <script type="module" src="/entry.js"></script>
+                </body></html>
+                """);
+        server.serveText("/entry.js", "text/javascript", """
+                const middle = await import('./middle.js');
+                onload = () => document.getElementById('message').textContent = middle.default;
+                """);
+        server.serveText("/middle.js", "text/javascript", """
+                const leaf = await import('./leaf.js');
+                export default 'middle-' + leaf.default;
+                """);
+        server.serveText("/leaf.js", "text/javascript", """
+                export default 'leaf';
+                """);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/nested-dyn"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            assertEquals("middle-leaf", session.document()
+                    .getElementById("message").getTextContent());
+            assertTrue(session.runtime().snapshot().errors().isEmpty());
+        }
     }
 
 }

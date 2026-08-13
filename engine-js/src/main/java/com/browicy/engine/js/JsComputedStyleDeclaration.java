@@ -2,7 +2,9 @@ package com.browicy.engine.js;
 
 import com.browicy.engine.dom.Element;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
@@ -54,7 +56,7 @@ final class JsComputedStyleDeclaration implements ProxyObject {
             keys.add(Integer.toString(index++));
             keys.add(toCamelCase(property));
         }
-        return keys.toArray();
+        return ProxyArray.fromArray(keys.toArray());
     }
 
     @Override

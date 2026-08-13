@@ -62,10 +62,15 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private Value domOperationWrapper;
     @Setter(AccessLevel.PACKAGE)
     private JsCookieStore cookieStore;
+    private JsCustomElementRegistry customElements;
     private JsDomImplementation implementation;
     private JsWindow defaultView;
     private String referrer = "";
     private Value promiseGlobal;
+
+    void setCustomElementRegistry(JsCustomElementRegistry customElements) {
+        this.customElements = customElements;
+    }
 
     JsDocument(Document document, Consumer<String> errorSink,
                StyleSheetRegistry styleSheets, Runnable styleSheetMutationCallback) {
@@ -320,8 +325,14 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "querySelectorAll" -> domOperation((ProxyExecutable) args ->
                     new JsNodeList(document.querySelectorAll(asString(args, 0)), this));
             case "elementFromPoint" -> (ProxyExecutable) args -> null;
-            case "createElement" -> domOperation((ProxyExecutable) args ->
-                    wrap(document.createElement(asString(args, 0))));
+            case "createElement" -> domOperation((ProxyExecutable) args -> {
+                Element created = document.createElement(asString(args, 0));
+                JsElement wrapped = wrap(created);
+                if (customElements != null) {
+                    customElements.elementCreated(created);
+                }
+                return wrapped;
+            });
             case "createElementNS" -> domOperation((ProxyExecutable) args ->
                     wrap(document.createElementNS(nullableString(args, 0), asString(args, 1))));
             case "createTextNode" -> (ProxyExecutable) args -> wrap(document.createTextNode(asString(args, 0)));
@@ -440,7 +451,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     public Object getMemberKeys() {
         List<String> keys = new ArrayList<>(MEMBERS);
         keys.addAll(expandos.keySet());
-        return keys.toArray();
+        return ProxyArray.fromArray(keys.toArray());
     }
 
     @Override
@@ -481,7 +492,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             for (int index = 0; index < styleSheets.styleSheets().size(); index++) {
                 keys.add(Integer.toString(index));
             }
-            return keys.toArray();
+            return ProxyArray.fromArray(keys.toArray());
         }
         @Override public boolean hasMember(String key) {
             return "length".equals(key) || "item".equals(key) || getMember(key) != null;

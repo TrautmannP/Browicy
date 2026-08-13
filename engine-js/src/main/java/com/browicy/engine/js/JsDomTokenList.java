@@ -2,7 +2,9 @@ package com.browicy.engine.js;
 
 import com.browicy.engine.dom.DOMTokenList;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
@@ -71,7 +73,7 @@ final class JsDomTokenList implements ProxyObject {
         for (int index = 0; index < tokens.getLength(); index++) {
             keys.add(Integer.toString(index));
         }
-        return keys.toArray();
+        return ProxyArray.fromArray(keys.toArray());
     }
 
     @Override

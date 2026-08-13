@@ -2,7 +2,9 @@ package com.browicy.engine.js;
 
 import com.browicy.engine.dom.Node;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
@@ -100,6 +102,6 @@ final class JsTreeWalker extends JsTraversal implements ProxyObject {
                 || !insideRoot(wrapped.unwrapNode())) throw new IllegalArgumentException("currentNode liegt außerhalb der Wurzel");
         current = wrapped.unwrapNode();
     }
-    @Override public Object getMemberKeys() { return MEMBERS.toArray(); }
+    @Override public Object getMemberKeys() { return ProxyArray.fromArray(MEMBERS.toArray()); }
     @Override public boolean hasMember(String key) { return MEMBERS.contains(key); }
 }

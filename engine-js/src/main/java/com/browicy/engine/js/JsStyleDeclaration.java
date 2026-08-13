@@ -3,7 +3,9 @@ package com.browicy.engine.js;
 import com.browicy.engine.css.CssParser;
 import com.browicy.engine.dom.Element;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
@@ -65,7 +67,7 @@ final class JsStyleDeclaration implements ProxyObject {
         for (String property : declarations().keySet()) {
             keys.add(toCamelCase(property));
         }
-        return keys.toArray();
+        return ProxyArray.fromArray(keys.toArray());
     }
 
     @Override

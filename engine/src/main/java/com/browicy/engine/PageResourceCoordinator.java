@@ -119,6 +119,12 @@ final class PageResourceCoordinator {
             synchronized (document) {
                 styleApplicator.apply(document, styleSheets);
             }
+            // Alle (auch nicht render-blockierenden) Stylesheets einmalig anwenden,
+            // sobald sie geladen sind — statt nach jedem Stylesheet einzeln neu zu
+            // berechnen (quadratisch bei vielen Stylesheets).
+            CompletableFuture.allOf(
+                            styleLoads.allTasks().toArray(CompletableFuture[]::new))
+                    .thenRun(updates::stylesheetsLoaded);
             progress.markFirstRender();
 
             progress.phase(PageLoadProgress.Phase.LOADING_RESOURCES, "");
@@ -623,11 +629,15 @@ final class PageResourceCoordinator {
                 ScriptResource resource = resources.next();
                 if (resource instanceof ScriptResource.Inline inline) {
                     if (!inline.code().isBlank()) {
-                        String code = inline.module()
-                                ? bundleModule(documentUri(inline.element()), inline.code())
-                                : inline.code();
-                        next = new JavaScriptSource(code, inline.element(),
-                                "inline-script-" + (++inlineIndex) + ".js");
+                        if (inline.module()) {
+                            URI uri = documentUri(inline.element())
+                                    .resolve("#inline-module-" + (++inlineIndex));
+                            next = new JavaScriptSource(inline.code(), inline.element(),
+                                    "inline-module-" + inlineIndex + ".js", true, uri);
+                        } else {
+                            next = new JavaScriptSource(inline.code(), inline.element(),
+                                    "inline-script-" + (++inlineIndex) + ".js");
+                        }
                         return;
                     }
                     continue;
@@ -647,30 +657,27 @@ final class PageResourceCoordinator {
                 progress.activity("Lade Skript " + external.uri());
                 try {
                     TextResource downloaded = load.await();
-                    String code = external.module()
-                            ? new ModuleScriptBundler(resourceLoader, cancellableLoads)
-                                    .bundle(downloaded.uri(), downloaded.content())
-                            : downloaded.content();
+                    String code = downloaded.content();
+                    URI uri = downloaded.uri();
                     next = new JavaScriptSource(code, external.element(),
-                            downloaded.uri().toString());
+                            uri.toString(), external.module(), uri);
                     return;
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     return;
                 } catch (IOException | RuntimeException failure) {
+                    // Fehlgeschlagene externe Skripte sichtbar machen, statt sie lautlos
+                    // zu überspringen: der Fehler landet in javascript.errors.
                     LOGGER.log(System.Logger.Level.DEBUG,
                             "Externe JavaScript-Ressource konnte nicht geladen werden: "
                                     + external.uri(), failure);
+                    next = new JavaScriptSource(
+                            "throw new Error(" + jsString(
+                                    "Externe JavaScript-Ressource konnte nicht geladen werden: "
+                                            + external.uri()) + ");",
+                            external.element(), "failed-script-" + external.uri() + ".js");
+                    return;
                 }
-            }
-        }
-
-        private String bundleModule(java.net.URI uri, String code) {
-            try {
-                return new ModuleScriptBundler(resourceLoader, cancellableLoads).bundle(uri, code);
-            } catch (IOException | InterruptedException failure) {
-                if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
-                return "throw new Error(" + jsString(failure.getMessage()) + ");";
             }
         }
 

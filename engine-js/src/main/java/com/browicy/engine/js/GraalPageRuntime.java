@@ -81,6 +81,7 @@ final class GraalPageRuntime implements PageRuntime {
     private volatile long taskSequence;
     private JsDocument jsDocument;
     private JsMutationObserverRegistry mutationObservers;
+    private JsCustomElementRegistry customElements;
     private JsConsole console;
     private final List<String> errors = new ArrayList<>();
     private volatile boolean contextUsable = true;
@@ -321,6 +322,29 @@ final class GraalPageRuntime implements PageRuntime {
                 (ProxyExecutable) mutationObservers::disconnect);
         bindings.putMember("__browicyMutationTakeRecords",
                 (ProxyExecutable) mutationObservers::takeRecords);
+        // customElements: Java-Registry stößt Lebenszyklus-Callbacks auf Basis der
+        // DOM-Mutations-Meldungen an; die JS-seitige Registry verwaltet define/get/
+        // whenDefined/upgrade und die instanceof-Kennung.
+        Value customElementInvoker = context.eval("js",
+                "(ctor, el, method, args) => { const fn = ctor.prototype[method]; "
+                        + "if (typeof fn === 'function') fn.apply(el, args); }");
+        customElements = new JsCustomElementRegistry(
+                document, jsDocument, errors::add,
+                this::scheduleCustomElementDelivery, customElementInvoker);
+        jsDocument.setCustomElementRegistry(customElements);
+        bindings.putMember("__browicyCustomElementDefine", (ProxyExecutable) args -> {
+            customElements.define(args.length == 0 ? "" : asText(args[0]), args[1]);
+            return null;
+        });
+        bindings.putMember("__browicyCustomElementUpgrade", (ProxyExecutable) args -> {
+            if (args.length == 0 || args[0].isNull()
+                    || !(args[0].asProxyObject() instanceof JsNodeLike wrapper)) {
+                return null;
+            }
+            customElements.upgrade(wrapper.unwrapNode());
+            return null;
+        });
+        context.eval("js", JavaScriptEngine.CUSTOM_ELEMENTS_BOOTSTRAP);
         bindings.putMember("setTimeout", (ProxyExecutable) args -> registerTimer(args, false));
         bindings.putMember("clearTimeout", (ProxyExecutable) args -> { clearTimer(args); return null; });
         bindings.putMember("setInterval", (ProxyExecutable) args -> registerTimer(args, true));
@@ -635,6 +659,10 @@ final class GraalPageRuntime implements PageRuntime {
         }));
     }
 
+    private void scheduleCustomElementDelivery() {
+        enqueueMicrotask(new PageTask.Callback(() -> customElements.deliver()));
+    }
+
     private Object process(PageTask task) {
         synchronized (document) {
             return switch (task) {
@@ -738,7 +766,12 @@ final class GraalPageRuntime implements PageRuntime {
         }
         try {
             jsDocument.setCurrentScript(source.element());
-            context.eval(Source.newBuilder("js", source.code(), source.sourceName()).buildLiteral());
+            Source.Builder builder = Source.newBuilder("js", source.code(), source.sourceName());
+            if (source.module()) {
+                builder.mimeType("application/javascript+module");
+                builder.uri(source.moduleUri());
+            }
+            context.eval(builder.buildLiteral());
         } catch (PolyglotException exception) {
             recordPolyglotFailure(exception);
         } finally {
@@ -906,10 +939,9 @@ final class GraalPageRuntime implements PageRuntime {
     }
 
     private Context newSandboxedContext() {
-        return Context.newBuilder("js")
+        Context.Builder builder = Context.newBuilder("js")
                 .allowHostAccess(HostAccess.NONE)
                 .allowHostClassLookup(className -> false)
-                .allowIO(IOAccess.NONE)
                 .allowCreateProcess(false)
                 .allowCreateThread(false)
                 .resourceLimits(ResourceLimits.newBuilder()
@@ -917,8 +949,18 @@ final class GraalPageRuntime implements PageRuntime {
                         .build())
                 .option("engine.WarnInterpreterOnly", "false")
                 .out(OutputStream.nullOutputStream())
-                .err(OutputStream.nullOutputStream())
-                .build();
+                .err(OutputStream.nullOutputStream());
+        if (fetchBackend != null) {
+            // ES-Modul-Importe (statisch wie dynamisch) laufen über das Browicy-
+            // Netzwerk-Backend; das Dateisystem lässt ausschließlich HTTP(S)-Lesezugriffe
+            // auf Modul-URLs zu und ist ansonsten vollständig gesperrt.
+            builder.allowIO(IOAccess.newBuilder()
+                    .fileSystem(new EsModuleFileSystem(fetchBackend, document.getUrl()))
+                    .build());
+        } else {
+            builder.allowIO(IOAccess.NONE);
+        }
+        return builder.build();
     }
 
     private void cleanup() {
@@ -934,6 +976,9 @@ final class GraalPageRuntime implements PageRuntime {
         }
         if (mutationObservers != null) {
             mutationObservers.close();
+        }
+        if (customElements != null) {
+            customElements.close();
         }
         if (context != null) {
             try {

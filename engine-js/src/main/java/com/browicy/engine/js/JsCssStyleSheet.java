@@ -5,7 +5,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 final class JsCssStyleSheet implements ProxyObject {
@@ -48,7 +50,7 @@ final class JsCssStyleSheet implements ProxyObject {
 
     @Override
     public Object getMemberKeys() {
-        return MEMBERS.toArray();
+        return ProxyArray.fromArray(MEMBERS.toArray());
     }
 
     @Override
@@ -109,7 +111,7 @@ final class JsCssStyleSheet implements ProxyObject {
             for (int index = 0; index < sheet.ruleCount(); index++) {
                 keys.add(Integer.toString(index));
             }
-            return keys.toArray();
+            return ProxyArray.fromArray(keys.toArray());
         }
 
         @Override

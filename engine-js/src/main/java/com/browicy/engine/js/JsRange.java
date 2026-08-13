@@ -6,7 +6,9 @@ import lombok.RequiredArgsConstructor;
 import com.browicy.engine.dom.Node;
 import com.browicy.engine.dom.Range;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.List;
@@ -112,7 +114,7 @@ final class JsRange implements ProxyObject {
 
     @Override
     public Object getMemberKeys() {
-        return MEMBERS.toArray();
+        return ProxyArray.fromArray(MEMBERS.toArray());
     }
 
     @Override

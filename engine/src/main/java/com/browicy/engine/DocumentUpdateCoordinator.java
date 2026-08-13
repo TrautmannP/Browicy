@@ -53,11 +53,25 @@ public final class DocumentUpdateCoordinator implements AutoCloseable {
             return;
         }
         changedStyleSheets.add(Objects.requireNonNull(uri, "uri"));
-        invalidation = merge(invalidation, InvalidationType.STYLE);
+        // Keine STYLE-Invalidierung pro Stylesheet: während des initialen Ladens
+        // würde jeder Registrierungs-Task eine vollständige Neu-Anwendung aller
+        // Regeln über den gesamten DOM auslösen (quadratisch bei vielen
+        // Stylesheets). Die Anwendung erfolgt einmalig, wenn alle Stylesheets
+        // geladen sind (siehe PageResourceCoordinator).
     }
 
-    public void invalidate(InvalidationType type) {
-        boolean flushNow;
+    /** Einmalige Anwendung + Benachrichtigung, sobald alle initialen Stylesheets geladen sind. */
+    public void stylesheetsLoaded() {
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            invalidation = merge(invalidation, InvalidationType.STYLE);
+        }
+        flush();
+    }
+
+    public void invalidate(InvalidationType type) {        boolean flushNow;
         synchronized (this) {
             if (closed) return;
             invalidation = merge(invalidation, Objects.requireNonNull(type, "type"));

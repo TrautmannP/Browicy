@@ -415,11 +415,56 @@ public final class JavaScriptEngine {
               removeItem: key => __storage.delete(String(key)),
               clear: () => __storage.clear()
             });
-            globalThis.history = Object.freeze({ replaceState: () => undefined });
+            globalThis.history = { replaceState: () => undefined, pushState: () => undefined, go: () => undefined };
             globalThis.matchMedia = query => Object.freeze({
-              media: String(query), matches: false,
-              addEventListener: () => undefined, removeEventListener: () => undefined
+              media: String(query), matches: false, onchange: null,
+              addListener: () => undefined, removeListener: () => undefined,
+              addEventListener: () => undefined, removeEventListener: () => undefined,
+              dispatchEvent: () => false
             });
+            globalThis.URLSearchParams = class URLSearchParams {
+              constructor(init) {
+                this._map = new Map();
+                if (init == null) return;
+                if (typeof init === 'string') {
+                  String(init).replace(/^[?#]/, '').split('&').filter(Boolean)
+                      .forEach(entry => {
+                        const separator = entry.indexOf('=');
+                        const key = separator < 0 ? entry : entry.substring(0, separator);
+                        const value = separator < 0 ? '' : entry.substring(separator + 1);
+                        this._map.set(decodeURIComponent(key.replace(/\\+/g, ' ')),
+                            decodeURIComponent(value.replace(/\\+/g, ' ')));
+                      });
+                } else if (init instanceof URLSearchParams) {
+                  init._map.forEach((value, key) => this._map.set(key, value));
+                } else if (typeof init === 'object') {
+                  for (const key of Object.keys(init)) {
+                    this._map.set(String(key), String(init[key]));
+                  }
+                }
+              }
+              has(name) { return this._map.has(String(name)); }
+              get(name) {
+                const value = this._map.get(String(name));
+                return value === undefined ? null : value;
+              }
+              getAll(name) {
+                const value = this._map.get(String(name));
+                return value === undefined ? [] : [value];
+              }
+              set(name, value) { this._map.set(String(name), String(value)); }
+              append(name, value) { this._map.set(String(name), String(value)); }
+              delete(name) { this._map.delete(String(name)); }
+              forEach(callback) {
+                this._map.forEach((value, key) => callback(value, key, this));
+              }
+              toString() {
+                return Array.from(this._map.entries()).map(([key, value]) =>
+                    encodeURIComponent(key).replace(/%20/g, '+')
+                        + '=' + encodeURIComponent(value).replace(/%20/g, '+')).join('&');
+              }
+              get size() { return this._map.size; }
+            };
             globalThis.IntersectionObserver = class IntersectionObserver {
               constructor(callback, options) {
                 if (typeof callback !== 'function') {
@@ -570,6 +615,89 @@ public final class JavaScriptEngine {
               }
               return result;
             };
+            globalThis.TextEncoder = class TextEncoder {
+              get encoding() { return 'utf-8'; }
+              encode(value) {
+                const text = String(value == null ? '' : value);
+                const bytes = new Uint8Array(text.length * 3);
+                let offset = 0;
+                for (let index = 0; index < text.length; index++) {
+                  let code = text.charCodeAt(index);
+                  if (code < 0x80) {
+                    bytes[offset++] = code;
+                  } else if (code < 0x800) {
+                    bytes[offset++] = 0xC0 | (code >> 6);
+                    bytes[offset++] = 0x80 | (code & 0x3F);
+                  } else if (code >= 0xD800 && code <= 0xDBFF
+                      && index + 1 < text.length) {
+                    const next = text.charCodeAt(index + 1);
+                    if (next >= 0xDC00 && next <= 0xDFFF) {
+                      index++;
+                      const cp = 0x10000 + ((code - 0xD800) << 10) + (next - 0xDC00);
+                      bytes[offset++] = 0xF0 | (cp >> 18);
+                      bytes[offset++] = 0x80 | ((cp >> 12) & 0x3F);
+                      bytes[offset++] = 0x80 | ((cp >> 6) & 0x3F);
+                      bytes[offset++] = 0x80 | (cp & 0x3F);
+                      continue;
+                    }
+                    bytes[offset++] = 0xEF;
+                    bytes[offset++] = 0xBF;
+                    bytes[offset++] = 0xBD;
+                  } else {
+                    bytes[offset++] = 0xE0 | (code >> 12);
+                    bytes[offset++] = 0x80 | ((code >> 6) & 0x3F);
+                    bytes[offset++] = 0x80 | (code & 0x3F);
+                  }
+                }
+                return bytes.subarray(0, offset);
+              }
+              encodeInto(source, destination) {
+                const encoded = this.encode(source);
+                const written = Math.min(encoded.length, destination.length);
+                destination.set(encoded.subarray(0, written));
+                return { read: encoded.length, written: written };
+              }
+            };
+            globalThis.TextDecoder = class TextDecoder {
+              constructor(label) {
+                this.encoding = label == null || String(label).toLowerCase() === 'utf-8'
+                    || String(label).toLowerCase() === 'utf8' ? 'utf-8' : 'utf-8';
+                this.fatal = false;
+                this.ignoreBOM = false;
+              }
+              decode(buffer) {
+                if (buffer == null) return '';
+                const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+                let result = '';
+                for (let index = 0; index < bytes.length; index++) {
+                  const byte = bytes[index];
+                  if (byte < 0x80) {
+                    result += String.fromCharCode(byte);
+                  } else if (byte < 0xE0 && index + 1 < bytes.length) {
+                    result += String.fromCharCode(
+                        ((byte & 0x1F) << 6) | (bytes[index + 1] & 0x3F));
+                    index++;
+                  } else if (byte < 0xF0 && index + 2 < bytes.length) {
+                    result += String.fromCharCode(
+                        ((byte & 0x0F) << 12) | ((bytes[index + 1] & 0x3F) << 6)
+                            | (bytes[index + 2] & 0x3F));
+                    index += 2;
+                  } else if (index + 3 < bytes.length) {
+                    const cp = ((byte & 0x07) << 18) | ((bytes[index + 1] & 0x3F) << 12)
+                        | ((bytes[index + 2] & 0x3F) << 6) | (bytes[index + 3] & 0x3F);
+                    if (cp >= 0x10000) {
+                      const adjusted = cp - 0x10000;
+                      result += String.fromCharCode(0xD800 + (adjusted >> 10),
+                          0xDC00 + (adjusted & 0x3FF));
+                    } else {
+                      result += String.fromCharCode(cp);
+                    }
+                    index += 3;
+                  }
+                }
+                return result;
+              }
+            };
             globalThis.Range = function Range() { return document.createRange(); };
             Range.START_TO_START = 0;
             Range.START_TO_END = 1;
@@ -717,6 +845,64 @@ public final class JavaScriptEngine {
               __browicyMutationObserverData(observer).callback.call(
                   observer, __browicyMutationRecords(records), observer);
             };
+            """;
+
+    static final String CUSTOM_ELEMENTS_BOOTSTRAP = """
+            (() => {
+              'use strict';
+              const __browicyRegistry = new Map();
+              const __browicyPendingDefined = new Map();
+              const __browicyCustomName = name =>
+                  /^[a-z][a-z0-9._-]*-[a-z0-9._-]*$/.test(String(name));
+              globalThis.customElements = Object.freeze({
+                define(name, ctor) {
+                  name = String(name).toLowerCase();
+                  if (!__browicyCustomName(name)) {
+                    throw new DOMException(
+                        "Ungültiger Custom-Element-Name: '" + name + "'", 'SyntaxError');
+                  }
+                  if (__browicyRegistry.has(name)) {
+                    throw new DOMException(
+                        "Custom-Element '" + name + "' ist bereits definiert",
+                        'NotSupportedError');
+                  }
+                  if (typeof ctor !== 'function') {
+                    throw new TypeError('customElements.define: Konstruktor ist keine Funktion');
+                  }
+                  __browicyRegistry.set(name, ctor);
+                  Object.defineProperty(ctor, Symbol.hasInstance, {
+                    value: candidate => candidate != null && typeof candidate === 'object'
+                        && candidate.nodeType === 1
+                        && String(candidate.tagName).toLowerCase() === name
+                  });
+                  // Lebenszyklus-Verwaltung (Upgrade vorhandener Elemente, Callbacks)
+                  // liegt in der PageRuntime.
+                  __browicyCustomElementDefine(name, ctor);
+                  const pending = __browicyPendingDefined.get(name);
+                  if (pending != null) {
+                    __browicyPendingDefined.delete(name);
+                    for (const resolve of pending) resolve(ctor);
+                  }
+                },
+                get(name) {
+                  return __browicyRegistry.get(String(name).toLowerCase());
+                },
+                whenDefined(name) {
+                  name = String(name).toLowerCase();
+                  if (__browicyRegistry.has(name)) {
+                    return Promise.resolve(__browicyRegistry.get(name));
+                  }
+                  return new Promise(resolve => {
+                    const pending = __browicyPendingDefined.get(name) || [];
+                    pending.push(resolve);
+                    __browicyPendingDefined.set(name, pending);
+                  });
+                },
+                upgrade(root) {
+                  __browicyCustomElementUpgrade(root == null ? document : root);
+                }
+              });
+            })();
             """;
 
     static final String FETCH_BOOTSTRAP = """

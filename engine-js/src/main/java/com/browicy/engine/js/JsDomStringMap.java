@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 /** Live-{@code DOMStringMap} für {@code element.dataset} (data-*-Attribute). */
@@ -60,7 +61,7 @@ final class JsDomStringMap implements ProxyObject {
                 keys.add(toCamel(lower.substring(PREFIX.length())));
             }
         }
-        return keys.toArray();
+        return ProxyArray.fromArray(keys.toArray());
     }
 
     @Override

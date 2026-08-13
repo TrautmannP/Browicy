@@ -27,15 +27,17 @@ final class JsElement implements ProxyObject, JsNodeLike {
     private static final List<String> MEMBERS = List.of(
             "tagName", "nodeName", "nodeType", "nodeValue", "namespaceURI", "prefix", "localName",
             "id", "className", "classList", "dataset", "name", "type", "value", "checked", "defaultChecked", "indeterminate", "selected", "defaultSelected",
-            "src", "srcdoc", "contentDocument", "contentWindow",
+            "href",
+            "src", "srcdoc", "contentDocument", "contentWindow", "content",
             "textContent", "innerHTML", "style", "sheet", "children", "childNodes", "length", "elements", "form", "options", "selectedIndex",
             "caption", "tHead", "tFoot", "tBodies", "rows", "cells", "rowIndex", "sectionRowIndex", "cellIndex",
             "parentNode", "ownerDocument", "firstChild", "lastChild", "previousSibling", "nextSibling",
-            "getAttribute", "setAttribute", "removeAttribute", "hasAttribute", "getElementsByTagName",
+            "isConnected",
+            "getAttribute", "setAttribute", "removeAttribute", "hasAttribute", "toggleAttribute", "getElementsByTagName",
             "querySelector", "querySelectorAll", "matches", "closest",
             "createCaption", "deleteCaption", "createTHead", "deleteTHead", "createTFoot", "deleteTFoot",
             "insertRow", "deleteRow", "insertCell", "deleteCell", "add", "remove",
-            "append", "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
+            "append", "prepend", "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
             "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode", "click", "focus", "blur", "scrollIntoView",
             "getBoundingClientRect", "getClientRects", "play", "pause",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
@@ -52,6 +54,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
     private final Map<String, Value> expandos = new LinkedHashMap<>();
     private String embeddedDocumentSource;
     private JsDocument embeddedDocument;
+    private com.browicy.engine.dom.DocumentFragment contentFragment;
 
     Element unwrap() {
         return element;
@@ -70,6 +73,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "prefix" -> element.getPrefix();
             case "localName" -> element.getLocalName();
             case "id" -> orEmpty(element.getAttribute("id"));
+            case "href" -> orEmpty(element.getAttribute("href"));
             case "className" -> orEmpty(element.getAttribute("class"));
             case "classList" -> classList == null
                     ? classList = new JsDomTokenList(element.getClassList(), document) : classList;
@@ -90,6 +94,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
                 JsDocument content = embeddedDocument();
                 yield content == null ? null : content.defaultView();
             }
+            case "content" -> templateContent();
             case "textContent" -> element.getTextContent();
             case "innerHTML" -> HtmlSerializer.innerHtml(element);
             case "style" -> style == null ? style = new JsStyleDeclaration(element) : style;
@@ -115,6 +120,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "cellIndex" -> cellIndex();
             case "parentNode" -> document.wrap(element.getParent());
             case "ownerDocument" -> document.wrapOwnerDocument(element);
+            case "isConnected" -> isConnected(element);
             case "firstChild" -> childAt(0);
             case "lastChild" -> childAt(element.getChildren().size() - 1);
             case "previousSibling" -> sibling(-1);
@@ -129,6 +135,18 @@ final class JsElement implements ProxyObject, JsNodeLike {
                 return null;
             };
             case "hasAttribute" -> (ProxyExecutable) args -> element.hasAttribute(asString(args, 0));
+            case "toggleAttribute" -> (ProxyExecutable) args -> {
+                String attribute = asString(args, 0);
+                boolean force = args.length > 1 && !args[1].isNull() && args[1].asBoolean();
+                boolean present = element.hasAttribute(attribute);
+                boolean enabled = args.length > 1 && !args[1].isNull() ? force : !present;
+                if (enabled && !present) {
+                    element.setAttribute(attribute, "");
+                } else if (!enabled && present) {
+                    element.removeAttribute(attribute);
+                }
+                return enabled;
+            };
             case "getElementsByTagName" -> (ProxyExecutable) args ->
                     collection(() -> element.getElementsByTagName(asString(args, 0)));
             case "querySelector" -> document.domOperation((ProxyExecutable) args ->
@@ -163,6 +181,18 @@ final class JsElement implements ProxyObject, JsNodeLike {
                         element.appendChild(node.unwrapNode());
                     } else {
                         element.appendChild(element.getOwnerDocument().createTextNode(toText(value)));
+                    }
+                }
+                return null;
+            };
+            case "prepend" -> (ProxyExecutable) args -> {
+                for (int index = args.length - 1; index >= 0; index--) {
+                    Value value = args[index];
+                    if (value.isProxyObject() && value.asProxyObject() instanceof JsNodeLike node) {
+                        element.insertBefore(node.unwrapNode(), element.getFirstChild());
+                    } else {
+                        element.insertBefore(element.getOwnerDocument()
+                                .createTextNode(toText(value)), element.getFirstChild());
                     }
                 }
                 return null;
@@ -279,6 +309,32 @@ final class JsElement implements ProxyObject, JsNodeLike {
                 }
             }
         }
+    }
+
+    private static boolean isConnected(com.browicy.engine.dom.Node node) {
+        for (com.browicy.engine.dom.Node current = node; current != null;
+             current = current.getParent()) {
+            if (current instanceof Document) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Object templateContent() {
+        if (!"template".equals(tag())) {
+            return null;
+        }
+        if (contentFragment == null) {
+            com.browicy.engine.dom.DocumentFragment fragment =
+                    element.getOwnerDocument().createDocumentFragment();
+            // Template-Kinder leben im .content-Fragment (wie im echten DOM).
+            for (com.browicy.engine.dom.Node child : List.copyOf(element.getChildren())) {
+                fragment.appendChild(child);
+            }
+            contentFragment = fragment;
+        }
+        return document.wrap(contentFragment);
     }
 
     private JsDocument embeddedDocument() {
@@ -467,7 +523,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
     public Object getMemberKeys() {
         List<String> keys = new ArrayList<>(MEMBERS);
         keys.addAll(expandos.keySet());
-        return keys.toArray();
+        return ProxyArray.fromArray(keys.toArray());
     }
 
     @Override

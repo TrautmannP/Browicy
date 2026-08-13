@@ -67,7 +67,7 @@ final class JsNodeList implements ProxyObject, ProxyArray {
         for (int index = 0; index < elements.size(); index++) {
             keys.add(Integer.toString(index));
         }
-        return keys.toArray();
+        return ProxyArray.fromArray(keys.toArray());
     }
 
     @Override

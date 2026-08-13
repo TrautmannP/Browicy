@@ -78,7 +78,7 @@ final class JsHtmlCollection implements ProxyObject, ProxyArray {
             if (id != null && !id.isEmpty()) keys.add(id);
             if (name != null && !name.isEmpty()) keys.add(name);
         }
-        return keys.toArray();
+        return ProxyArray.fromArray(keys.toArray());
     }
 
     @Override

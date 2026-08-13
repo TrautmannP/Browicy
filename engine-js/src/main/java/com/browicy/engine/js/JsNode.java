@@ -8,6 +8,7 @@ import com.browicy.engine.dom.ParentNode;
 import com.browicy.engine.dom.DocumentType;
 import com.browicy.engine.dom.TextNode;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.LinkedHashMap;
@@ -152,7 +153,7 @@ final class JsNode implements ProxyObject, JsNodeLike {
             keys.add("querySelectorAll");
         }
         keys.addAll(expandos.keySet());
-        return keys.toArray();
+        return ProxyArray.fromArray(keys.toArray());
     }
 
     @Override

@@ -1,6 +1,8 @@
 package com.browicy.engine.js;
 
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.List;
@@ -35,7 +37,7 @@ final class JsWindow implements ProxyObject {
         };
     }
 
-    @Override public Object getMemberKeys() { return MEMBERS.toArray(); }
+    @Override public Object getMemberKeys() { return ProxyArray.fromArray(MEMBERS.toArray()); }
     @Override public boolean hasMember(String key) { return MEMBERS.contains(key); }
     @Override public void putMember(String key, org.graalvm.polyglot.Value value) { }
     @Override public String toString() { return "[object Window]"; }

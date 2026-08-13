@@ -4,7 +4,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
@@ -40,7 +42,7 @@ final class JsConsole implements ProxyObject {
 
     @Override
     public Object getMemberKeys() {
-        return LEVELS.toArray();
+        return ProxyArray.fromArray(LEVELS.toArray());
     }
 
     @Override

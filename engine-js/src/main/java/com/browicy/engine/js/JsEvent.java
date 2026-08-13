@@ -7,7 +7,9 @@ import com.browicy.engine.dom.Event;
 import com.browicy.engine.dom.CustomEvent;
 import com.browicy.engine.dom.UiEvent;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
@@ -92,7 +94,7 @@ final class JsEvent implements ProxyObject {
     public Object getMemberKeys() {
         List<Object> keys = new ArrayList<>(MEMBERS);
         keys.addAll(expandos.keySet());
-        return keys.toArray();
+        return ProxyArray.fromArray(keys.toArray());
     }
 
     @Override

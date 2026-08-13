@@ -2,6 +2,7 @@ package com.browicy.engine.js;
 
 import java.util.List;
 import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 final class JsCssRule implements ProxyObject {
@@ -29,7 +30,7 @@ final class JsCssRule implements ProxyObject {
         };
     }
 
-    @Override public Object getMemberKeys() { return MEMBERS.toArray(); }
+    @Override public Object getMemberKeys() { return ProxyArray.fromArray(MEMBERS.toArray()); }
     @Override public boolean hasMember(String key) { return MEMBERS.contains(key); }
 
     @Override
