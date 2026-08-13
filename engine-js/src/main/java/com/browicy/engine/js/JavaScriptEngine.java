@@ -134,7 +134,40 @@ public final class JavaScriptEngine {
             HTMLElement.prototype = Object.create(Element.prototype);
             Object.defineProperty(HTMLElement, Symbol.hasInstance, {
               value: candidate => candidate != null && candidate.nodeType === 1
+                && (candidate.namespaceURI == null
+                    || candidate.namespaceURI === 'http://www.w3.org/1999/xhtml')
             });
+            globalThis.SVGElement = function SVGElement() { throw new TypeError('Illegal constructor'); };
+            SVGElement.prototype = Object.create(Element.prototype);
+            Object.defineProperty(SVGElement, Symbol.hasInstance, {
+              value: candidate => candidate != null && candidate.nodeType === 1
+                && candidate.namespaceURI === 'http://www.w3.org/2000/svg'
+            });
+            globalThis.MathMLElement = function MathMLElement() {
+              throw new TypeError('Illegal constructor');
+            };
+            MathMLElement.prototype = Object.create(Element.prototype);
+            Object.defineProperty(MathMLElement, Symbol.hasInstance, {
+              value: candidate => candidate != null && candidate.nodeType === 1
+                && candidate.namespaceURI === 'http://www.w3.org/1998/Math/MathML'
+            });
+            // Host-Elemente (ProxyObject) unterstützen Object.defineProperty nicht
+            // nativ. Frameworks wie Vue legen darüber Expando-Eigenschaften an
+            // (z.B. el.__vnode, el.__vueParentComponent). Wertdeskriptoren werden
+            // deshalb als normale Member-Zuweisung auf das Element durchgereicht;
+            // alles andere geht an die native Implementierung.
+            const __browicyNativeDefineProperty = Object.defineProperty;
+            Object.defineProperty = function (target, key, descriptor) {
+              if (target != null
+                      && (typeof target === 'object' || typeof target === 'function')
+                      && target.nodeType === 1
+                      && descriptor != null
+                      && Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+                target[key] = descriptor.value;
+                return target;
+              }
+              return __browicyNativeDefineProperty(target, key, descriptor);
+            };
             globalThis.Window = function Window() { throw new TypeError('Illegal constructor'); };
             Object.defineProperty(Window, Symbol.hasInstance, { value: candidate => candidate === window });
             const __windowListeners = new Map();

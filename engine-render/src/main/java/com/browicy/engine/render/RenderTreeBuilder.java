@@ -71,6 +71,7 @@ public final class RenderTreeBuilder {
                 DEFAULT_COLOR,
                 RenderStyle.ListStyleType.DISC,
                 false,
+                false,
                 DEFAULT_COLOR,
                 RenderStyle.Cursor.DEFAULT,
                 null,
@@ -589,6 +590,7 @@ public final class RenderTreeBuilder {
                 inherited.color(),
                 inherited.listStyleType(),
                 inherited.underline(),
+                inherited.lineThrough(),
                 inherited.textDecorationColor(),
                 inherited.cursor(),
                 null,
@@ -661,6 +663,7 @@ public final class RenderTreeBuilder {
         CssColor color = parent.color();
         RenderStyle.ListStyleType listStyleType = parent.listStyleType();
         boolean underline = parent.underline();
+        boolean lineThrough = parent.lineThrough();
         CssColor textDecorationColor = parent.textDecorationColor();
         RenderStyle.Cursor cursor = parent.cursor();
         CssColor background = null;
@@ -871,11 +874,14 @@ public final class RenderTreeBuilder {
             default -> RenderStyle.ListStyleType.DISC;
         };
         if (declarations.containsKey("text-decoration-line")) {
-            underline = "underline".equals(declarations.get("text-decoration-line"));
+            String decorationLine = declarations.get("text-decoration-line");
+            underline = "underline".equals(decorationLine);
+            lineThrough = "line-through".equals(decorationLine);
         }
         CssColor declaredDecorationColor = CssColor.parse(declarations.get("text-decoration-color"));
         if (declaredDecorationColor != null) textDecorationColor = declaredDecorationColor;
-        else if (underline && !parent.underline()) textDecorationColor = color;
+        else if ((underline || lineThrough)
+                && !(parent.underline() || parent.lineThrough())) textDecorationColor = color;
         CssColor declaredBackground = CssColor.parse(declarations.get("background-color"));
         if (declaredBackground != null && !declaredBackground.isTransparent()) {
             background = declaredBackground;
@@ -922,7 +928,7 @@ public final class RenderTreeBuilder {
 
         return new RenderStyle(display, position, zIndex, floatMode, clear, top, right, bottom, left,
                 fontSize, fontFamily, fontWeight, italic, lineHeight, color, listStyleType,
-                underline, textDecorationColor, cursor, background,
+                underline, lineThrough, textDecorationColor, cursor, background,
                 backgroundImageUrl, backgroundRepeat, backgroundPositionX, backgroundPositionY,
                 backgroundPositionOffsetX, backgroundPositionOffsetY,
                 backgroundSizeX, backgroundSizeY,

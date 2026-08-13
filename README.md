@@ -36,7 +36,13 @@ The Maven modules follow the engine's responsibilities and keep dependencies exp
 - Maven 3.9 or newer
 - A GraalVM JDK is recommended for running pages that use JavaScript and for native-image builds
 
-The build uses GraalJS version `25.0.3`. Use a compatible GraalVM distribution when running the desktop browser or inspector with JavaScript enabled.
+The build uses GraalJS version `25.0.3` by default. On Windows, the Maven
+profile `graalvm-25.1` is active automatically and selects `25.1.3` instead,
+because the helper scripts (`mvn-graal.cmd`, `run.cmd`, `inspect.cmd`) target
+GraalVM 25.1.3 and the Truffle/GraalJS artifacts must match the installed JDK.
+Use a compatible GraalVM distribution when running the desktop browser or
+inspector with JavaScript enabled; other platforms can pick a version
+explicitly with `-Dgraaljs.version=...`.
 
 ## Build and run
 
@@ -117,7 +123,7 @@ count plus a small set of sources and examples, so reports remain readable on la
 
 ## JavaScript support
 
-Inline and external scripts run in a sandbox without access to Java, the file system, or processes. The current API includes common capabilities such as DOM queries and mutation, `classList`, inline styles, `CSS.supports`, `URLSearchParams`, timers, microtasks, lifecycle events, and console/error collection.
+Inline and external scripts run in a sandbox without access to Java, the file system, or processes. The current API includes common capabilities such as DOM queries and mutation, `innerHTML`/`outerHTML` serialization, `classList`, inline styles, `CSS.supports`, `URLSearchParams`, timers, microtasks, lifecycle events, and console/error collection. Element and event objects accept expando properties, so frameworks like Vue 3 can mount and run against the engine.
 
 Static ES modules with default imports can be loaded recursively over HTTP(S). Dynamic `import()`, named imports, Fetch/XHR, full CSSOM support, and many browser and layout APIs are not implemented yet.
 

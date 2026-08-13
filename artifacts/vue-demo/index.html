@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Vue3 Demo — Browicy</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <h1>{{ title }}</h1>
+
+    <section class="card">
+      <h2>Zähler</h2>
+      <p class="count" :class="{ 'count--big': count > 10 }">
+        Aktueller Wert: <strong>{{ count }}</strong>
+      </p>
+      <p>Quadrat: {{ squared }}</p>
+      <button @click="increment" :disabled="count >= 20">+1</button>
+      <button @click="count--" :disabled="count <= 0">-1</button>
+      <button @click="reset">Reset</button>
+    </section>
+
+    <section class="card">
+      <h2>Aufgaben</h2>
+      <input v-model="newTodo" placeholder="Neue Aufgabe" @keyup.enter="addTodo">
+      <button @click="addTodo">Hinzufügen</button>
+      <ul>
+        <li v-for="todo in todos" :key="todo.id" :class="{ done: todo.done }">
+          <input type="checkbox" v-model="todo.done">
+          <span>{{ todo.text }}</span>
+          <button @click="removeTodo(todo)">✕</button>
+        </li>
+      </ul>
+      <p v-if="remaining === 0" class="hint">Alles erledigt!</p>
+      <p v-else class="hint">{{ remaining }} offene Aufgabe(n)</p>
+    </section>
+
+    <footer>
+      <p>{{ footerNote }}</p>
+    </footer>
+  </div>
+
+  <script src="vue.global.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

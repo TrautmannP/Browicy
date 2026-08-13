@@ -1,0 +1,78 @@
+body {
+  font-family: sans-serif;
+  margin: 24px;
+  color: #222;
+  background: #fafafa;
+}
+
+h1 {
+  color: #42b883;
+  border-bottom: 2px solid #42b883;
+  padding-bottom: 8px;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  max-width: 520px;
+}
+
+.card h2 {
+  margin-top: 0;
+  color: #35495e;
+}
+
+.count--big strong {
+  color: #e74c3c;
+  font-size: 24px;
+}
+
+button {
+  margin-right: 8px;
+  padding: 6px 14px;
+  border: 1px solid #42b883;
+  border-radius: 4px;
+  background: #42b883;
+  color: #fff;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+input[type="text"] {
+  padding: 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-right: 8px;
+  width: 240px;
+}
+
+ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+li {
+  padding: 4px 0;
+}
+
+li.done span {
+  text-decoration: line-through;
+  color: #999;
+}
+
+.hint {
+  font-style: italic;
+  color: #888;
+}
+
+footer p {
+  color: #888;
+  font-size: 13px;
+}

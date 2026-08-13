@@ -40,6 +40,24 @@
                 <module>acid3-tests</module>
             </modules>
         </profile>
+        <!-- Auf Windows passt die installierte GraalVM (mvn-graal.cmd:
+             D:\Graal\graalvm-25.1.3+9.1) nicht zur Standard-Truffle-Version
+             25.0.3. Truffle-Runtime und GraalJS-Jars muessen zur JVMCI- bzw.
+             LibGraal-Version des JDK passen, sonst schlaegt die
+             Engine-Initialisierung fehl. Das Profil ueberschreibt deshalb
+             die Version fuer Windows-Builds. Andere Plattformen koennen die
+             Version weiterhin explizit waehlen: -Dgraaljs.version=... -->
+        <profile>
+            <id>graalvm-25.1</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                </os>
+            </activation>
+            <properties>
+                <graaljs.version>25.1.3</graaljs.version>
+            </properties>
+        </profile>
     </profiles>
 
     <properties>
@@ -48,7 +66,8 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <junit.version>4.13.2</junit.version>
         <lombok.version>1.18.46</lombok.version>
-        <!-- Muss zur installierten GraalVM passen (siehe mvn-graal.cmd/mvn-graal.sh) -->
+        <!-- Muss zur installierten GraalVM passen (siehe mvn-graal.cmd/mvn-graal.sh).
+             Windows aktiviert das Profil graalvm-25.1 mit 25.1.3. -->
         <graaljs.version>25.0.3</graaljs.version>
         <jsvg.version>2.1.0</jsvg.version>
         <!-- exec:java als CLI-Goal läuft auf jedem Reaktor-Modul. Nur desktop

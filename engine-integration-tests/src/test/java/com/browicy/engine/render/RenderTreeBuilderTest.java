@@ -98,6 +98,16 @@ public class RenderTreeBuilderTest {
         assertEquals(RenderStyle.ListStyleType.NONE, item.style().listStyleType());
         assertTrue(text.style().underline());
         assertEquals(CssColor.parse("blue"), text.style().textDecorationColor());
+
+        RenderTextRun struck = textRunsRecursively(
+                boxChildren(boxChildren(build("""
+                        <body><ul style="list-style:none">
+                          <li><a style="text-decoration:line-through red">x</a></li>
+                        </ul></body>
+                        """).root()).getFirst()).getFirst()).getFirst();
+        assertTrue(struck.style().lineThrough());
+        assertFalse(struck.style().underline());
+        assertEquals(CssColor.parse("red"), struck.style().textDecorationColor());
     }
 
     @Test

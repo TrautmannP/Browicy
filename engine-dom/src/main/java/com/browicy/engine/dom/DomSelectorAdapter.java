@@ -2,6 +2,8 @@ package com.browicy.engine.dom;
 
 import com.browicy.engine.selectors.SelectorNodeAdapter;
 
+import java.util.Locale;
+
 public final class DomSelectorAdapter implements SelectorNodeAdapter<Element> {
 
     public static final DomSelectorAdapter INSTANCE = new DomSelectorAdapter();
@@ -71,7 +73,31 @@ public final class DomSelectorAdapter implements SelectorNodeAdapter<Element> {
             case "checked" -> element.isCheckedState();
             case "focus" -> element.isFocused();
             case "active" -> element.isActive();
+            case "disabled" -> isFormControl(element) && isDisabled(element);
+            case "enabled" -> isFormControl(element) && !isDisabled(element);
             default -> false;
         };
+    }
+
+    private static boolean isFormControl(Element element) {
+        return switch (element.getTagName().toLowerCase(Locale.ROOT)) {
+            case "button", "input", "select", "textarea",
+                 "option", "optgroup", "fieldset" -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean isDisabled(Element element) {
+        if (element.hasAttribute("disabled")) {
+            return true;
+        }
+        for (Node ancestor = element.getParent(); ancestor instanceof Element parent;
+             ancestor = parent.getParent()) {
+            if ("fieldset".equalsIgnoreCase(parent.getTagName())
+                    && parent.hasAttribute("disabled")) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -594,7 +594,8 @@ public final class CssParser {
                 }
             }
             case "text-decoration", "text-decoration-line" -> {
-                if (value.equals("none") || value.equals("underline")) {
+                if (value.equals("none") || value.equals("underline")
+                        || value.equals("line-through") || value.equals("overline")) {
                     target.put("text-decoration-line", value);
                 } else if (property.equals("text-decoration")) {
                     expandTextDecoration(target, value);
@@ -998,7 +999,8 @@ public final class CssParser {
         String line = null;
         String color = null;
         for (String token : value.split("\\s+")) {
-            if ((token.equals("none") || token.equals("underline")) && line == null) {
+            if ((token.equals("none") || token.equals("underline")
+                    || token.equals("line-through") || token.equals("overline")) && line == null) {
                 line = token;
             } else if (CssColor.isSupported(token) && color == null) {
                 color = token;

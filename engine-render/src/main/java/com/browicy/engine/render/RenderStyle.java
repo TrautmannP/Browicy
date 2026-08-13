@@ -18,6 +18,7 @@ public record RenderStyle(
         CssColor color,
         ListStyleType listStyleType,
         boolean underline,
+        boolean lineThrough,
         CssColor textDecorationColor,
         Cursor cursor,
         CssColor backgroundColor,
@@ -145,7 +146,8 @@ public record RenderStyle(
                              float newFlexGrow) {
         return new RenderStyle(newDisplay, position, zIndex, floatMode, clear,
                 top, right, bottom, left, fontSizePx, fontFamily, fontWeight, italic,
-                lineHeight, color, listStyleType, underline, textDecorationColor, cursor,
+                lineHeight, color, listStyleType, underline, lineThrough,
+                textDecorationColor, cursor,
                 backgroundColor, backgroundImageUrl, backgroundRepeat, backgroundPositionX,
                 backgroundPositionY, backgroundPositionOffsetX, backgroundPositionOffsetY,
                 backgroundSizeX, backgroundSizeY, newWidth, newHeight, minWidth, maxWidth,

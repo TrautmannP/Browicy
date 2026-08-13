@@ -6,6 +6,7 @@ import com.browicy.engine.dom.Element;
 import com.browicy.engine.html.HtmlParser;
 import org.junit.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.List;
 
@@ -1063,6 +1064,93 @@ public class JavaScriptEngineTest {
 
         assertFalse(String.valueOf(result.errors()), result.hasErrors());
         assertEquals("css2007", document.getBody().getAttribute("data-filter"));
+    }
+
+    @Test
+    public void exposesSvgAndMathMlElementConstructorsWithoutClaimingHtmlElements() {
+        Document document = parse("""
+                <html><body><div id="target"></div><script>
+                  const target = document.getElementById('target');
+                  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                  const math = document.createElementNS(
+                      'http://www.w3.org/1998/Math/MathML', 'math');
+                  console.log(typeof SVGElement, typeof MathMLElement,
+                              target instanceof SVGElement, svg instanceof SVGElement,
+                              svg instanceof HTMLElement, target instanceof MathMLElement,
+                              math instanceof MathMLElement,
+                              svg.namespaceURI, math.namespaceURI);
+                  try { new SVGElement(); } catch (error) { console.log(error.name); }
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: function function false true false false true "
+                        + "http://www.w3.org/2000/svg http://www.w3.org/1998/Math/MathML",
+                        "log: TypeError"),
+                result.consoleMessages());
+    }
+
+    @Test
+    public void innerHtmlSerializesStructureAttributesAndEscapesText() {
+        Document document = parse("""
+                <html><body><div id="target"><p class="a">A &amp; B</p><!--note--><br><img src="x.png"></div><script>
+                  const target = document.getElementById('target');
+                  console.log(target.innerHTML);
+                  target.innerHTML = '<p id="fresh">Neu &lt;Inhalt&gt;</p><span data-x="a&quot;b">S</span>';
+                  console.log(target.querySelector('#fresh').textContent,
+                              target.querySelector('span').getAttribute('data-x'),
+                              target.childNodes.length);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: <p class=\"a\">A &amp; B</p><!--note--><br><img src=\"x.png\">",
+                        "log: Neu <Inhalt> a\"b 2"),
+                result.consoleMessages());
+    }
+
+    @Test
+    public void mountsAVue3ApplicationAndRendersReactiveContent() throws Exception {
+        String vue = new String(getClass().getResourceAsStream(
+                "/vue3/vue.global.js").readAllBytes(), StandardCharsets.UTF_8);
+        Document document = parser.parse("""
+                <html><body><div id="app">
+                  <h1>{{ title }}</h1>
+                  <button id="plus" @click="increment">+1</button>
+                  <p id="count">Wert: <strong>{{ count }}</strong></p>
+                </div></body></html>
+                """.replace("</body>",
+                "<script>" + vue + "</script>"
+                        + "<script>"
+                        + "  const { createApp, ref, computed } = Vue;\n"
+                        + "  const app = createApp({\n"
+                        + "    setup() {\n"
+                        + "      const title = ref('Vue 3 läuft');\n"
+                        + "      const count = ref(5);\n"
+                        + "      const doubled = computed(() => count.value * 2);\n"
+                        + "      function increment() { count.value++; }\n"
+                        + "      return { title, count, doubled, increment };\n"
+                        + "    }\n"
+                        + "  });\n"
+                        + "  app.mount('#app');\n"
+                        + "  document.getElementById('plus').dispatchEvent(\n"
+                        + "      new Event('click', { bubbles: true }));\n"
+                        + "  Vue.nextTick().then(() => {\n"
+                        + "    console.log(document.getElementById('count').textContent);\n"
+                        + "  });\n"
+                        + "</script></body>"), "http://example.test/app.html");
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals("Vue 3 läuft", document.getBody().findFirst("h1").getTextContent());
+        assertEquals("6", document.getBody().querySelector("#count strong").getTextContent());
+        assertTrue(result.consoleMessages().stream()
+                .anyMatch(message -> message.startsWith("log: Wert: 6")));
     }
 
     @Test

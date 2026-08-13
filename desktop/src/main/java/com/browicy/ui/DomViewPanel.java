@@ -584,6 +584,12 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                             fragmentGraphics.draw(new java.awt.geom.Line2D.Float(
                                     text.x(), underlineY, text.x() + text.width(), underlineY));
                         }
+                        if (text.lineThrough()) {
+                            fragmentGraphics.setColor(toAwtColor(text.decorationColor()));
+                            float strikeY = text.baseline() - text.font().getSize2D() * 0.3f;
+                            fragmentGraphics.draw(new java.awt.geom.Line2D.Float(
+                                    text.x(), strikeY, text.x() + text.width(), strikeY));
+                        }
                     } else if (fragment instanceof ImageFragment image) {
                         paintImage(fragmentGraphics, image);
                     }

@@ -897,7 +897,8 @@ public final class RenderLayoutEngine {
         TextFragment text = (TextFragment) fragment;
         return new TextFragment(text.text(), text.x() + dx, text.width(),
                 text.baseline() + dy, text.top() + dy, text.height(), text.font(),
-                text.color(), text.underline(), text.decorationColor(), text.opacity(),
+                text.color(), text.underline(), text.lineThrough(),
+                text.decorationColor(), text.opacity(),
                 translate(text.clip(), dx, dy));
     }
 
@@ -1161,7 +1162,7 @@ public final class RenderLayoutEngine {
         }
         TextFragment text = (TextFragment) fragment;
         return new TextFragment(text.text(), text.x(), text.width(), text.baseline(), text.top(),
-                text.height(), text.font(), text.color(), text.underline(),
+                text.height(), text.font(), text.color(), text.underline(), text.lineThrough(),
                 text.decorationColor(), text.opacity(), effective);
     }
 
@@ -1254,13 +1255,14 @@ public final class RenderLayoutEngine {
                                Font font,
                                CssColor color,
                                boolean underline,
+                               boolean lineThrough,
                                CssColor decorationColor,
                                float opacity,
                                ClipRect clip) implements InlineFragment {
         public TextFragment(String text, float x, float width, float baseline, float top,
                             float height, Font font, CssColor color, boolean underline,
-                            CssColor decorationColor, float opacity) {
-            this(text, x, width, baseline, top, height, font, color, underline,
+                            boolean lineThrough, CssColor decorationColor, float opacity) {
+            this(text, x, width, baseline, top, height, font, color, underline, lineThrough,
                     decorationColor, opacity, null);
         }
         @Override public float bottom() { return top + height; }
@@ -1726,6 +1728,7 @@ public final class RenderLayoutEngine {
                             FontMetrics metrics,
                             CssColor color,
                             boolean underline,
+                            boolean lineThrough,
                             CssColor decorationColor,
                             float opacity,
                             float usedLineHeight) implements LineItem {
@@ -1890,8 +1893,8 @@ public final class RenderLayoutEngine {
                      RenderStyle style) {
             float itemWidth = metrics.stringWidth(text);
             addItem(new TextItem(text, width, itemWidth, font, metrics, style.color(),
-                    style.underline(), style.textDecorationColor(), style.opacity(),
-                    style.usedLineHeightPx()));
+                    style.underline(), style.lineThrough(), style.textDecorationColor(),
+                    style.opacity(), style.usedLineHeightPx()));
             width += itemWidth;
             placedContent = true;
         }
@@ -2004,6 +2007,7 @@ public final class RenderLayoutEngine {
                             text.font,
                             text.color,
                             text.underline,
+                            text.lineThrough,
                             text.decorationColor,
                             text.opacity));
                 } else if (item instanceof BoxItem box) {
@@ -2102,7 +2106,8 @@ public final class RenderLayoutEngine {
             TextFragment text = (TextFragment) fragment;
             return new TextFragment(text.text(), text.x() + dx, text.width(),
                     text.baseline() + dy, text.top() + dy, text.height(), text.font(),
-                    text.color(), text.underline(), text.decorationColor(), text.opacity(),
+                    text.color(), text.underline(), text.lineThrough(),
+                    text.decorationColor(), text.opacity(),
                     translate(text.clip(), dx, dy));
         }
 

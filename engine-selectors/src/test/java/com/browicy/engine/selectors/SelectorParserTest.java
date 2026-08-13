@@ -174,6 +174,29 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void parsesAndMatchesDisabledAndEnabledPseudoClasses() {
+        TestNode disabled = new TestNode("button", null, Set.of(), null,
+                Map.of("disabled", ""));
+        TestNode enabled = new TestNode("button", null, Set.of(), null);
+        TestNode plain = new TestNode("div", null, Set.of(), null,
+                Map.of("disabled", ""));
+        TestAdapter adapter = new TestAdapter(disabled, enabled, plain);
+
+        assertEquals("button:disabled", parser.parse("button:disabled")
+                .selectors().getFirst().toString());
+        assertEquals("input:enabled", parser.parse("input:enabled")
+                .selectors().getFirst().toString());
+        assertEquals(new Specificity(0, 1, 1), parser.parse("button:disabled")
+                .selectors().getFirst().specificity());
+        assertTrue(parser.parse("button:disabled").matchesAny(disabled, adapter));
+        assertTrue(parser.parse("button:enabled").matchesAny(enabled, adapter));
+        assertFalse(parser.parse("button:enabled").matchesAny(disabled, adapter));
+        assertFalse(parser.parse("button:disabled").matchesAny(enabled, adapter));
+        assertFalse(parser.parse("div:disabled").matchesAny(plain, adapter));
+        assertFalse(parser.parse("div:enabled").matchesAny(plain, adapter));
+    }
+
+    @Test
     public void parsesGeneratedPseudoElementsAndCountsTheirSpecificity() {
         ComplexSelector selector = parser.parse(".badge:hover::before").selectors().getFirst();
 
@@ -289,10 +312,23 @@ public class SelectorParserTest {
 
         @Override
         public boolean matchesState(TestNode element, String state) {
-            return state.equals("hover") && element.classes().contains("hovered")
-                    || state.equals("checked") && element.attributes().containsKey("checked")
-                    || state.equals("focus") && element.classes().contains("focused")
-                    || state.equals("active") && element.classes().contains("active");
+            return switch (state) {
+                case "hover" -> element.classes().contains("hovered");
+                case "checked" -> element.attributes().containsKey("checked");
+                case "focus" -> element.classes().contains("focused");
+                case "active" -> element.classes().contains("active");
+                case "disabled", "enabled" -> {
+                    boolean formControl = switch (element.tagName()) {
+                        case "button", "input", "select", "textarea",
+                             "option", "optgroup", "fieldset" -> true;
+                        default -> false;
+                    };
+                    if (!formControl) yield false;
+                    yield state.equals("disabled")
+                            == element.attributes().containsKey("disabled");
+                }
+                default -> false;
+            };
         }
     }
 }

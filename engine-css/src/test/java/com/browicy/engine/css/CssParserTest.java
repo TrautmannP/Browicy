@@ -188,6 +188,25 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesTextDecorationLineValues() {
+        CssParser parser = new CssParser();
+        List<CssRule> rules = parser.parse("""
+                a { text-decoration: line-through red; }
+                s { text-decoration-line: overline; }
+                u { text-decoration: underline; }
+                """);
+
+        var struck = rules.get(0).declarations();
+        assertEquals("line-through", struck.get("text-decoration-line"));
+        assertEquals("red", struck.get("text-decoration-color"));
+        assertEquals("overline", rules.get(1).declarations().get("text-decoration-line"));
+        assertEquals("underline", rules.get(2).declarations().get("text-decoration-line"));
+        assertTrue(parser.supports("text-decoration", "line-through"));
+        assertTrue(parser.supports("text-decoration-line", "overline"));
+        assertFalse(parser.supports("text-decoration", "wavy"));
+    }
+
+    @Test
     public void parsesImportantDeclarationsAndPreservesTheirExpandedProperties() {
         CssRule rule = new CssParser().parse(
                 "p { color:red!important; margin:1px 2px !important; color:blue }")

@@ -14,6 +14,29 @@ import static org.junit.Assert.assertTrue;
 public class StyleApplicatorTest {
 
     @Test
+    public void appliesDisabledAndEnabledPseudoClassesToFormControls() {
+        Document document = new HtmlParser().parse("""
+                <html><head><style>
+                  button:disabled { opacity: 0.4; }
+                  input:enabled { color: green; }
+                  div:disabled { color: red; }
+                </style></head><body>
+                  <button disabled>Los</button>
+                  <button>Stop</button>
+                  <input type="text">
+                  <div disabled>Kein Formularfeld</div>
+                </body></html>
+                """);
+        Element body = document.getBody();
+        List<Element> buttons = document.getElementsByTagName("button");
+
+        assertEquals("0.4", buttons.get(0).getComputedStyles().get("opacity"));
+        assertEquals(null, buttons.get(1).getComputedStyles().get("opacity"));
+        assertEquals("green", body.findFirst("input").getComputedStyles().get("color"));
+        assertEquals(null, body.findFirst("div").getComputedStyles().get("color"));
+    }
+
+    @Test
     public void appliesRulesFromHeadStyleElements() {
         Document document = new HtmlParser().parse("""
                 <html><head><style>

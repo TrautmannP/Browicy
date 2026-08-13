@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Node;
 import com.browicy.engine.html.HtmlParser;
+import com.browicy.engine.html.HtmlSerializer;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
@@ -85,7 +86,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
                 yield content == null ? null : content.defaultView();
             }
             case "textContent" -> element.getTextContent();
-            case "innerHTML" -> element.getTextContent();
+            case "innerHTML" -> HtmlSerializer.innerHtml(element);
             case "style" -> style == null ? style = new JsStyleDeclaration(element) : style;
             case "sheet" -> "style".equals(tag())
                     ? sheet == null ? sheet = document.styleSheet(element) : sheet : null;

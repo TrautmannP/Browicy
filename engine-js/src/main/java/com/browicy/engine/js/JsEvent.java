@@ -10,7 +10,10 @@ import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class JsEvent implements ProxyObject {
@@ -24,6 +27,7 @@ final class JsEvent implements ProxyObject {
 
     private final Event event;
     private final JsDocument document;
+    private final Map<String, Value> expandos = new LinkedHashMap<>();
 
     Event unwrap() {
         return event;
@@ -80,23 +84,28 @@ final class JsEvent implements ProxyObject {
                         asBoolean(args, 2), asNullableObject(args, 3));
                 return null;
             };
-            default -> null;
+            default -> expandos.get(key);
         };
     }
 
     @Override
     public Object getMemberKeys() {
-        return MEMBERS.toArray();
+        List<Object> keys = new ArrayList<>(MEMBERS);
+        keys.addAll(expandos.keySet());
+        return keys.toArray();
     }
 
     @Override
     public boolean hasMember(String key) {
-        return MEMBERS.contains(key);
+        return MEMBERS.contains(key) || expandos.containsKey(key);
     }
 
     @Override
     public void putMember(String key, Value value) {
-        throw new UnsupportedOperationException("Event-Eigenschaft ist schreibgeschützt: " + key);
+        if (MEMBERS.contains(key)) {
+            throw new UnsupportedOperationException("Event-Eigenschaft ist schreibgeschützt: " + key);
+        }
+        expandos.put(key, value);
     }
 
     static JsEvent expect(Value[] args, int index) {

@@ -202,7 +202,8 @@ public final class SelectorParser {
             consume(':');
             String name = readIdentifier().toLowerCase(java.util.Locale.ROOT);
             if ("hover".equals(name) || "checked".equals(name)
-                    || "focus".equals(name) || "active".equals(name)) {
+                    || "focus".equals(name) || "active".equals(name)
+                    || "disabled".equals(name) || "enabled".equals(name)) {
                 statePseudoClasses.add(name);
                 return;
             }

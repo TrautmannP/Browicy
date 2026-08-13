@@ -14,16 +14,36 @@ java --sun-misc-unsafe-memory-access=allow -jar browser-cli/target/browicy-inspe
   "https://css3test.com/?filter=css2007" --output target/css3test-css2007.json
 ```
 
-Baseline recorded on 2026-07-16:
+Baseline recorded on 2026-08-13 (nach JS/CSS-Ausbau für Vue 3):
 
-- CSS3Test CSS-2007 reports **44/94 passed (46%)**.
-- The page contains 777 DOM nodes: 400 elements, 375 text nodes, and 97 result-list items.
-- The engine loads two stylesheets and accepts 36 CSS rules.
-- The render tree contains 554 nodes: 246 block boxes, 81 inline boxes, and 227 text runs.
-- No JavaScript errors are recorded. The page's Carbon Ads request emits one CORS-related console message.
+- CSS3Test CSS-2007 reports **46/94 passed (52%)**. Neu seit 2026-07-16:
+  `:enabled` und `:disabled` als Zustands-Pseudoklassen für
+  Formularelemente (44/94 → 46/94).
+- Acid3: **65/100 passed** (unverändert, keine Regressionen).
+- Insgesamt **111/194** Fälle (vorher 109/194).
 
-The test site and its content can change. Treat these values as a regression baseline, not
-as permanent expected results.
+Die Testseite und ihr Inhalt können sich ändern; Werte sind als
+Regressions-Baseline zu verstehen, nicht als dauerhafte Erwartung.
+
+## Vue 3 Demo als Entwicklungs-Smoke-Test
+
+Die Demo unter `artifacts/vue-demo/` (Vue 3.5 global build, Zähler, Todo-Liste,
+v-model, v-for, Klassen-/Stil-Bindungen) wird lokal über einen HTTP-Server
+ausgeliefert und mit dem Inspector geprüft:
+
+```bash
+python -m http.server 8137 --bind 127.0.0.1 --directory artifacts/vue-demo
+java --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow \
+  -jar browser-cli/target/browicy-inspect.jar \
+  "http://127.0.0.1:8137/index.html" --output artifacts/vue3-report.json \
+  --screenshot artifacts/vue3-final.png --viewport 640x900
+```
+
+Stand 2026-08-13: `healthy: true`, keine JavaScript-Fehler, keine
+Compatibility-Findings, 75 DOM-Knoten, 13 akzeptierte CSS-Regeln,
+51 Render-Knoten mit 18 Textläufen. Der end-to-end Vue-Mount (inklusive
+Reaktivität per `dispatchEvent` und `nextTick`) ist als Regressionstest in
+`engine-js` untergebracht (`JavaScriptEngineTest.mountsAVue3Application…`).
 
 ## Agent and CI loop
 
@@ -48,7 +68,8 @@ Acid3 harness during Maven's `verify` lifecycle:
 mvn -Pcompatibility-report -pl acid3-tests -am verify
 ```
 
-The run on 2026-07-16 recorded 44/94 CSS3Test cases (46%) and 65/100 Acid3 subtests,
-for 109/194 cases overall. Reports are written to `target/compatibility-reports`: `latest.html`
-is intended for human review, while `latest.json` is intended for CI and automated analysis.
-Timestamped copies are retained for trend tracking.
+The run on 2026-08-13 recorded 46/94 CSS3Test cases (52%) and 65/100 Acid3 subtests,
+for 111/194 cases overall (2026-07-16: 44/94, 65/100, 109/194). Reports are written to
+`target/compatibility-reports`: `latest.html` is intended for human review, while
+`latest.json` is intended for CI and automated analysis. Timestamped copies are retained
+for trend tracking.

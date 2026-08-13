@@ -12,3 +12,9 @@ local.properties
 
 repomix*
 desktop/dependency-reduced-pom.xml
+
+# Vue3-Demo: nur Quellen einchecken, generierte Artefakte ignorieren
+artifacts/*.png
+artifacts/*.json
+artifacts/vue.global.js
+artifacts/vue-demo/vue.global.js
