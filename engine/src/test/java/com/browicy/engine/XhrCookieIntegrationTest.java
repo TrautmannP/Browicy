@@ -115,6 +115,36 @@ public class XhrCookieIntegrationTest {
     }
 
     @Test
+    public void xhrResponseSetCookieBecomesVisibleToScriptInOnload() throws Exception {
+        server.on("/abo/testcookie.php", exchange -> {
+            exchange.getResponseHeaders().add("Set-Cookie",
+                    "golem_testcookie=1; expires=Thu, 20-Aug-2026 18:55:02 GMT;"
+                            + " Max-Age=604800; path=/");
+            LocalTestServer.respond(exchange, 200, "text/html; charset=UTF-8", new byte[0]);
+        });
+        server.serveHtml("/sonstiges/zustimmung/auswahl.html", """
+                <html><body>
+                  <output id="out"></output>
+                  <script>
+                    var xhr = new XMLHttpRequest();
+                    xhr.onload = function() {
+                      var cookie = document.cookie.match("(^|;) ?golem_testcookie=([^;]*)(;|$)");
+                      document.getElementById('out').textContent = cookie ? cookie[2] : 'missing';
+                    };
+                    xhr.open('GET', '/abo/testcookie.php');
+                    xhr.send();
+                  </script>
+                </body></html>
+                """);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/sonstiges/zustimmung/auswahl.html"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+            awaitOutput(session, "1");
+        }
+    }
+
+    @Test
     public void documentCookieRoundTripsAndFetchResponsesFillTheStore() throws Exception {
         server.on("/api/anmelden", exchange -> {
             exchange.getResponseHeaders().add("Set-Cookie", "sitzung=server123; Path=/");

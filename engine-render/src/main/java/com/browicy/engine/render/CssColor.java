@@ -11,6 +11,9 @@ public record CssColor(int red, int green, int blue, int alpha) {
     private static final Pattern RGB_FUNCTION = Pattern.compile(
             "rgba?\\s*\\((.*)\\)", Pattern.CASE_INSENSITIVE);
 
+    private static final Pattern HSL_FUNCTION = Pattern.compile(
+            "hsla?\\s*\\((.*)\\)", Pattern.CASE_INSENSITIVE);
+
     private static final Map<String, CssColor> NAMED = Map.ofEntries(
             Map.entry("black", rgb(0x000000)),
             Map.entry("white", rgb(0xffffff)),
@@ -78,19 +81,96 @@ public record CssColor(int red, int green, int blue, int alpha) {
         if (rgb.matches()) {
             String body = rgb.group(1).replace('/', ',');
             String[] parts = body.split("\\s*,\\s*|\\s+");
-            int expected = normalized.startsWith("rgba") ? 4 : 3;
-            if (parts.length != expected) return null;
+            boolean withAlpha = normalized.startsWith("rgba") || parts.length == 4;
+            if (parts.length != (withAlpha ? 4 : 3)) return null;
             try {
                 int red = parseRgbChannel(parts[0]);
                 int green = parseRgbChannel(parts[1]);
                 int blue = parseRgbChannel(parts[2]);
-                int alpha = expected == 4 ? parseAlpha(parts[3]) : 255;
+                int alpha = withAlpha ? parseAlpha(parts[3]) : 255;
                 return new CssColor(red, green, blue, alpha);
             } catch (IllegalArgumentException ignored) {
                 return null;
             }
         }
+        Matcher hsl = HSL_FUNCTION.matcher(normalized);
+        if (hsl.matches()) {
+            String body = hsl.group(1).replace('/', ',');
+            String[] parts = body.split("\\s*,\\s*|\\s+");
+            boolean withAlpha = normalized.startsWith("hsla") || parts.length == 4;
+            if (parts.length != (withAlpha ? 4 : 3)) return null;
+            try {
+                float hue = parseHue(parts[0]);
+                float saturation = parsePercentage(parts[1]);
+                float lightness = parsePercentage(parts[2]);
+                int alpha = withAlpha ? parseAlpha(parts[3]) : 255;
+                return fromHsl(hue, saturation, lightness, alpha);
+            } catch (IllegalArgumentException ignored) {
+                return null;
+            }
+        }
         return NAMED.get(normalized);
+    }
+
+    private static float parseHue(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
+        float hue;
+        if (lower.endsWith("deg")) {
+            hue = Float.parseFloat(lower.substring(0, lower.length() - 3));
+        } else if (lower.endsWith("grad")) {
+            hue = Float.parseFloat(lower.substring(0, lower.length() - 4)) * 0.9f;
+        } else if (lower.endsWith("rad")) {
+            hue = (float) Math.toDegrees(
+                    Float.parseFloat(lower.substring(0, lower.length() - 3)));
+        } else if (lower.endsWith("turn")) {
+            hue = Float.parseFloat(lower.substring(0, lower.length() - 4)) * 360f;
+        } else {
+            hue = Float.parseFloat(lower);
+        }
+        if (!Float.isFinite(hue)) {
+            throw new IllegalArgumentException();
+        }
+        float normalized = hue % 360f;
+        return normalized < 0 ? normalized + 360f : normalized;
+    }
+
+    private static float parsePercentage(String value) {
+        if (!value.endsWith("%")) {
+            throw new IllegalArgumentException();
+        }
+        float parsed = Float.parseFloat(value.substring(0, value.length() - 1));
+        if (!Float.isFinite(parsed) || parsed < 0 || parsed > 100) {
+            throw new IllegalArgumentException();
+        }
+        return parsed / 100f;
+    }
+
+    private static CssColor fromHsl(float hue, float saturation, float lightness, int alpha) {
+        float red;
+        float green;
+        float blue;
+        if (saturation == 0) {
+            red = green = blue = lightness;
+        } else {
+            float q = lightness < 0.5f
+                    ? lightness * (1f + saturation)
+                    : lightness + saturation - lightness * saturation;
+            float p = 2f * lightness - q;
+            red = hueToRgb(p, q, hue / 360f + 1f / 3f);
+            green = hueToRgb(p, q, hue / 360f);
+            blue = hueToRgb(p, q, hue / 360f - 1f / 3f);
+        }
+        return new CssColor(Math.round(red * 255f), Math.round(green * 255f),
+                Math.round(blue * 255f), alpha);
+    }
+
+    private static float hueToRgb(float p, float q, float t) {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1f / 6f) return p + (q - p) * 6f * t;
+        if (t < 1f / 2f) return q;
+        if (t < 2f / 3f) return p + (q - p) * (2f / 3f - t) * 6f;
+        return p;
     }
 
     private static int parseRgbChannel(String value) {

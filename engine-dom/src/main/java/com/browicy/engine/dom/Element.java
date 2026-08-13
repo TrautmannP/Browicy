@@ -25,6 +25,7 @@ public final class Element extends Node implements ParentNode {
     private final DOMTokenList classList = new DOMTokenList(this);
     private String valueState;
     private Boolean checkedState;
+    private boolean indeterminate;
     private boolean hovered;
 
     public Element(String tagName) {
@@ -139,6 +140,14 @@ public final class Element extends Node implements ParentNode {
         checkedState = checked;
     }
 
+    public boolean isIndeterminate() {
+        return indeterminate;
+    }
+
+    public void setIndeterminate(boolean indeterminate) {
+        this.indeterminate = indeterminate;
+    }
+
     public boolean isHovered() {
         return hovered;
     }
@@ -159,6 +168,7 @@ public final class Element extends Node implements ParentNode {
         Element copy = new Element(namespaceUri, tagName, attributes);
         copy.valueState = valueState;
         copy.checkedState = checkedState;
+        copy.indeterminate = indeterminate;
         copy.computedStyles.putAll(computedStyles);
         pseudoComputedStyles.forEach((pseudo, styles) ->
                 copy.pseudoComputedStyles.put(pseudo, new LinkedHashMap<>(styles)));

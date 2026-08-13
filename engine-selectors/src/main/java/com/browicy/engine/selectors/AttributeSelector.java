@@ -2,16 +2,33 @@ package com.browicy.engine.selectors;
 
 import java.util.Objects;
 
-public record AttributeSelector(String name, Operator operator, String value) {
+/**
+ * Attributselektor.
+ *
+ * <p>{@code namespace} ist {@code null} ohne Namespace-Angabe (matcht jeden
+ * Namespace), {@code "*"} für {@code [*|attr]} (jeder Namespace), {@code ""}
+ * für {@code [|attr]} (kein Namespace) und sonst das Präfix aus
+ * {@code [prefix|attr]} (nur Namespace-Attribute).</p>
+ */
+public record AttributeSelector(String namespace, String name, Operator operator, String value) {
+
+    public AttributeSelector(String name, Operator operator, String value) {
+        this(null, name, operator, value);
+    }
 
     public enum Operator {
         PRESENT,
         EQUALS,
         INCLUDES,
-        CONTAINS
+        CONTAINS,
+        PREFIX_MATCH,
+        SUFFIX_MATCH
     }
 
     public AttributeSelector {
+        if (namespace != null && !namespace.isEmpty() && namespace.isBlank()) {
+            throw new IllegalArgumentException("Der Attribut-Namespace darf nicht leer sein");
+        }
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("Der Attributname darf nicht leer sein");
         }
@@ -28,6 +45,16 @@ public record AttributeSelector(String name, Operator operator, String value) {
         if (!adapter.hasAttribute(element, name)) {
             return false;
         }
+        if (namespace != null && !"*".equals(namespace)) {
+            String attributeNamespace = adapter.attributeNamespace(element, name);
+            if ("".equals(namespace)) {
+                if (attributeNamespace != null) {
+                    return false;
+                }
+            } else if (attributeNamespace == null) {
+                return false;
+            }
+        }
         if (operator == Operator.PRESENT) {
             return true;
         }
@@ -37,6 +64,14 @@ public record AttributeSelector(String name, Operator operator, String value) {
         }
         if (operator == Operator.CONTAINS) {
             return attributeValue != null && !value.isEmpty() && attributeValue.contains(value);
+        }
+        if (operator == Operator.PREFIX_MATCH) {
+            return attributeValue != null && !value.isEmpty()
+                    && attributeValue.startsWith(value);
+        }
+        if (operator == Operator.SUFFIX_MATCH) {
+            return attributeValue != null && !value.isEmpty()
+                    && attributeValue.endsWith(value);
         }
         if (attributeValue == null || value.isEmpty()) {
             return false;
@@ -51,11 +86,14 @@ public record AttributeSelector(String name, Operator operator, String value) {
 
     @Override
     public String toString() {
+        String prefix = namespace == null ? "" : namespace + "|";
         return switch (operator) {
-            case PRESENT -> "[" + name + "]";
-            case EQUALS -> "[" + name + "=\"" + escapedValue() + "\"]";
-            case INCLUDES -> "[" + name + "~=\"" + escapedValue() + "\"]";
-            case CONTAINS -> "[" + name + "*=\"" + escapedValue() + "\"]";
+            case PRESENT -> "[" + prefix + name + "]";
+            case EQUALS -> "[" + prefix + name + "=\"" + escapedValue() + "\"]";
+            case INCLUDES -> "[" + prefix + name + "~=\"" + escapedValue() + "\"]";
+            case CONTAINS -> "[" + prefix + name + "*=\"" + escapedValue() + "\"]";
+            case PREFIX_MATCH -> "[" + prefix + name + "^=\"" + escapedValue() + "\"]";
+            case SUFFIX_MATCH -> "[" + prefix + name + "$=\"" + escapedValue() + "\"]";
         };
     }
 

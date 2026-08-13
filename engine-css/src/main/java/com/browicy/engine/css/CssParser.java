@@ -152,6 +152,12 @@ public final class CssParser {
         while (offset < source.length()) {
             int open = source.indexOf('{', offset);
             if (open < 0) return;
+            int semicolon = source.indexOf(';', offset);
+            if (semicolon >= 0 && semicolon < open
+                    && isNamespaceStatement(source.substring(offset, semicolon + 1))) {
+                offset = semicolon + 1;
+                continue;
+            }
             String prelude = source.substring(offset, open).strip();
             boolean media = prelude.toLowerCase(Locale.ROOT).startsWith("@media");
             int close = media ? matchingBrace(source, open) : source.indexOf('}', open + 1);
@@ -208,7 +214,20 @@ public final class CssParser {
         int offset = 0;
         while (offset < source.length()) {
             int open = source.indexOf('{', offset);
-            if (open < 0) return;
+            int semicolon = source.indexOf(';', offset);
+            if (open < 0) {
+                if (semicolon >= 0
+                        && isNamespaceStatement(source.substring(offset, semicolon + 1))) {
+                    result.add(source.substring(offset, semicolon + 1).strip());
+                }
+                return;
+            }
+            if (semicolon >= 0 && semicolon < open
+                    && isNamespaceStatement(source.substring(offset, semicolon + 1))) {
+                result.add(source.substring(offset, semicolon + 1).strip());
+                offset = semicolon + 1;
+                continue;
+            }
             int close = matchingBrace(source, open);
             if (close < 0) return;
             String prelude = source.substring(offset, open).strip();
@@ -220,6 +239,10 @@ public final class CssParser {
             }
             offset = close + 1;
         }
+    }
+
+    private static boolean isNamespaceStatement(String statement) {
+        return statement.strip().toLowerCase(Locale.ROOT).startsWith("@namespace");
     }
 
     private static int matchingBrace(String source, int open) {
@@ -660,7 +683,7 @@ public final class CssParser {
             if (token.isBlank()) continue;
             String normalized = token.toLowerCase(Locale.ROOT);
             if (isBackgroundRepeat(normalized)) repeat = normalized;
-            else if (CssColor.isSupported(normalized)) color = normalized;
+            else if (isColorValue(normalized)) color = normalized;
             else position.add(normalized);
         }
 
@@ -670,7 +693,7 @@ public final class CssParser {
                 if (token.isBlank()) continue;
                 String normalized = token.toLowerCase(Locale.ROOT);
                 if (size.size() < 2 && isBackgroundSizeToken(normalized)) size.add(normalized);
-                else if (CssColor.isSupported(normalized)) color = normalized;
+                else if (isColorValue(normalized)) color = normalized;
                 else return;
             }
             if (size.isEmpty()) return;
@@ -764,7 +787,9 @@ public final class CssParser {
     private static void putUnitInterval(Map<String, String> target, String property, String value) {
         try {
             float parsed = Float.parseFloat(value);
-            if (Float.isFinite(parsed) && parsed >= 0 && parsed <= 1) target.put(property, value);
+            if (Float.isFinite(parsed)) {
+                target.put(property, parsed < 0 ? "0" : parsed > 1 ? "1" : value);
+            }
         } catch (NumberFormatException ignored) {
         }
     }
@@ -911,7 +936,7 @@ public final class CssParser {
             return;
         }
         for (String entry : values) {
-            if (!CssColor.isSupported(entry)) {
+            if (!isColorValue(entry)) {
                 return;
             }
         }
@@ -949,7 +974,7 @@ public final class CssParser {
                 width = token;
             } else if ((token.equals("none") || token.equals("solid")) && style == null) {
                 style = token;
-            } else if (CssColor.isSupported(token) && color == null) {
+            } else if (isColorValue(token) && color == null) {
                 color = token;
             } else {
                 return;
@@ -983,7 +1008,7 @@ public final class CssParser {
                 width = token;
             } else if ((token.equals("none") || token.equals("solid")) && style == null) {
                 style = token;
-            } else if (CssColor.isSupported(token) && color == null) {
+            } else if (isColorValue(token) && color == null) {
                 color = token;
             } else {
                 return;
@@ -1002,7 +1027,7 @@ public final class CssParser {
             if ((token.equals("none") || token.equals("underline")
                     || token.equals("line-through") || token.equals("overline")) && line == null) {
                 line = token;
-            } else if (CssColor.isSupported(token) && color == null) {
+            } else if (isColorValue(token) && color == null) {
                 color = token;
             } else {
                 return;
@@ -1036,9 +1061,14 @@ public final class CssParser {
     }
 
     private static void putColor(Map<String, String> target, String property, String value) {
-        if (CssColor.isSupported(value)) {
+        if (isColorValue(value)) {
             target.put(property, value);
         }
+    }
+
+    private static boolean isColorValue(String value) {
+        return CssColor.isSupported(value)
+                || "currentcolor".equals(value.toLowerCase(Locale.ROOT));
     }
 
     private static void putIfMatches(Map<String, String> target,

@@ -26,7 +26,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
             "tagName", "nodeName", "nodeType", "nodeValue", "namespaceURI", "prefix", "localName",
-            "id", "className", "classList", "name", "type", "value", "checked", "defaultChecked", "selected", "defaultSelected",
+            "id", "className", "classList", "name", "type", "value", "checked", "defaultChecked", "indeterminate", "selected", "defaultSelected",
             "src", "srcdoc", "contentDocument", "contentWindow",
             "textContent", "innerHTML", "style", "sheet", "children", "childNodes", "length", "elements", "form", "options", "selectedIndex",
             "caption", "tHead", "tFoot", "tBodies", "rows", "cells", "rowIndex", "sectionRowIndex", "cellIndex",
@@ -76,6 +76,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "value" -> value();
             case "checked" -> element.isCheckedState();
             case "defaultChecked" -> element.hasAttribute("checked");
+            case "indeterminate" -> element.isIndeterminate();
             case "selected" -> element.hasAttribute("selected");
             case "defaultSelected" -> element.hasAttribute("selected");
             case "src" -> reflectedUrl("src");
@@ -251,6 +252,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "value" -> element.setValueState(toText(value));
             case "checked" -> setChecked(value.asBoolean());
             case "defaultChecked" -> booleanAttribute("checked", value.asBoolean());
+            case "indeterminate" -> element.setIndeterminate(value.asBoolean());
             case "selected", "defaultSelected" -> booleanAttribute("selected", value.asBoolean());
             case "selectedIndex" -> setSelectedIndex(value.asInt());
             case "src", "srcdoc" -> element.setAttribute(key, toText(value));

@@ -38,6 +38,29 @@ public class SelectorParserTest {
                 .parse("[jsaction*=\"trigger.\"]").selectors().getFirst().toString());
     }
 
+    @Test
+    public void parsesAndMatchesPrefixAndSuffixAttributeSelectors() {
+        TestNode link = new TestNode("a", null, Set.of(), null,
+                Map.of("href", "https://example.com/page.pdf", "lang", "de-DE"));
+        TestNode other = new TestNode("a", null, Set.of(), null,
+                Map.of("href", "mailto:user@example.com"));
+        TestAdapter adapter = new TestAdapter(link, other);
+
+        assertEquals("[href^=\"https\"]", parser.parse("[href^='https']")
+                .selectors().getFirst().toString());
+        assertEquals("a[href$=\".pdf\"]", parser.parse("a[href$=\".pdf\"]")
+                .selectors().getFirst().toString());
+        assertTrue(parser.parse("[href^=\"https://\"]").matchesAny(link, adapter));
+        assertTrue(parser.parse("a[href$=\".pdf\"]").matchesAny(link, adapter));
+        assertTrue(parser.parse("[lang^=\"de\"]").matchesAny(link, adapter));
+        assertTrue(parser.parse("[lang$=\"DE\"]").matchesAny(link, adapter));
+        assertFalse(parser.parse("[href^=\"mailto\"]").matchesAny(link, adapter));
+        assertFalse(parser.parse("[href$=\".pdf\"]").matchesAny(other, adapter));
+        assertFalse(parser.parse("[href^=\"\"]").matchesAny(link, adapter));
+        assertEquals(new Specificity(0, 1, 1), parser.parse("a[href$=\".pdf\"]")
+                .selectors().getFirst().specificity());
+    }
+
     private final SelectorParser parser = new SelectorParser();
 
     @Test
@@ -159,6 +182,89 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void matchesNthLastChildWithTheMirroredFormulaMatrix() {
+        TestNode parent = new TestNode("div", null, Set.of(), null);
+        List<TestNode> children = new java.util.ArrayList<>();
+        for (int index = 0; index < 6; index++) {
+            children.add(new TestNode("p", null, Set.of(), parent));
+        }
+        TestAdapter adapter = new TestAdapter(
+                java.util.stream.Stream.concat(java.util.stream.Stream.of(parent),
+                        children.stream()).toArray(TestNode[]::new));
+
+        assertTrue(parser.parse("p:nth-last-child(1)").matchesAny(children.get(5), adapter));
+        assertFalse(parser.parse("p:nth-last-child(1)").matchesAny(children.get(4), adapter));
+        assertTrue(parser.parse("p:nth-last-child(even)").matchesAny(children.get(4), adapter));
+        assertTrue(parser.parse("p:nth-last-child(odd)").matchesAny(children.get(5), adapter));
+        assertTrue(parser.parse("p:nth-last-child(n)").matchesAny(children.get(0), adapter));
+        assertTrue(parser.parse("p:nth-last-child(n+1)").matchesAny(children.get(0), adapter));
+        assertTrue(parser.parse("p:nth-last-child(-n+1)").matchesAny(children.get(5), adapter));
+        assertFalse(parser.parse("p:nth-last-child(-n+1)").matchesAny(children.get(4), adapter));
+        assertFalse(parser.parse("p:nth-last-child(-n)").matchesAny(children.get(0), adapter));
+        assertFalse(parser.parse("p:nth-last-child(0n)").matchesAny(children.get(0), adapter));
+        assertFalse(parser.parse("p:nth-last-child(0)").matchesAny(children.get(0), adapter));
+        assertTrue(parser.parse("p:nth-last-child(3n+1)").matchesAny(children.get(5), adapter));
+        assertTrue(parser.parse("p:nth-last-child(3n + 1)").matchesAny(children.get(2), adapter));
+        assertTrue(parser.parse("p:nth-last-child(3n-1)").matchesAny(children.get(4), adapter));
+        assertFalse(parser.parse("p:nth-last-child(-1)").matchesAny(children.get(0), adapter));
+        assertEquals("p:nth-last-child(3n+1)", parser.parse("p:nth-last-child(3n+1)")
+                .selectors().getFirst().toString());
+        assertEquals(new Specificity(0, 1, 1), parser.parse("p:nth-last-child(3n+1)")
+                .selectors().getFirst().specificity());
+    }
+
+    @Test
+    public void matchesNthLastOfTypeAmongMixedSiblings() {
+        TestNode parent = new TestNode("div", null, Set.of(), null);
+        TestNode firstParagraph = new TestNode("p", null, Set.of(), parent);
+        TestNode span = new TestNode("span", null, Set.of(), parent);
+        TestNode secondParagraph = new TestNode("p", null, Set.of(), parent);
+        TestNode secondSpan = new TestNode("span", null, Set.of(), parent);
+        TestAdapter adapter = new TestAdapter(parent, firstParagraph, span,
+                secondParagraph, secondSpan);
+
+        assertTrue(parser.parse("p:nth-last-of-type(1)").matchesAny(secondParagraph, adapter));
+        assertFalse(parser.parse("p:nth-last-of-type(1)").matchesAny(firstParagraph, adapter));
+        assertTrue(parser.parse("p:nth-last-of-type(even)").matchesAny(firstParagraph, adapter));
+        assertTrue(parser.parse("span:nth-last-of-type(odd)").matchesAny(secondSpan, adapter));
+        assertTrue(parser.parse("span:nth-last-of-type(-n+1)").matchesAny(secondSpan, adapter));
+        assertFalse(parser.parse("span:nth-last-of-type(-n+1)").matchesAny(span, adapter));
+        assertTrue(parser.parse("p:nth-last-of-type(3n-1)").matchesAny(firstParagraph, adapter));
+        assertFalse(parser.parse("p:nth-last-of-type(3n-1)").matchesAny(secondParagraph, adapter));
+        assertFalse(parser.parse("p:nth-last-of-type(2n)").matchesAny(secondParagraph, adapter));
+        assertEquals("p:nth-last-of-type(2n)", parser.parse("p:nth-last-of-type(even)")
+                .selectors().getFirst().toString());
+    }
+
+    @Test
+    public void matchesOnlyOfTypeAndEmpty() {
+        TestNode parent = new TestNode("div", null, Set.of(), null);
+        TestNode lone = new TestNode("em", null, Set.of(), parent);
+        TestNode first = new TestNode("p", null, Set.of(), parent);
+        TestNode second = new TestNode("p", null, Set.of(), parent);
+        TestNode blank = new TestNode("span", null, Set.of(), parent);
+        TestNode textChild = new TestNode("i", null, Set.of(), null);
+        TestNode populated = new TestNode("span", null, Set.of(), parent, Map.of(),
+                List.of(textChild));
+        TestNode whitespace = new TestNode("u", null, Set.of(), null);
+        TestNode withWhitespace = new TestNode("b", null, Set.of(), parent, Map.of(),
+                List.of(whitespace));
+        TestAdapter adapter = new TestAdapter(parent, lone, first, second, blank,
+                populated, textChild, withWhitespace, whitespace);
+
+        assertTrue(parser.parse("em:only-of-type").matchesAny(lone, adapter));
+        assertFalse(parser.parse("p:only-of-type").matchesAny(first, adapter));
+        assertFalse(parser.parse("p:only-of-type").matchesAny(second, adapter));
+        assertTrue(parser.parse("span:empty").matchesAny(blank, adapter));
+        assertFalse(parser.parse("span:empty").matchesAny(populated, adapter));
+        assertFalse(parser.parse("b:empty").matchesAny(withWhitespace, adapter));
+        assertEquals(new Specificity(0, 1, 1), parser.parse("em:only-of-type")
+                .selectors().getFirst().specificity());
+        assertEquals(new Specificity(0, 1, 0), parser.parse(":empty")
+                .selectors().getFirst().specificity());
+    }
+
+    @Test
     public void parsesAndMatchesInteractiveStatePseudoClasses() {
         TestNode hovered = new TestNode("a", null, Set.of("hovered", "focused", "active"), null);
         TestNode checked = new TestNode("input", null, Set.of(), null,
@@ -197,6 +303,31 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void matchesLinkAndVisitedAndNestedNotChains() {
+        TestNode unvisited = new TestNode("a", null, Set.of("nav"), null,
+                Map.of("href", "https://example.com"));
+        TestNode plainLink = new TestNode("a", null, Set.of(), null);
+        TestNode unrelated = new TestNode("p", null, Set.of("nav"), null,
+                Map.of("attr", "x"));
+        TestAdapter adapter = new TestAdapter(unvisited, plainLink, unrelated);
+
+        assertTrue(parser.parse("a:link").matchesAny(unvisited, adapter));
+        assertFalse(parser.parse("a:link").matchesAny(plainLink, adapter));
+        assertFalse(parser.parse("a:visited").matchesAny(unvisited, adapter));
+        assertFalse(parser.parse("p:link").matchesAny(unrelated, adapter));
+        assertEquals(new Specificity(0, 1, 1), parser.parse("a:link")
+                .selectors().getFirst().specificity());
+
+        ComplexSelector chained = parser.parse(
+                ":not(.class):not(#id):not([attr]):not(:link)").selectors().getFirst();
+        assertTrue(chained.matches(plainLink, adapter));
+        assertFalse(chained.matches(unvisited, adapter));
+        assertFalse(chained.matches(unrelated, adapter));
+        assertTrue(parser.parse(":not(.nav):not(:link)").matchesAny(plainLink, adapter));
+        assertFalse(parser.parse(":not(.nav):not(:link)").matchesAny(unvisited, adapter));
+    }
+
+    @Test
     public void parsesGeneratedPseudoElementsAndCountsTheirSpecificity() {
         ComplexSelector selector = parser.parse(".badge:hover::before").selectors().getFirst();
 
@@ -218,6 +349,24 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void parsesFirstLetterAndFirstLinePseudoElements() {
+        ComplexSelector letter = parser.parse("p::first-letter").selectors().getFirst();
+        ComplexSelector line = parser.parse("p::first-line").selectors().getFirst();
+        ComplexSelector legacyLetter = parser.parse("p:first-letter").selectors().getFirst();
+
+        assertEquals("first-letter", letter.pseudoElement());
+        assertEquals("first-line", line.pseudoElement());
+        assertEquals("first-letter", legacyLetter.pseudoElement());
+        assertEquals("p::first-letter", letter.toString());
+        assertEquals(new Specificity(0, 0, 2), letter.specificity());
+
+        TestNode paragraph = new TestNode("p", null, Set.of(), null);
+        TestAdapter adapter = new TestAdapter(paragraph);
+        assertTrue(parser.parse("p::first-letter").matchesAny(paragraph, adapter));
+        assertTrue(parser.parse("p::first-line").matchesAny(paragraph, adapter));
+    }
+
+    @Test
     public void rejectsInvalidAndUnsupportedSelectorsWithPositions() {
         for (String source : List.of("", "div,",
                 ":nth-child(2n+)", ":nth-of-type()", ":not()", ":not(.a, .b)",
@@ -232,14 +381,56 @@ public class SelectorParserTest {
         }
     }
 
+    @Test
+    public void parsesAndMatchesNamespacedTypeAndAttributeSelectors() {
+        assertEquals("*|html", parser.parse("*|html").selectors().getFirst().toString());
+        assertEquals("|html", parser.parse("|html").selectors().getFirst().toString());
+        assertEquals("svg|rect", parser.parse("svg|rect").selectors().getFirst().toString());
+        assertEquals("*|*", parser.parse("*|*").selectors().getFirst().toString());
+        assertEquals("[*|attr]", parser.parse("[*|attr]").selectors().getFirst().toString());
+        assertEquals("[*|attr=\"val\"]", parser.parse("[*|attr=val]")
+                .selectors().getFirst().toString());
+        assertEquals("[|attr]", parser.parse("[|attr]").selectors().getFirst().toString());
+        assertEquals("[svg|attr=\"val\"]", parser.parse("[svg|attr=\"val\"]")
+                .selectors().getFirst().toString());
+        assertEquals("*|html[*|attr]", parser.parse("*|html[*|attr]")
+                .selectors().getFirst().toString());
+        assertEquals(new Specificity(0, 0, 1), parser.parse("*|html")
+                .selectors().getFirst().specificity());
+
+        TestNode html = new TestNode("html", null, Set.of(), null, Map.of("attr", "val"));
+        TestNode plainDiv = new TestNode("div", null, Set.of(), null);
+        TestAdapter adapter = new TestAdapter(html, plainDiv);
+        assertTrue(parser.parse("*|html").matchesAny(html, adapter));
+        assertTrue(parser.parse("|html").matchesAny(html, adapter));
+        assertFalse(parser.parse("svg|rect").matchesAny(html, adapter));
+        assertTrue(parser.parse("*|div").matchesAny(plainDiv, adapter));
+        assertTrue(parser.parse("|div").matchesAny(plainDiv, adapter));
+        assertTrue(parser.parse("*|html[*|attr]").matchesAny(html, adapter));
+    }
+
+    @Test
+    public void rejectsInvalidNamespacesWithPositions() {
+        for (String source : List.of("|", "svg|", "*|", "[*]", "[|]", "svg||rect")) {
+            SelectorParseException exception = assertThrows(
+                    SelectorParseException.class, () -> parser.parse(source));
+            assertTrue(exception.getPosition() >= 0);
+        }
+    }
+
     private record TestNode(String tagName, String id, Set<String> classes, TestNode parent,
-                            Map<String, String> attributes) {
+                            Map<String, String> attributes, List<TestNode> children) {
         private TestNode(String tagName, String id, Set<String> classes, TestNode parent) {
-            this(tagName, id, classes, parent, Map.of());
+            this(tagName, id, classes, parent, Map.of(), List.of());
+        }
+        private TestNode(String tagName, String id, Set<String> classes, TestNode parent,
+                         Map<String, String> attributes) {
+            this(tagName, id, classes, parent, attributes, List.of());
         }
         private TestNode {
             classes = new LinkedHashSet<>(classes);
             attributes = Map.copyOf(attributes);
+            children = List.copyOf(children);
         }
     }
 
@@ -268,6 +459,11 @@ public class SelectorParserTest {
         @Override
         public String tagName(TestNode element) {
             return element.tagName();
+        }
+
+        @Override
+        public boolean hasChildren(TestNode element) {
+            return !element.children().isEmpty();
         }
 
         private TestNode sibling(TestNode element, int offset) {
@@ -317,6 +513,11 @@ public class SelectorParserTest {
                 case "checked" -> element.attributes().containsKey("checked");
                 case "focus" -> element.classes().contains("focused");
                 case "active" -> element.classes().contains("active");
+                case "link" -> switch (element.tagName()) {
+                    case "a", "area", "link" -> element.attributes().containsKey("href");
+                    default -> false;
+                };
+                case "visited" -> false;
                 case "disabled", "enabled" -> {
                     boolean formControl = switch (element.tagName()) {
                         case "button", "input", "select", "textarea",

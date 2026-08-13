@@ -4,7 +4,17 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
-public record CompoundSelector(String typeName, String id, List<String> classes,
+/**
+ * Ein zusammengesetzter Selektor ohne Kombinatoren.
+ *
+ * <p>{@code typeNamespace} ist {@code null} für Typselektoren ohne
+ * Namespace-Angabe (matcht jeden Namespace), {@code "*"} für {@code *|E}
+ * (ebenfalls jeder Namespace), {@code ""} für {@code |E} (kein Namespace)
+ * und sonst das Präfix aus {@code prefix|E} (matcht nur Namespace-Elemente;
+ * die Präfix-auflösung über {@code @namespace} ist nicht implementiert).</p>
+ */
+public record CompoundSelector(String typeNamespace, String typeName, String id,
+                               List<String> classes,
                                List<AttributeSelector> attributes,
                                List<StructuralPseudoClass> pseudoClasses,
                                List<String> statePseudoClasses,
@@ -12,13 +22,13 @@ public record CompoundSelector(String typeName, String id, List<String> classes,
                                String pseudoElement) {
 
     public CompoundSelector(String typeName, String id, List<String> classes) {
-        this(typeName, id, classes, List.of(), List.of(), List.of(), List.of(), null);
+        this(null, typeName, id, classes, List.of(), List.of(), List.of(), List.of(), null);
     }
 
     public CompoundSelector(String typeName, String id, List<String> classes,
                             List<AttributeSelector> attributes,
                             List<StructuralPseudoClass> pseudoClasses) {
-        this(typeName, id, classes, attributes, pseudoClasses, List.of(), List.of(), null);
+        this(null, typeName, id, classes, attributes, pseudoClasses, List.of(), List.of(), null);
     }
 
     public CompoundSelector {
@@ -29,8 +39,13 @@ public record CompoundSelector(String typeName, String id, List<String> classes,
                 Objects.requireNonNull(statePseudoClasses, "statePseudoClasses"));
         negations = List.copyOf(Objects.requireNonNull(negations, "negations"));
         if (pseudoElement != null && !pseudoElement.equals("before")
-                && !pseudoElement.equals("after")) {
+                && !pseudoElement.equals("after")
+                && !pseudoElement.equals("first-letter")
+                && !pseudoElement.equals("first-line")) {
             throw new IllegalArgumentException("Nicht unterstütztes Pseudoelement: " + pseudoElement);
+        }
+        if (typeNamespace != null && !typeNamespace.isEmpty() && typeNamespace.isBlank()) {
+            throw new IllegalArgumentException("Der Typ-Namespace darf nicht leer sein");
         }
         if (typeName != null && typeName.isBlank()) {
             throw new IllegalArgumentException("Der Elementname darf nicht leer sein");
@@ -63,9 +78,21 @@ public record CompoundSelector(String typeName, String id, List<String> classes,
     <N> boolean matches(N element, SelectorNodeAdapter<N> adapter) {
         Objects.requireNonNull(element, "element");
         Objects.requireNonNull(adapter, "adapter");
-        if (typeName != null && !"*".equals(typeName)
-                && !adapter.matchesType(element, typeName)) {
-            return false;
+        if (typeName != null) {
+            if (!"*".equals(typeName) && !adapter.matchesType(element, typeName)) {
+                return false;
+            }
+            if (typeNamespace != null) {
+                if ("*".equals(typeNamespace)) {
+                    // *|E: any namespace (including none) - already satisfied
+                } else if ("".equals(typeNamespace)) {
+                    if (adapter.namespaceUri(element) != null) {
+                        return false;
+                    }
+                } else if (adapter.namespaceUri(element) == null) {
+                    return false;
+                }
+            }
         }
         if (id != null && !id.equals(adapter.id(element))) {
             return false;
@@ -100,6 +127,9 @@ public record CompoundSelector(String typeName, String id, List<String> classes,
     public String toString() {
         StringBuilder result = new StringBuilder();
         if (typeName != null) {
+            if (typeNamespace != null) {
+                result.append(typeNamespace).append('|');
+            }
             result.append(typeName.indexOf(':') < 0
                     ? typeName.toLowerCase(Locale.ROOT)
                     : typeName);

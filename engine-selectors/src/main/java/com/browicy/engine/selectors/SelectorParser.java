@@ -37,7 +37,6 @@ public final class SelectorParser {
         private Parser(String source) {
             this.source = source;
         }
-
         private ComplexSelector parseComplexSelector() {
             List<SelectorStep> steps = new ArrayList<>();
             steps.add(new SelectorStep(parseCompoundSelector(), null));
@@ -76,6 +75,7 @@ public final class SelectorParser {
         }
 
         private CompoundSelector parseCompoundSelector() {
+            String typeNamespace = null;
             String typeName = null;
             String id = null;
             List<String> classes = new ArrayList<>();
@@ -85,10 +85,21 @@ public final class SelectorParser {
             List<CompoundSelector> negations = new ArrayList<>();
             String pseudoElement = null;
 
-            if (!atEnd() && consume('*')) {
+            if (!atEnd() && consume('|')) {
+                typeNamespace = "";
+                typeName = readTypeOrUniversal();
+            } else if (!atEnd() && consume('*')) {
                 typeName = "*";
+                if (consume('|')) {
+                    typeNamespace = "*";
+                    typeName = readTypeOrUniversal();
+                }
             } else if (!atEnd() && isTypeStart(peek())) {
                 typeName = readTypeName();
+                if (consume('|')) {
+                    typeNamespace = typeName;
+                    typeName = readTypeOrUniversal();
+                }
             }
 
             while (!atEnd()) {
@@ -110,7 +121,7 @@ public final class SelectorParser {
                         if (pseudoElement != null) throw error();
                         position += 2;
                         pseudoElement = readIdentifier().toLowerCase(java.util.Locale.ROOT);
-                        if (!pseudoElement.equals("before") && !pseudoElement.equals("after")) {
+                        if (!isPseudoElementName(pseudoElement)) {
                             throw error();
                         }
                         if (!atEnd() && peek() != ',' && !Character.isWhitespace(peek())
@@ -119,7 +130,7 @@ public final class SelectorParser {
                         int start = position;
                         position++;
                         String name = readIdentifier().toLowerCase(java.util.Locale.ROOT);
-                        if (name.equals("before") || name.equals("after")) {
+                        if (isPseudoElementName(name)) {
                             if (pseudoElement != null) throw error();
                             pseudoElement = name;
                             if (!atEnd() && peek() != ',' && !Character.isWhitespace(peek())
@@ -140,18 +151,37 @@ public final class SelectorParser {
                     && pseudoElement == null) {
                 throw error();
             }
-            return new CompoundSelector(typeName, id, classes, attributes, pseudoClasses,
-                    statePseudoClasses,
-                    negations, pseudoElement);
+            return new CompoundSelector(typeNamespace, typeName, id, classes, attributes,
+                    pseudoClasses, statePseudoClasses, negations, pseudoElement);
         }
 
         private AttributeSelector parseAttributeSelector() {
             consume('[');
             skipWhitespace();
-            String name = readIdentifier();
+            String namespace = null;
+            String name;
+            if (consume('*')) {
+                if (!consume('|')) {
+                    throw error();
+                }
+                namespace = "*";
+                name = readIdentifier();
+            } else if (consume('|')) {
+                namespace = "";
+                name = readIdentifier();
+            } else {
+                String first = readIdentifier();
+                if (consume('|')) {
+                    namespace = first;
+                    name = readIdentifier();
+                } else {
+                    name = first;
+                }
+            }
             skipWhitespace();
             if (consume(']')) {
-                return new AttributeSelector(name, AttributeSelector.Operator.PRESENT, null);
+                return new AttributeSelector(namespace, name, AttributeSelector.Operator.PRESENT,
+                        null);
             }
 
             AttributeSelector.Operator operator;
@@ -161,6 +191,10 @@ public final class SelectorParser {
                 operator = AttributeSelector.Operator.INCLUDES;
             } else if (consume('*') && consume('=')) {
                 operator = AttributeSelector.Operator.CONTAINS;
+            } else if (consume('^') && consume('=')) {
+                operator = AttributeSelector.Operator.PREFIX_MATCH;
+            } else if (consume('$') && consume('=')) {
+                operator = AttributeSelector.Operator.SUFFIX_MATCH;
             } else {
                 throw error();
             }
@@ -171,7 +205,7 @@ public final class SelectorParser {
             if (!consume(']')) {
                 throw error();
             }
-            return new AttributeSelector(name, operator, value);
+            return new AttributeSelector(namespace, name, operator, value);
         }
 
         private String readQuotedString() {
@@ -203,7 +237,9 @@ public final class SelectorParser {
             String name = readIdentifier().toLowerCase(java.util.Locale.ROOT);
             if ("hover".equals(name) || "checked".equals(name)
                     || "focus".equals(name) || "active".equals(name)
-                    || "disabled".equals(name) || "enabled".equals(name)) {
+                    || "disabled".equals(name) || "enabled".equals(name)
+                    || "link".equals(name) || "visited".equals(name)
+                    || "target".equals(name) || "indeterminate".equals(name)) {
                 statePseudoClasses.add(name);
                 return;
             }
@@ -217,6 +253,14 @@ public final class SelectorParser {
             }
             if ("only-child".equals(name)) {
                 pseudoClasses.add(StructuralPseudoClass.onlyChild());
+                return;
+            }
+            if ("only-of-type".equals(name)) {
+                pseudoClasses.add(StructuralPseudoClass.onlyOfType());
+                return;
+            }
+            if ("empty".equals(name)) {
+                pseudoClasses.add(StructuralPseudoClass.empty());
                 return;
             }
             if ("first-of-type".equals(name)) {
@@ -247,7 +291,10 @@ public final class SelectorParser {
             }
             boolean nthChild = "nth-child".equals(name);
             boolean nthOfType = "nth-of-type".equals(name);
-            if ((!nthChild && !nthOfType) || !consume('(')) {
+            boolean nthLastChild = "nth-last-child".equals(name);
+            boolean nthLastOfType = "nth-last-of-type".equals(name);
+            if ((!nthChild && !nthOfType && !nthLastChild && !nthLastOfType)
+                    || !consume('(')) {
                 throw error();
             }
             int start = position;
@@ -260,9 +307,17 @@ public final class SelectorParser {
             String formula = source.substring(start, position);
             position++;
             int[] coefficients = parseNthFormula(formula);
-            pseudoClasses.add(nthChild
-                    ? StructuralPseudoClass.nthChild(coefficients[0], coefficients[1])
-                    : StructuralPseudoClass.nthOfType(coefficients[0], coefficients[1]));
+            if (nthChild) {
+                pseudoClasses.add(StructuralPseudoClass.nthChild(coefficients[0], coefficients[1]));
+            } else if (nthOfType) {
+                pseudoClasses.add(StructuralPseudoClass.nthOfType(coefficients[0], coefficients[1]));
+            } else if (nthLastChild) {
+                pseudoClasses.add(StructuralPseudoClass.nthLastChild(
+                        coefficients[0], coefficients[1]));
+            } else {
+                pseudoClasses.add(StructuralPseudoClass.nthLastOfType(
+                        coefficients[0], coefficients[1]));
+            }
         }
 
         private int[] parseNthFormula(String sourceFormula) {
@@ -306,6 +361,16 @@ public final class SelectorParser {
             return source.substring(start, position);
         }
 
+        private String readTypeOrUniversal() {
+            if (consume('*')) {
+                return "*";
+            }
+            if (!atEnd() && isTypeStart(peek())) {
+                return readTypeName();
+            }
+            throw error();
+        }
+
         private String readIdentifier() {
             if (atEnd() || !isIdentifierStart(peek())) {
                 throw error();
@@ -321,8 +386,7 @@ public final class SelectorParser {
             return result;
         }
 
-        private boolean skipWhitespace() {
-            int start = position;
+        private boolean skipWhitespace() {            int start = position;
             while (!atEnd() && Character.isWhitespace(peek())) {
                 position++;
             }
@@ -359,6 +423,11 @@ public final class SelectorParser {
 
         private static boolean isIdentifierPart(char value) {
             return isIdentifierStart(value) || Character.isDigit(value);
+        }
+
+        private static boolean isPseudoElementName(String name) {
+            return name.equals("before") || name.equals("after")
+                    || name.equals("first-letter") || name.equals("first-line");
         }
 
         private static boolean isCombinator(char value) {

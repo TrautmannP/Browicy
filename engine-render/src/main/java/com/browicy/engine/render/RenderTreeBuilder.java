@@ -880,11 +880,15 @@ public final class RenderTreeBuilder {
         }
         CssColor declaredDecorationColor = CssColor.parse(declarations.get("text-decoration-color"));
         if (declaredDecorationColor != null) textDecorationColor = declaredDecorationColor;
-        else if ((underline || lineThrough)
+        else if ("currentcolor".equals(declarations.get("text-decoration-color"))) {
+            textDecorationColor = color;
+        } else if ((underline || lineThrough)
                 && !(parent.underline() || parent.lineThrough())) textDecorationColor = color;
         CssColor declaredBackground = CssColor.parse(declarations.get("background-color"));
         if (declaredBackground != null && !declaredBackground.isTransparent()) {
             background = declaredBackground;
+        } else if ("currentcolor".equals(declarations.get("background-color"))) {
+            background = color;
         }
         backgroundImageUrl = backgroundImageUrl(declarations.get("background-image"));
         backgroundRepeat = switch (declarations.getOrDefault("background-repeat", "repeat")) {

@@ -1050,6 +1050,52 @@ public class JavaScriptEngineTest {
     }
 
     @Test
+    public void exposesIndeterminateStateAndSelectorSupportsForNewPseudoClasses() {
+        Document document = parse("""
+                <html><body>
+                  <input id="check" type="checkbox">
+                  <input id="radioA" type="radio" name="group">
+                  <input id="radioB" type="radio" name="group">
+                  <p id="linkTarget"><a id="href" href="https://example.test/">x</a></p>
+                  <script>
+                    const check = document.getElementById('check');
+                    const href = document.getElementById('href');
+                    check.indeterminate = true;
+                    check.setAttribute('data-state',
+                      check.indeterminate + ':' + document.querySelectorAll(':indeterminate').length
+                      + ':' + document.querySelectorAll('input[name=group]:indeterminate').length);
+                    const style = document.createElement('style');
+                    style.textContent = '@namespace "http://www.w3.org/1999/xhtml";';
+                    document.documentElement.appendChild(style);
+                    const namespaceSheet = style.sheet;
+                    style.textContent = '@namespace svg "http://www.w3.org/2000/svg";';
+                    href.setAttribute('data-selectors', [
+                      CSS.supports('selector(:nth-last-child(even))'),
+                      CSS.supports('selector(a[href^="https"])'),
+                      CSS.supports('selector(p::first-letter)'),
+                      CSS.supports('selector(:not(.class):not(#id):not([attr]):not(:link))'),
+                      CSS.supports('selector(:target)'),
+                      CSS.supports('selector(:indeterminate)'),
+                      CSS.supports('selector(*|html)'),
+                      CSS.supports('selector([*|attr])'),
+                      CSS.supports('color', 'hsl(0,0%,0%)'),
+                      CSS.supports('color', 'currentColor'),
+                      CSS.supports('opacity', '-5'),
+                      namespaceSheet.cssRules.length
+                    ].join(':'));
+                  </script>
+                </body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals("true:3:2", document.getElementById("check").getAttribute("data-state"));
+        assertEquals("true:true:true:true:true:true:true:true:true:true:true:1",
+                document.getElementById("href").getAttribute("data-selectors"));
+    }
+
+    @Test
     public void invokesWindowOnloadWithLocationAndUrlSearchParams() {
         Document document = parser.parse("""
                 <html><body data-filter=""><script>

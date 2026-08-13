@@ -265,7 +265,7 @@ public class CssParserTest {
     @Test
     public void invalidSelectorListDiscardsTheWholeCssRule() {
         List<CssRule> rules = new CssParser().parse("""
-                .notice, p:visited { color: red; }
+                .notice, p:unknown-pseudo { color: red; }
                 .notice { color: blue; }
                 """);
 
@@ -451,12 +451,103 @@ public class CssParserTest {
     }
 
     @Test
+    public void acceptsHslAndHslaAcrossColorProperties() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                color:hsl(0,0%,0%);background-color:hsla(0,100%,50%,.5);
+                border-color:hsl(120,100%,50%);text-decoration-color:hsl(240,100%,50%)
+                """);
+
+        assertEquals("hsl(0,0%,0%)", declarations.get("color"));
+        assertEquals("hsla(0,100%,50%,.5)", declarations.get("background-color"));
+        assertEquals("hsl(120,100%,50%)", declarations.get("border-top-color"));
+        assertEquals("hsl(240,100%,50%)", declarations.get("text-decoration-color"));
+        assertTrue(parser.supports("color", "hsl(0,0%,0%)"));
+        assertTrue(parser.supports("background-color", "hsl(0,0%,0%)"));
+        assertTrue(parser.supports("border-color", "hsla(0,0%,0%,.5)"));
+        assertFalse(parser.supports("color", "hsl(0,0%)"));
+        assertFalse(parser.supports("color", "hsl(0,0%,101%)"));
+    }
+
+    @Test
+    public void acceptsCurrentColorForEveryColorProperty() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                color:currentColor;background-color:currentColor;border-color:currentColor;
+                outline-color:currentColor;text-decoration-color:currentColor;
+                border:1px solid currentColor;outline:2px solid currentColor;
+                background:currentColor url('none.png')
+                """);
+
+        assertEquals("currentcolor", declarations.get("color"));
+        assertEquals("currentcolor", declarations.get("background-color"));
+        assertEquals("currentcolor", declarations.get("border-top-color"));
+        assertEquals("currentcolor", declarations.get("outline-color"));
+        assertEquals("currentcolor", declarations.get("text-decoration-color"));
+        assertTrue(parser.supports("color", "currentColor"));
+        assertTrue(parser.supports("background-color", "currentColor"));
+        assertTrue(parser.supports("border-color", "currentColor"));
+        assertTrue(parser.supports("text-decoration-color", "currentColor"));
+    }
+
+    @Test
+    public void clampsOpacityOutsideTheUnitInterval() {
+        CssParser parser = new CssParser();
+        assertEquals("0", parser.parseDeclarations("opacity:-5").get("opacity"));
+        assertEquals("1", parser.parseDeclarations("opacity:2").get("opacity"));
+        assertEquals(".5", parser.parseDeclarations("opacity:.5").get("opacity"));
+
+        assertTrue(parser.supports("opacity", "-5"));
+        assertTrue(parser.supports("opacity", "2"));
+        assertTrue(parser.supports("opacity", ".5"));
+        assertFalse(parser.supports("opacity", "abc"));
+    }
+
+    @Test
     public void retainsCustomPropertiesAndDeferredVarValues() {
         Map<String, String> declarations = new CssParser().parseDeclarations(
                 "--BrandColor: #4285F4;color:var(--BrandColor, blue)");
 
         assertEquals("#4285F4", declarations.get("--BrandColor"));
         assertEquals("var(--BrandColor, blue)", declarations.get("color"));
+    }
+
+    @Test
+    public void retainsNamespaceStatementsAsRulesAndKeepsParsingFollowingRules() {
+        CssParser parser = new CssParser();
+
+        assertEquals(List.of("@namespace \"http://www.w3.org/1999/xhtml\";"),
+                parser.ruleSources("@namespace \"http://www.w3.org/1999/xhtml\";"));
+        assertEquals(List.of("@namespace svg \"http://www.w3.org/2000/svg\";",
+                        "p { color: red }"),
+                parser.ruleSources("""
+                        @namespace svg "http://www.w3.org/2000/svg";
+                        p { color: red }
+                        """));
+
+        List<CssRule> rules = parser.parse("""
+                @namespace "http://www.w3.org/1999/xhtml";
+                p { color: red }
+                div { color: blue }
+                """);
+        assertEquals(2, rules.size());
+        assertEquals("p", rules.get(0).selector().toString());
+        assertEquals("red", rules.get(0).declarations().get("color"));
+        assertEquals("div", rules.get(1).selector().toString());
+    }
+
+    @Test
+    public void acceptsPrefixAndSuffixAttributeSelectors() {
+        CssParser parser = new CssParser();
+        List<CssRule> rules = parser.parse("""
+                a[href^="https://"] { color: green }
+                a[href$=".pdf"] { color: red }
+                """);
+
+        assertEquals(2, rules.size());
+        assertEquals("a[href^=\"https://\"]", rules.get(0).selector().toString());
+        assertEquals("a[href$=\".pdf\"]", rules.get(1).selector().toString());
+        assertTrue(parser.supports("color", "hsl(120,100%,50%)"));
     }
 
     @Test

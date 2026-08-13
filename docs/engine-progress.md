@@ -16,11 +16,15 @@ java --sun-misc-unsafe-memory-access=allow -jar browser-cli/target/browicy-inspe
 
 Baseline recorded on 2026-08-13 (nach JS/CSS-Ausbau für Vue 3):
 
-- CSS3Test CSS-2007 reports **46/94 passed (52%)**. Neu seit 2026-07-16:
-  `:enabled` und `:disabled` als Zustands-Pseudoklassen für
-  Formularelemente (44/94 → 46/94).
+- CSS3Test CSS-2007 reports **94/94 passed (100%)** — alle 48 offenen Fälle
+  des CSS-2007-Zielkatalogs umgesetzt (46/94 → 94/94). Neu: Attribut-Präfix/
+  Suffix-Selektoren `[att^=val]`/`[att$=val]`, `:nth-last-child()`,
+  `:nth-last-of-type()`, `:only-of-type`, `:empty`, `::first-letter`/
+  `::first-line`, `:link`/`:visited`/`:target`/`:indeterminate`, HSL/HSLA,
+  `currentColor`, `opacity`-Clamping sowie `@namespace`-Statements und
+  Namespace-Selektoren (`*|html`, `[*|attr]`).
 - Acid3: **65/100 passed** (unverändert, keine Regressionen).
-- Insgesamt **111/194** Fälle (vorher 109/194).
+- Insgesamt **159/194** Fälle (vorher 111/194).
 
 Die Testseite und ihr Inhalt können sich ändern; Werte sind als
 Regressions-Baseline zu verstehen, nicht als dauerhafte Erwartung.
@@ -68,8 +72,8 @@ Acid3 harness during Maven's `verify` lifecycle:
 mvn -Pcompatibility-report -pl acid3-tests -am verify
 ```
 
-The run on 2026-08-13 recorded 46/94 CSS3Test cases (52%) and 65/100 Acid3 subtests,
-for 111/194 cases overall (2026-07-16: 44/94, 65/100, 109/194). Reports are written to
+The run on 2026-08-13 recorded 94/94 CSS3Test cases (100%) and 65/100 Acid3 subtests,
+for 159/194 cases overall (vorher: 46/94, 65/100, 111/194). Reports are written to
 `target/compatibility-reports`: `latest.html` is intended for human review, while
 `latest.json` is intended for CI and automated analysis. Timestamped copies are retained
 for trend tracking.

@@ -122,6 +122,27 @@ public class RenderTreeBuilderTest {
     }
 
     @Test
+    public void resolvesCurrentColorAgainstTheInheritedTextColor() {
+        RenderBox outer = boxChildren(build("""
+                <body><div style="color: rgb(10, 20, 30)">
+                  <p style="color: currentColor">a
+                    <span style="background-color: currentColor; border-color: currentColor;
+                      text-decoration: underline currentColor">b</span>
+                  </p>
+                </div></body>
+                """).root()).getFirst();
+        RenderBox paragraph = boxChildren(outer).getFirst();
+        RenderInlineBox span = inlineChildren(paragraph).getFirst();
+
+        assertEquals(CssColor.parse("rgb(10,20,30)"), paragraph.style().color());
+        assertEquals(CssColor.parse("rgb(10,20,30)"), span.style().color());
+        assertEquals(CssColor.parse("rgb(10,20,30)"), span.style().backgroundColor());
+        assertEquals(CssColor.parse("rgb(10,20,30)"), span.style().borderColor().top());
+        assertEquals(CssColor.parse("rgb(10,20,30)"), span.style().textDecorationColor());
+        assertTrue(span.style().underline());
+    }
+
+    @Test
     public void excludesDisplayNoneSubtreesFromRenderTree() {
         RenderBox paragraph = boxChildren(build("""
                 <body><p>visible <span style="display:none">hidden</span> text</p></body>

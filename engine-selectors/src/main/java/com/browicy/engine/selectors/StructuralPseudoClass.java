@@ -16,7 +16,11 @@ public record StructuralPseudoClass(Kind kind, int a, int b) {
         LAST_CHILD,
         NTH_CHILD,
         LAST_OF_TYPE,
-        NTH_OF_TYPE
+        NTH_OF_TYPE,
+        NTH_LAST_CHILD,
+        NTH_LAST_OF_TYPE,
+        ONLY_OF_TYPE,
+        EMPTY
     }
 
     public static StructuralPseudoClass root() {
@@ -51,9 +55,28 @@ public record StructuralPseudoClass(Kind kind, int a, int b) {
         return new StructuralPseudoClass(Kind.NTH_OF_TYPE, a, b);
     }
 
+    public static StructuralPseudoClass nthLastChild(int a, int b) {
+        return new StructuralPseudoClass(Kind.NTH_LAST_CHILD, a, b);
+    }
+
+    public static StructuralPseudoClass nthLastOfType(int a, int b) {
+        return new StructuralPseudoClass(Kind.NTH_LAST_OF_TYPE, a, b);
+    }
+
+    public static StructuralPseudoClass onlyOfType() {
+        return new StructuralPseudoClass(Kind.ONLY_OF_TYPE, 0, 0);
+    }
+
+    public static StructuralPseudoClass empty() {
+        return new StructuralPseudoClass(Kind.EMPTY, 0, 0);
+    }
+
     <N> boolean matches(N element, SelectorNodeAdapter<N> adapter) {
         if (kind == Kind.ROOT) {
             return adapter.parentElement(element) == null;
+        }
+        if (kind == Kind.EMPTY) {
+            return !adapter.hasChildren(element);
         }
         if (adapter.parentElement(element) == null) {
             return false;
@@ -78,7 +101,7 @@ public record StructuralPseudoClass(Kind kind, int a, int b) {
             return true;
         }
 
-        if (kind == Kind.LAST_OF_TYPE) {
+        if (kind == Kind.LAST_OF_TYPE || kind == Kind.ONLY_OF_TYPE) {
             N sibling = adapter.nextElementSibling(element);
             while (sibling != null) {
                 if (sameType(element, sibling, adapter)) {
@@ -86,7 +109,28 @@ public record StructuralPseudoClass(Kind kind, int a, int b) {
                 }
                 sibling = adapter.nextElementSibling(sibling);
             }
+            if (kind == Kind.ONLY_OF_TYPE) {
+                sibling = adapter.previousElementSibling(element);
+                while (sibling != null) {
+                    if (sameType(element, sibling, adapter)) {
+                        return false;
+                    }
+                    sibling = adapter.previousElementSibling(sibling);
+                }
+            }
             return true;
+        }
+
+        if (kind == Kind.NTH_LAST_CHILD || kind == Kind.NTH_LAST_OF_TYPE) {
+            int index = 1;
+            N sibling = adapter.nextElementSibling(element);
+            while (sibling != null) {
+                if (kind == Kind.NTH_LAST_CHILD || sameType(element, sibling, adapter)) {
+                    index++;
+                }
+                sibling = adapter.nextElementSibling(sibling);
+            }
+            return matchesFormula(index);
         }
 
         int index = 1;
@@ -97,6 +141,10 @@ public record StructuralPseudoClass(Kind kind, int a, int b) {
             }
             sibling = adapter.previousElementSibling(sibling);
         }
+        return matchesFormula(index);
+    }
+
+    private boolean matchesFormula(int index) {
         if (a == 0) {
             return index == b;
         }
@@ -114,11 +162,15 @@ public record StructuralPseudoClass(Kind kind, int a, int b) {
             case ROOT -> ":root";
             case FIRST_CHILD -> ":first-child";
             case ONLY_CHILD -> ":only-child";
+            case ONLY_OF_TYPE -> ":only-of-type";
+            case EMPTY -> ":empty";
             case FIRST_OF_TYPE -> ":first-of-type";
             case LAST_CHILD -> ":last-child";
             case NTH_CHILD -> ":nth-child(" + formula() + ")";
+            case NTH_LAST_CHILD -> ":nth-last-child(" + formula() + ")";
             case LAST_OF_TYPE -> ":last-of-type";
             case NTH_OF_TYPE -> ":nth-of-type(" + formula() + ")";
+            case NTH_LAST_OF_TYPE -> ":nth-last-of-type(" + formula() + ")";
         };
     }
 
