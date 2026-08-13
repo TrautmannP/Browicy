@@ -4,6 +4,7 @@ import com.browicy.engine.BrowicyEngine;
 import com.browicy.engine.PageSession;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
+import com.browicy.engine.dom.Event;
 import com.browicy.engine.dom.Node;
 import com.browicy.engine.js.JsExecutionResult;
 import com.browicy.engine.net.NetworkRequestEvent;
@@ -18,6 +19,7 @@ import com.browicy.ui.DomViewPanel;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,6 +47,7 @@ public final class BrowserInspector {
             engine.addRequestObserver(network::add);
             try (PageSession session = engine.loadPageSession(options.url(), ignored -> { })) {
                 session.awaitResources();
+                clickAndFollowNavigation(session, options.clickSelector());
                 Map<String, Object> screenshot = options.screenshot() == null
                         ? null : captureScreenshot(session, options);
                 report = buildReport(options.url(), started, session,
@@ -59,6 +62,33 @@ public final class BrowserInspector {
             Path parent = options.output().toAbsolutePath().getParent();
             if (parent != null) Files.createDirectories(parent);
             Files.writeString(options.output(), json, StandardCharsets.UTF_8);
+        }
+    }
+
+    private static final long CLICK_WAIT_MILLIS = 20_000;
+
+    private static void clickAndFollowNavigation(PageSession session, String selector)
+            throws Exception {
+        if (selector == null || selector.isBlank()) {
+            return;
+        }
+        Element target = null;
+        long deadline = System.nanoTime()
+                + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(CLICK_WAIT_MILLIS);
+        while (target == null && System.nanoTime() < deadline) {
+            target = session.document().querySelector(selector);
+            if (target == null) {
+                Thread.sleep(100);
+            }
+        }
+        if (target == null) {
+            System.err.println("Klick-Ziel '" + selector + "' wurde nicht gefunden");
+            return;
+        }
+        long generation = session.navigationGeneration();
+        session.runtime().submitEvent(target, new Event("click", true, true)).join();
+        if (!session.awaitNavigation(generation, CLICK_WAIT_MILLIS)) {
+            System.err.println("Keine Navigation nach Klick auf '" + selector + "'");
         }
     }
 
@@ -120,6 +150,37 @@ public final class BrowserInspector {
         javascript.put("console", js.consoleMessages());
         javascript.put("errors", js.errors());
 
+        Map<String, Object> cookies = new LinkedHashMap<>();
+        try {
+            cookies.put("documentCookie",
+                    session.cookies().cookiesForScript(URI.create(document.getUrl())));
+        } catch (IllegalArgumentException invalidUrl) {
+            cookies.put("documentCookie", "");
+        }
+        cookies.put("store", session.cookies().snapshotCookies().stream()
+                .map(cookie -> Map.of(
+                        "name", cookie.name(),
+                        "value", cookie.value(),
+                        "domain", cookie.domain(),
+                        "path", cookie.path(),
+                        "hostOnly", cookie.hostOnly(),
+                        "secure", cookie.secure(),
+                        "httpOnly", cookie.httpOnly()))
+                .toList());
+        Map<String, List<String>> setCookieHeaders = new LinkedHashMap<>();
+        setCookieHeaders.put("document", new ArrayList<>());
+        setCookieHeaders.put("fetch", new ArrayList<>());
+        for (com.browicy.engine.js.JsCookieStore.CookieHeaderRecord record
+                : session.cookies().receivedCookieHeaders()) {
+            List<String> list = setCookieHeaders.get(record.source());
+            if (list == null) {
+                list = new ArrayList<>();
+                setCookieHeaders.put(record.source(), list);
+            }
+            list.add(record.header());
+        }
+        cookies.put("setCookieHeaders", setCookieHeaders);
+
         Map<String, Object> compatibility = CompatibilityReport.build(
                 document, session.styleSheets(), js);
 
@@ -133,6 +194,7 @@ public final class BrowserInspector {
         result.put("css", css);
         result.put("renderTree", renderReport);
         result.put("javascript", javascript);
+        result.put("cookies", cookies);
         result.put("compatibility", compatibility);
         result.put("network", network.stream().map(BrowserInspector::networkEvent).toList());
         if (screenshot != null) result.put("screenshot", screenshot);
@@ -296,7 +358,8 @@ public final class BrowserInspector {
                    Path screenshot,
                    int viewportWidth,
                    int viewportHeight,
-                   boolean fullPage) {
+                   boolean fullPage,
+                   String clickSelector) {
         static Options parse(String[] arguments) {
             if (arguments.length == 0 || "--help".equals(arguments[0])) {
                 System.out.println("""
@@ -307,6 +370,8 @@ public final class BrowserInspector {
                           --viewport <width>x<height>
                                                    Viewport (Standard: 1280x720)
                           --full-page              Gesamte Dokumenthöhe aufnehmen
+                          --click <selector>       Nach dem Laden auf das Element klicken
+                                                   und eine folgende Navigation abwarten
                         """);
                 System.exit(arguments.length == 0 ? 2 : 0);
             }
@@ -316,6 +381,7 @@ public final class BrowserInspector {
             int viewportWidth = DEFAULT_VIEWPORT_WIDTH;
             int viewportHeight = DEFAULT_VIEWPORT_HEIGHT;
             boolean fullPage = false;
+            String clickSelector = null;
             for (int index = 1; index < arguments.length; index++) {
                 switch (arguments[index]) {
                     case "--output" -> {
@@ -338,6 +404,12 @@ public final class BrowserInspector {
                         viewportHeight = viewport[1];
                     }
                     case "--full-page" -> fullPage = true;
+                    case "--click" -> {
+                        if (++index >= arguments.length) {
+                            throw new IllegalArgumentException("--click benötigt einen Selektor");
+                        }
+                        clickSelector = arguments[index];
+                    }
                     default -> throw new IllegalArgumentException("Unbekannte Option: " + arguments[index]);
                 }
             }
@@ -351,7 +423,7 @@ public final class BrowserInspector {
                         "--output und --screenshot benötigen unterschiedliche Pfade");
             }
             return new Options(arguments[0], output, pretty, screenshot,
-                    viewportWidth, viewportHeight, fullPage);
+                    viewportWidth, viewportHeight, fullPage, clickSelector);
         }
 
         private static int[] parseViewport(String value) {

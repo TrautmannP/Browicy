@@ -10,7 +10,9 @@ import com.browicy.engine.dom.TextNode;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class JsNode implements ProxyObject, JsNodeLike {
@@ -26,6 +28,7 @@ final class JsNode implements ProxyObject, JsNodeLike {
 
     private final Node node;
     private final JsDocument document;
+    private final Map<String, Value> expandos = new LinkedHashMap<>();
 
     @Override public Node unwrapNode() { return node; }
 
@@ -110,7 +113,7 @@ final class JsNode implements ProxyObject, JsNodeLike {
             case "DOCUMENT_POSITION_CONTAINS" -> Node.DOCUMENT_POSITION_CONTAINS;
             case "DOCUMENT_POSITION_CONTAINED_BY" -> Node.DOCUMENT_POSITION_CONTAINED_BY;
             case "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC" -> Node.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC;
-            default -> null;
+            default -> expandos.containsKey(key) ? expandos.get(key) : null;
         };
     }
 
@@ -124,7 +127,7 @@ final class JsNode implements ProxyObject, JsNodeLike {
             node.setTextContent(value.isNull() ? "" : value.isString() ? value.asString() : value.toString());
             return;
         }
-        throw new UnsupportedOperationException("Eigenschaft nicht unterstützt: " + key);
+        expandos.put(key, value);
     }
 
     private Object childAt(int index) {
@@ -143,19 +146,20 @@ final class JsNode implements ProxyObject, JsNodeLike {
 
     @Override
     public Object getMemberKeys() {
-        if (!(node instanceof ParentNode)) {
-            return MEMBERS.toArray();
-        }
         List<String> keys = new java.util.ArrayList<>(MEMBERS);
-        keys.add("querySelector");
-        keys.add("querySelectorAll");
+        if (node instanceof ParentNode) {
+            keys.add("querySelector");
+            keys.add("querySelectorAll");
+        }
+        keys.addAll(expandos.keySet());
         return keys.toArray();
     }
 
     @Override
     public boolean hasMember(String key) {
         return MEMBERS.contains(key)
-                || node instanceof ParentNode && ("querySelector".equals(key) || "querySelectorAll".equals(key));
+                || node instanceof ParentNode && ("querySelector".equals(key) || "querySelectorAll".equals(key))
+                || expandos.containsKey(key);
     }
 
     private static String text(Value[] args, int index) {

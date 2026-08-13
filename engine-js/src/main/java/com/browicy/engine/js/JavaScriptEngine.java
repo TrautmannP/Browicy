@@ -41,22 +41,46 @@ public final class JavaScriptEngine {
               domContentLoadedEventStart: 0, domContentLoadedEventEnd: 0,
               loadEventStart: 0, loadEventEnd: 0, type: 'navigate', redirectCount: 0
             });
-            globalThis.performance = Object.freeze({
+            const __browicyPerformanceEntries = [];
+            const __browicyPerformanceEntry = (name, entryType, startTime, duration) =>
+                Object.freeze({ name: String(name), entryType: entryType,
+                                startTime: startTime, duration: duration || 0 });
+            const __browicyPerformance = {
               timeOrigin: __browicyTimeOrigin,
               timing: Object.freeze({
                 navigationStart: __browicyTimeOrigin,
                 responseStart: __browicyTimeOrigin
               }),
               now: () => Math.max(0, Date.now() - __browicyTimeOrigin),
-              mark: () => undefined,
-              measure: () => undefined,
+              mark: name => {
+                __browicyPerformanceEntries.push(
+                    __browicyPerformanceEntry(name, 'mark', __browicyPerformance.now(), 0));
+              },
+              measure: (name, startMark, endMark) => {
+                const start = startMark == null ? 0
+                    : (__browicyPerformance.getEntriesByName(startMark)[0] || {}).startTime || 0;
+                const end = endMark == null ? __browicyPerformance.now()
+                    : (__browicyPerformance.getEntriesByName(endMark)[0] || {}).startTime
+                        || __browicyPerformance.now();
+                __browicyPerformanceEntries.push(__browicyPerformanceEntry(
+                    name, 'measure', start, Math.max(0, end - start)));
+              },
               getEntriesByType: type => String(type) === 'navigation'
-                ? [__browicyNavigationEntry] : [],
-              getEntriesByName: name => String(name) === __browicyNavigationEntry.name
-                ? [__browicyNavigationEntry] : [],
-              clearMarks: () => undefined,
-              clearMeasures: () => undefined
-            });
+                  ? [__browicyNavigationEntry]
+                  : __browicyPerformanceEntries.filter(
+                      entry => entry.entryType === String(type)),
+              getEntriesByName: name => {
+                const matches = __browicyPerformanceEntries.filter(
+                    entry => entry.name === String(name));
+                if (matches.length > 0) return matches;
+                return String(name) === __browicyNavigationEntry.name
+                    ? [__browicyNavigationEntry] : [];
+              },
+              getEntries: () => [__browicyNavigationEntry, ...__browicyPerformanceEntries],
+              clearMarks: () => { __browicyPerformanceEntries.length = 0; },
+              clearMeasures: () => { __browicyPerformanceEntries.length = 0; }
+            };
+            globalThis.performance = Object.freeze(__browicyPerformance);
             globalThis.navigator = Object.freeze({
               userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                 + 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 '
@@ -137,6 +161,37 @@ public final class JavaScriptEngine {
                 && (candidate.namespaceURI == null
                     || candidate.namespaceURI === 'http://www.w3.org/1999/xhtml')
             });
+            const __browicyElementInterfaces = {
+              HTMLHtmlElement: ['html'], HTMLHeadElement: ['head'], HTMLBodyElement: ['body'],
+              HTMLTitleElement: ['title'], HTMLMetaElement: ['meta'], HTMLLinkElement: ['link'],
+              HTMLStyleElement: ['style'], HTMLScriptElement: ['script'], HTMLTemplateElement: ['template'],
+              HTMLSlotElement: ['slot'], HTMLDivElement: ['div'], HTMLSpanElement: ['span'],
+              HTMLParagraphElement: ['p'], HTMLHeadingElement: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+              HTMLUListElement: ['ul'], HTMLOListElement: ['ol'], HTMLLIElement: ['li'],
+              HTMLAnchorElement: ['a'], HTMLImageElement: ['img'], HTMLCanvasElement: ['canvas'],
+              HTMLAudioElement: ['audio'], HTMLVideoElement: ['video'], HTMLSourceElement: ['source'],
+              HTMLIFrameElement: ['iframe'], HTMLFormElement: ['form'],
+              HTMLInputElement: ['input'], HTMLButtonElement: ['button'], HTMLSelectElement: ['select'],
+              HTMLOptionElement: ['option'], HTMLTextAreaElement: ['textarea'],
+              HTMLBRElement: ['br'], HTMLHRElement: ['hr'], HTMLPreElement: ['pre'],
+              HTMLQuoteElement: ['blockquote', 'q'], HTMLTableElement: ['table'],
+              HTMLTableSectionElement: ['thead', 'tbody', 'tfoot'],
+              HTMLTableRowElement: ['tr'], HTMLTableCellElement: ['td', 'th'],
+              HTMLDataListElement: ['datalist'], HTMLLabelElement: ['label'],
+              HTMLUnknownElement: []
+            };
+            for (const interfaceName of Object.keys(__browicyElementInterfaces)) {
+              const tags = __browicyElementInterfaces[interfaceName];
+              globalThis[interfaceName] = function () {
+                throw new TypeError('Illegal constructor');
+              };
+              globalThis[interfaceName].prototype = Object.create(HTMLElement.prototype);
+              Object.defineProperty(globalThis[interfaceName], Symbol.hasInstance, {
+                value: candidate => candidate != null && typeof candidate === 'object'
+                    && candidate.nodeType === 1
+                    && (tags.length === 0 || tags.includes(String(candidate.tagName).toLowerCase()))
+              });
+            }
             globalThis.SVGElement = function SVGElement() { throw new TypeError('Illegal constructor'); };
             SVGElement.prototype = Object.create(Element.prototype);
             Object.defineProperty(SVGElement, Symbol.hasInstance, {
@@ -153,14 +208,14 @@ public final class JavaScriptEngine {
             });
             // Host-Elemente (ProxyObject) unterstützen Object.defineProperty nicht
             // nativ. Frameworks wie Vue legen darüber Expando-Eigenschaften an
-            // (z.B. el.__vnode, el.__vueParentComponent). Wertdeskriptoren werden
-            // deshalb als normale Member-Zuweisung auf das Element durchgereicht;
-            // alles andere geht an die native Implementierung.
+            // (z.B. el.__vnode, el.__vueParentComponent, __vue__ auf Text-Knoten).
+            // Wertdeskriptoren werden deshalb als normale Member-Zuweisung auf das
+            // Knoten-Objekt durchgereicht; alles andere geht an die native Implementierung.
             const __browicyNativeDefineProperty = Object.defineProperty;
             Object.defineProperty = function (target, key, descriptor) {
               if (target != null
                       && (typeof target === 'object' || typeof target === 'function')
-                      && target.nodeType === 1
+                      && typeof target.nodeType === 'number'
                       && descriptor != null
                       && Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
                 target[key] = descriptor.value;
@@ -184,14 +239,165 @@ public final class JavaScriptEngine {
             globalThis.__browicyDispatchWindowEvent = (type, event) => {
               for (const listener of [...(__windowListeners.get(String(type)) || [])]) listener.call(window, event);
             };
-            globalThis.CSS = Object.freeze({ supports: (...args) => __browicyCssSupports(...args) });
-            globalThis.getComputedStyle = element => __browicyGetComputedStyle(element);
-            const __locationHref = String(document.URL || 'about:blank');
-            const __queryStart = __locationHref.indexOf('?');
-            globalThis.location = Object.freeze({
-              href: __locationHref,
-              search: __queryStart < 0 ? '' : __locationHref.substring(__queryStart).split('#')[0]
+            globalThis.dispatchEvent = event => {
+              const type = String(event && event.type);
+              for (const listener of [...(__windowListeners.get(type) || [])]) listener.call(window, event);
+              return !(event && event.defaultPrevented);
+            };
+            globalThis.CSS = Object.freeze({
+              supports: (...args) => __browicyCssSupports(...args),
+              escape: value => {
+                const str = String(value);
+                const length = str.length;
+                const first = str.charCodeAt(0);
+                let result = '';
+                for (let index = 0; index < length; index++) {
+                  const codeUnit = str.charCodeAt(index);
+                  if (codeUnit === 0x0000) {
+                    result += '\uFFFD';
+                  } else if (codeUnit >= 0x0001 && codeUnit <= 0x001F
+                          || codeUnit >= 0x007F
+                          || (index === 0 && codeUnit >= 0x0030 && codeUnit <= 0x0039)
+                          || (index === 1 && codeUnit >= 0x0030 && codeUnit <= 0x0039
+                              && first === 0x002D)) {
+                    result += '\\\\' + codeUnit.toString(16) + ' ';
+                  } else if (index === 0 && length === 1 && codeUnit === 0x002D) {
+                    result += '\\\\' + str.charAt(index);
+                  } else if (codeUnit >= 0x0080 || codeUnit === 0x002D
+                          || codeUnit === 0x005F
+                          || codeUnit >= 0x0030 && codeUnit <= 0x0039
+                          || codeUnit >= 0x0041 && codeUnit <= 0x005A
+                          || codeUnit >= 0x0061 && codeUnit <= 0x007A) {
+                    result += str.charAt(index);
+                  } else {
+                    result += '\\\\' + str.charAt(index);
+                  }
+                }
+                return result;
+              }
             });
+            globalThis.getComputedStyle = element => __browicyGetComputedStyle(element);
+            const __browicyLocationUrl = String(document.URL || 'about:blank');
+            const __browicyLocationParts = __browicyLocationParse(__browicyLocationUrl);
+            const __browicyResolveAgainst = (baseUrl, target) => {
+              target = String(target == null ? '' : target);
+              if (/^[a-z][a-z0-9+.-]*:/i.test(target)) return target;
+              const parts = __browicyLocationParse(String(baseUrl == null ? '' : baseUrl));
+              if (target.startsWith('//')) return parts.protocol + target;
+              const queryIndex = target.search(/[?#]/);
+              const suffix = queryIndex >= 0 ? target.substring(queryIndex) : '';
+              const pathTarget = queryIndex >= 0 ? target.substring(0, queryIndex) : target;
+              if (pathTarget.startsWith('/')) {
+                return parts.origin + pathTarget + suffix;
+              }
+              const basePath = parts.pathname;
+              const baseDir = basePath.lastIndexOf('/') >= 0
+                  ? basePath.substring(0, basePath.lastIndexOf('/') + 1) : '/';
+              const segments = [];
+              for (const part of (baseDir + pathTarget).split('/')) {
+                if (part === '' || part === '.') continue;
+                if (part === '..') { if (segments.length > 0) segments.pop(); }
+                else segments.push(part);
+              }
+              return parts.origin + '/' + segments.join('/') + suffix;
+            };
+            const __browicyResolveUrl = target =>
+                __browicyResolveAgainst(__browicyLocationUrl, target);
+            globalThis.URL = class URL {
+              constructor(url, base) {
+                const raw = String(url == null ? '' : url);
+                const resolved = base == null
+                    ? raw : __browicyResolveAgainst(String(base), raw);
+                if (!/^[a-z][a-z0-9+.-]*:/i.test(resolved)) {
+                  throw new TypeError('Ungültige URL: ' + raw);
+                }
+                this._parts = __browicyLocationParse(resolved);
+                this._href = resolved;
+                this._searchParams = null;
+              }
+              get href() { return this._href; }
+              get protocol() { return this._parts.protocol; }
+              get host() { return this._parts.host; }
+              get hostname() { return this._parts.hostname; }
+              get port() { return this._parts.port; }
+              get pathname() { return this._parts.pathname; }
+              get search() { return this._parts.search; }
+              get hash() { return this._parts.hash; }
+              get origin() { return this._parts.origin; }
+              get searchParams() {
+                if (this._searchParams == null) {
+                  this._searchParams = new URLSearchParams(this.search);
+                }
+                return this._searchParams;
+              }
+              toString() { return this._href; }
+              toJSON() { return this._href; }
+            };
+            globalThis.Blob = class Blob {
+              constructor(parts, options) {
+                this._text = '';
+                for (const part of parts || []) {
+                  this._text += String(part);
+                }
+                this.size = this._text.length;
+                this.type = (options && options.type) || '';
+              }
+              text() { return Promise.resolve(this._text); }
+              arrayBuffer() {
+                return Promise.resolve(new Uint8Array(this._text.length));
+              }
+              slice(start, end, contentType) {
+                const from = Math.max(0, Number(start) || 0);
+                const to = end == null ? this.size : Math.max(from, Number(end) || 0);
+                return new Blob([this._text.substring(from, to)],
+                    { type: contentType || this.type });
+              }
+              toString() { return '[object Blob]'; }
+            };
+            let __browicyLocationHash = __browicyLocationParts.hash;
+            const __browicyLocation = {
+              get href() {
+                if (__browicyLocationParts.host === '') return __browicyLocationUrl;
+                return __browicyLocationParts.protocol + '//' + __browicyLocationParts.host
+                    + __browicyLocationParts.pathname + __browicyLocationParts.search
+                    + __browicyLocationHash;
+              },
+              set href(value) { __browicyNavigate(__browicyResolveUrl(value), true); },
+              get protocol() { return __browicyLocationParts.protocol; },
+              get host() { return __browicyLocationParts.host; },
+              get hostname() { return __browicyLocationParts.hostname; },
+              get port() { return __browicyLocationParts.port; },
+              get pathname() { return __browicyLocationParts.pathname; },
+              get search() { return __browicyLocationParts.search; },
+              get hash() { return __browicyLocationHash; },
+              set hash(value) {
+                value = String(value);
+                if (value !== '' && !value.startsWith('#')) value = '#' + value;
+                __browicyLocationHash = value;
+              },
+              get origin() { return __browicyLocationParts.origin; },
+              assign: target => __browicyNavigate(__browicyResolveUrl(target), false),
+              replace: target => __browicyNavigate(__browicyResolveUrl(target), true),
+              reload: () => __browicyNavigate(__browicyLocation.href, true),
+              toString: () => __browicyLocation.href
+            };
+            Object.defineProperty(globalThis, 'location', {
+              get: () => __browicyLocation,
+              set: value => {
+                if (value != null && typeof value === 'object') return;
+                __browicyNavigate(__browicyResolveUrl(value), true);
+              },
+              configurable: false
+            });
+            globalThis.open = (url, target) => {
+              const targetName = target == null ? '' : String(target);
+              if (targetName === '_blank') return null;
+              if (url != null && String(url) !== '') {
+                __browicyNavigate(__browicyResolveUrl(url), false);
+              }
+              return window;
+            };
+            globalThis.window.open = globalThis.open;
             globalThis.URLSearchParams = class URLSearchParams {
               constructor(source = '') {
                 this.values = Object.create(null);
@@ -214,6 +420,156 @@ public final class JavaScriptEngine {
               media: String(query), matches: false,
               addEventListener: () => undefined, removeEventListener: () => undefined
             });
+            globalThis.IntersectionObserver = class IntersectionObserver {
+              constructor(callback, options) {
+                if (typeof callback !== 'function') {
+                  throw new TypeError('IntersectionObserver: callback must be a function');
+                }
+                this._callback = callback;
+                this._targets = new Set();
+                this.root = options == null ? null : options.root;
+                this.rootMargin = options == null ? '0px' : String(options.rootMargin || '0px');
+                const thresholds = options == null ? [0] : options.threshold;
+                this.thresholds = Array.isArray(thresholds) ? thresholds.slice() : [thresholds];
+              }
+              observe(target) { this._targets.add(target); }
+              unobserve(target) { this._targets.delete(target); }
+              disconnect() { this._targets.clear(); }
+              takeRecords() { return []; }
+            };
+            globalThis.ResizeObserver = class ResizeObserver {
+              constructor(callback) {
+                if (typeof callback !== 'function') {
+                  throw new TypeError('ResizeObserver: callback must be a function');
+                }
+                this._callback = callback;
+                this._targets = new Set();
+              }
+              observe(target) { this._targets.add(target); }
+              unobserve(target) { this._targets.delete(target); }
+              disconnect() { this._targets.clear(); }
+            };
+            globalThis.screen = Object.freeze({
+              width: 1920, height: 1080, availWidth: 1920, availHeight: 1040,
+              colorDepth: 24, pixelDepth: 24,
+              orientation: Object.freeze({ type: 'landscape-primary', angle: 0 })
+            });
+            globalThis.escape = value => {
+              const text = String(value == null ? 'undefined' : value);
+              let result = '';
+              for (let index = 0; index < text.length; index++) {
+                const character = text.charAt(index);
+                const code = text.charCodeAt(index);
+                if (code >= 48 && code <= 57 || code >= 65 && code <= 90
+                        || code >= 97 && code <= 122 || character === '*'
+                        || character === '@' || character === '_' || character === '+'
+                        || character === '-' || character === '.' || character === '/') {
+                  result += character;
+                } else if (code < 256) {
+                  result += '%' + code.toString(16).toUpperCase().padStart(2, '0');
+                } else {
+                  result += '%u' + code.toString(16).toUpperCase().padStart(4, '0');
+                }
+              }
+              return result;
+            };
+            globalThis.unescape = value => {
+              const text = String(value == null ? 'undefined' : value);
+              return text
+                  .replace(/%u([0-9A-Fa-f]{4})/g, (_, hex) =>
+                      String.fromCharCode(parseInt(hex, 16)))
+                  .replace(/%([0-9A-Fa-f]{2})/g, (_, hex) =>
+                      String.fromCharCode(parseInt(hex, 16)));
+            };
+            globalThis.AbortSignal = class AbortSignal {
+              constructor() {
+                this.aborted = false;
+                this.reason = undefined;
+                this._listeners = new Map();
+              }
+              addEventListener(type, callback) {
+                type = String(type);
+                const listeners = this._listeners.get(type) || [];
+                if (typeof callback === 'function' && !listeners.includes(callback)) listeners.push(callback);
+                this._listeners.set(type, listeners);
+              }
+              removeEventListener(type, callback) {
+                const listeners = this._listeners.get(String(type)) || [];
+                this._listeners.set(String(type), listeners.filter(item => item !== callback));
+              }
+              dispatchEvent(event) {
+                for (const listener of [...(this._listeners.get(String(event && event.type)) || [])]) {
+                  listener.call(this, event);
+                }
+                return true;
+              }
+              static abort(reason) {
+                const signal = new AbortSignal();
+                signal.aborted = true;
+                signal.reason = reason;
+                return signal;
+              }
+              static timeout(millis) {
+                const signal = new AbortSignal();
+                setTimeout(() => signal.abort(new DOMException('Timeout abgelaufen', 'TimeoutError')),
+                    Number(millis) || 0);
+                return signal;
+              }
+            };
+            globalThis.AbortController = class AbortController {
+              constructor() {
+                this.signal = new AbortSignal();
+              }
+              abort(reason) {
+                if (this.signal.aborted) return;
+                this.signal.aborted = true;
+                this.signal.reason = reason;
+                this.signal.dispatchEvent(new Event('abort'));
+              }
+            };
+            globalThis.requestAnimationFrame = callback => {
+              const id = setTimeout(() => {
+                if (typeof callback === 'function') callback(__browicyPerformance.now());
+              }, 16);
+              return id;
+            };
+            globalThis.cancelAnimationFrame = id => clearTimeout(id);
+            const __browicyBase64Chars =
+                'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+            globalThis.btoa = value => {
+              const text = String(value);
+              let result = '';
+              for (let index = 0; index < text.length; index += 3) {
+                const b1 = text.charCodeAt(index);
+                const b2 = index + 1 < text.length ? text.charCodeAt(index + 1) : NaN;
+                const b3 = index + 2 < text.length ? text.charCodeAt(index + 2) : NaN;
+                result += __browicyBase64Chars.charAt(b1 >> 2);
+                result += __browicyBase64Chars.charAt(
+                    ((b1 & 3) << 4) | (isNaN(b2) ? 0 : b2 >> 4));
+                result += isNaN(b2) ? '='
+                    : __browicyBase64Chars.charAt(((b2 & 15) << 2) | (isNaN(b3) ? 0 : b3 >> 6));
+                result += isNaN(b3) ? '=' : __browicyBase64Chars.charAt(b3 & 63);
+              }
+              return result;
+            };
+            globalThis.atob = value => {
+              const text = String(value).replace(/=+$/, '');
+              let result = '';
+              for (let index = 0; index < text.length; index += 4) {
+                const c1 = __browicyBase64Chars.indexOf(text.charAt(index));
+                const c2 = __browicyBase64Chars.indexOf(text.charAt(index + 1));
+                const c3 = __browicyBase64Chars.indexOf(text.charAt(index + 2));
+                const c4 = __browicyBase64Chars.indexOf(text.charAt(index + 3));
+                result += String.fromCharCode((c1 << 2) | (c2 >> 4));
+                if (index + 2 < text.length) {
+                  result += String.fromCharCode(((c2 & 15) << 4) | (c3 >> 2));
+                }
+                if (index + 3 < text.length) {
+                  result += String.fromCharCode(((c3 & 3) << 6) | c4);
+                }
+              }
+              return result;
+            };
             globalThis.Range = function Range() { return document.createRange(); };
             Range.START_TO_START = 0;
             Range.START_TO_END = 1;
@@ -278,6 +634,13 @@ public final class JavaScriptEngine {
             Object.defineProperty(CustomEvent, Symbol.hasInstance, {
               value: candidate => candidate != null && typeof candidate.initCustomEvent === 'function'
             });
+            globalThis.PromiseRejectionEvent = class PromiseRejectionEvent extends Event {
+              constructor(type, init) {
+                super(String(type), init);
+                this.promise = init == null ? null : init.promise;
+                this.reason = init == null ? null : init.reason;
+              }
+            };
             const __browicyMutationObservers = new Map();
             const __browicyMutationObserverState = new WeakMap();
             let __browicyNextMutationObserverId = 0;
@@ -907,8 +1270,19 @@ public final class JavaScriptEngine {
                                          JsCookieStore cookieStore,
                                          StyleSheetRegistry styleSheets,
                                          Runnable styleSheetMutationCallback) {
+        return createPageRuntime(document, observer, fetchBackend, cookieStore,
+                styleSheets, styleSheetMutationCallback, PageNavigationHandler.NO_OP);
+    }
+
+    public PageRuntime createPageRuntime(Document document,
+                                         PageRuntimeObserver observer,
+                                         JsFetchBackend fetchBackend,
+                                         JsCookieStore cookieStore,
+                                         StyleSheetRegistry styleSheets,
+                                         Runnable styleSheetMutationCallback,
+                                         PageNavigationHandler navigationHandler) {
         return new GraalPageRuntime(document, statementLimit, observer, fetchBackend, cookieStore,
-                styleSheets, styleSheetMutationCallback);
+                styleSheets, styleSheetMutationCallback, navigationHandler);
     }
 
     private static StyleSheetRegistry defaultStyleSheets(Document document) {

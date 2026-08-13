@@ -32,14 +32,14 @@ import java.util.stream.Collectors;
 final class JsDocument implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
-            "title", "head", "body", "activeElement", "cookie", "documentElement", "forms", "styleSheets", "implementation", "defaultView", "URL", "readyState", "nodeType", "nodeName", "nodeValue",
+            "title", "head", "body", "activeElement", "cookie", "documentElement", "forms", "links", "scripts", "styleSheets", "implementation", "defaultView", "URL", "referrer", "location", "readyState", "nodeType", "nodeName", "nodeValue",
             "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild", "hasChildNodes",
             "appendChild", "insertBefore", "replaceChild", "removeChild",
             "compareDocumentPosition", "isSameNode", "isEqualNode",
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
             "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
             "DOCUMENT_POSITION_CONTAINS", "DOCUMENT_POSITION_CONTAINED_BY", "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC",
-            "currentScript", "getElementById", "getElementsByTagName", "querySelector", "querySelectorAll", "createElement", "createElementNS",
+            "currentScript", "getElementById", "getElementsByTagName", "querySelector", "querySelectorAll", "elementFromPoint", "createElement", "createElementNS",
             "createTextNode", "createComment", "createDocumentFragment", "createRange", "createEvent",
             "createNodeIterator", "createTreeWalker", "write",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT);
@@ -64,6 +64,8 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private JsCookieStore cookieStore;
     private JsDomImplementation implementation;
     private JsWindow defaultView;
+    private String referrer = "";
+    private Value promiseGlobal;
 
     JsDocument(Document document, Consumer<String> errorSink,
                StyleSheetRegistry styleSheets, Runnable styleSheetMutationCallback) {
@@ -119,7 +121,22 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         wrapper.setEventListenerInvoker(eventListenerInvoker);
         wrapper.setDomOperationWrapper(domOperationWrapper);
         wrapper.setCookieStore(cookieStore);
+        wrapper.setPromiseGlobal(promiseGlobal);
+        wrapper.setReferrer(referrer);
+        documentWrappers.put(relatedDocument, wrapper);
         return wrapper;
+    }
+
+    void setReferrer(String referrer) {
+        this.referrer = referrer == null ? "" : referrer;
+    }
+
+    void setPromiseGlobal(Value promiseGlobal) {
+        this.promiseGlobal = promiseGlobal;
+    }
+
+    Value promiseGlobal() {
+        return promiseGlobal;
     }
 
     JsComputedStyleDeclaration computedStyle(JsElement element) {
@@ -217,11 +234,30 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "cookie" -> cookieStore == null ? "" : cookieStore.cookiesForScript(documentUri());
             case "documentElement" -> wrap(document.getDocumentElement());
             case "forms" -> new JsHtmlCollection(() -> document.getElementsByTagName("form"), this);
+            case "links" -> new JsHtmlCollection(() -> {
+                List<Element> links = new ArrayList<>();
+                for (Element element : document.getElementsByTagName("a")) {
+                    if (element.hasAttribute("href")) {
+                        links.add(element);
+                    }
+                }
+                for (Element element : document.getElementsByTagName("area")) {
+                    if (element.hasAttribute("href")) {
+                        links.add(element);
+                    }
+                }
+                return links;
+            }, this);
+            case "scripts" -> new JsHtmlCollection(
+                    () -> document.getElementsByTagName("script"), this);
             case "styleSheets" -> new JsStyleSheetList();
             case "implementation" -> implementation == null
                     ? implementation = new JsDomImplementation(this) : implementation;
             case "defaultView" -> defaultView();
             case "URL" -> document.getUrl();
+            case "referrer" -> referrer;
+            case "location" -> ProxyObject.fromMap(
+                    GraalPageRuntime.locationParts(document.getUrl()));
             case "readyState" -> document.getReadyState().scriptValue();
             case "nodeType" -> document.getNodeType();
             case "nodeName" -> document.getNodeName();
@@ -283,6 +319,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
                     wrap(document.querySelector(asString(args, 0))));
             case "querySelectorAll" -> domOperation((ProxyExecutable) args ->
                     new JsNodeList(document.querySelectorAll(asString(args, 0)), this));
+            case "elementFromPoint" -> (ProxyExecutable) args -> null;
             case "createElement" -> domOperation((ProxyExecutable) args ->
                     wrap(document.createElement(asString(args, 0))));
             case "createElementNS" -> domOperation((ProxyExecutable) args ->

@@ -119,7 +119,7 @@ final class PageFetchBackend implements JsFetchBackend, ResourceLoad {
             return;
         }
         for (String value : resource.headers().all("set-cookie")) {
-            cookieStore.storeFromHttp(resource.uri(), value);
+            cookieStore.storeFromHttp(resource.uri(), value, JsCookieStore.SOURCE_FETCH);
         }
     }
 

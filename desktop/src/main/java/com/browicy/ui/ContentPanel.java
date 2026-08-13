@@ -182,6 +182,12 @@ public final class ContentPanel extends JPanel {
             return;
         }
 
+        // Navigation: die Session zeigt jetzt ein anderes Dokument an – Panel neu aufbauen.
+        if (tabId.equals(renderedTabId) && shownDocument != update.document()) {
+            showDocument(tabId, session);
+            return;
+        }
+
         String title = update.document().getTitle();
         if (!title.isBlank()) {
             state.updateTitle(tabId, title);

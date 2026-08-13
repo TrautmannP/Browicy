@@ -67,6 +67,18 @@ final class HttpResourceFetcher {
                              boolean blockInsecureRedirects,
                              DownloadBudget budget,
                              UriValidator validator) throws IOException {
+        return fetch(client, initialRequest, cancelled, redirectListener,
+                blockInsecureRedirects, budget, validator, 0);
+    }
+
+    static FetchResult fetch(HttpClient client,
+                             HttpRequest initialRequest,
+                             BooleanSupplier cancelled,
+                             RedirectListener redirectListener,
+                             boolean blockInsecureRedirects,
+                             DownloadBudget budget,
+                             UriValidator validator,
+                             int maxResponseDurationMillis) throws IOException {
         HttpRequest request = initialRequest;
         for (int redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
             if (cancelled.getAsBoolean()) {
@@ -74,7 +86,7 @@ final class HttpResourceFetcher {
                         "Ladevorgang abgebrochen: " + initialRequest.uri());
             }
             validator.validate(request.uri());
-            HttpResponse response = client.request(request, budget);
+            HttpResponse response = client.request(request, budget, maxResponseDurationMillis);
             String location = response.location();
             if (response.isRedirect() && location != null) {
                 URI target;

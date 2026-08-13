@@ -3,6 +3,7 @@ package com.browicy.engine;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.html.HtmlParser;
 import com.browicy.engine.js.JavaScriptEngine;
+import com.browicy.engine.js.JsCookieStore;
 import com.browicy.engine.js.JsExecutionResult;
 import com.browicy.engine.net.NetworkRequestObserver;
 import com.browicy.engine.net.PageLoadObserver;
@@ -35,7 +36,10 @@ public final class BrowicyEngine implements AutoCloseable {
     private final PageLoader pageLoader;
     private final SubResourceLoader subResourceLoader;
     private final PageResourceCoordinator resourceCoordinator;
+    private final JsCookieStore cookieStore = new JsCookieStore();
     private final Map<Document, PageSession> activeSessions = new ConcurrentHashMap<>();
+
+    private static final System.Logger LOGGER = System.getLogger(BrowicyEngine.class.getName());
 
     public BrowicyEngine() {
         this(new com.browicy.engine.net.HttpClient());
@@ -59,6 +63,10 @@ public final class BrowicyEngine implements AutoCloseable {
         this.parser = Objects.requireNonNull(parser, "parser");
         this.jsEngine = Objects.requireNonNull(jsEngine, "jsEngine");
         this.resourceCoordinator = new PageResourceCoordinator(subResourceLoader, jsEngine);
+        pageLoader.setCookieProvider(cookieStore::cookiesForRequest);
+        pageLoader.setCookieSink((uri, header) ->
+                cookieStore.storeFromHttp(uri, header, JsCookieStore.SOURCE_DOCUMENT));
+        subResourceLoader.setCookieProvider(cookieStore::cookiesForRequest);
     }
 
     public void addNetworkObserver(PageLoadObserver observer) {
@@ -133,10 +141,62 @@ public final class BrowicyEngine implements AutoCloseable {
 
     private PageSession createSession(Document document, PageUpdateListener listener,
                                       PageLoadProgress progress) {
+        SessionNavigationHandler navigationHandler =
+                new SessionNavigationHandler(this, listener, progress);
         PageSession session = resourceCoordinator.load(
-                document, listener, () -> activeSessions.remove(document), progress);
+                document, listener, () -> activeSessions.remove(document), progress,
+                cookieStore, navigationHandler);
         activeSessions.put(document, session);
         return session;
+    }
+
+    void navigateTo(SessionNavigationHandler navigationHandler, PageSession target, String url) {
+        String resolved = resolveNavigationUrl(url, target.document().getUrl());
+        if (resolved == null) {
+            LOGGER.log(System.Logger.Level.DEBUG,
+                    "Navigation auf nicht unterstützte URL verworfen: " + url);
+            return;
+        }
+        PageUpdateListener listener = navigationHandler.listener();
+        PageLoadProgress progress = navigationHandler.progress();
+        target.navigationStarted();
+        Thread.ofVirtual().name("browicy-navigation").start(() -> {
+            try {
+                PageLoader.Page page = pageLoader.load(resolved);
+                Document document = parser.parse(page.html(), page.uri().toString());
+                PageSession replacement = resourceCoordinator.load(
+                        document, listener, () -> activeSessions.remove(document), progress,
+                        cookieStore, navigationHandler);
+                activeSessions.put(document, target);
+                target.replaceState(replacement.state());
+                LOGGER.log(System.Logger.Level.INFO,
+                        "Navigation abgeschlossen: {0} -> {1}", url, resolved);
+            } catch (Throwable failure) {
+                LOGGER.log(System.Logger.Level.WARNING,
+                        "Navigation nach " + resolved + " schlug fehl", failure);
+            } finally {
+                target.navigationFinished();
+            }
+        });
+    }
+
+    private static String resolveNavigationUrl(String url, String documentUrl) {
+        if (url == null) {
+            return null;
+        }
+        try {
+            URI base = documentUrl == null || documentUrl.isBlank()
+                    ? null : new URI(documentUrl);
+            URI resolved = base == null ? new URI(url) : base.resolve(url);
+            String scheme = resolved.getScheme();
+            if (scheme == null
+                    || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
+                return null;
+            }
+            return resolved.toString();
+        } catch (java.net.URISyntaxException | IllegalArgumentException invalidUrl) {
+            return null;
+        }
     }
 
     private Document errorPage(String url, String message) {

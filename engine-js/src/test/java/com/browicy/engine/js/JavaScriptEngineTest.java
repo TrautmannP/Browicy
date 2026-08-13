@@ -1,12 +1,15 @@
 package com.browicy.engine.js;
 
 import com.browicy.engine.css.StyleApplicator;
+import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.html.HtmlParser;
 import org.junit.Test;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -369,6 +372,28 @@ public class JavaScriptEngineTest {
 
         assertFalse(String.valueOf(result.errors()), result.hasErrors());
         assertEquals(List.of("log: 1 3 true", "log: 2 1 1 0", "log: 1 0"), result.consoleMessages());
+    }
+
+    @Test
+    public void documentLinksExposesAnchorsAndAreasWithHref() {
+        Document document = parse("""
+                <html><body>
+                  <a id="one" href="/ziel">Eins</a>
+                  <a id="two">Ohne href</a>
+                  <area id="map" href="/karte">
+                  <script>
+                    var links = document.links;
+                    var viaLength = [];
+                    for (var i = 0; i < links.length; i++) { viaLength.push(links[i].id); }
+                    console.log(links.length, viaLength.join(','), links.item(1).id, links.map.id);
+                  </script>
+                </body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: 2 one,map map map"), result.consoleMessages());
     }
 
     @Test
@@ -1235,6 +1260,273 @@ public class JavaScriptEngineTest {
         assertFalse(String.valueOf(result.errors()), result.hasErrors());
         assertEquals("first-second",
                 document.getElementById("message").getTextContent());
+    }
+
+    @Test
+    public void locationNavigationMethodsInvokeHookWithResolvedUrls() {
+        Document document = parser.parse("""
+                <html><body><script>
+                  location.replace('/ziel');
+                  location.assign('/andere?q=1');
+                  location.reload();
+                  location.href = '/neu';
+                  const popup = window.open('/blank', '_blank');
+                  const same = window.open('/fenster', '_self');
+                  console.log(typeof location.replace, typeof location.assign,
+                              typeof location.reload, popup === null, same === window,
+                              location.protocol, location.hostname, location.port,
+                              location.pathname, location.search, location.origin);
+                </script></body></html>
+                """, "http://example.test:8080/pfad/index.html?x=1");
+
+        List<String> navigated = new ArrayList<>();
+        List<Boolean> replaceModes = new ArrayList<>();
+        PageNavigationHandler handler = (url, replace) -> {
+            navigated.add(url);
+            replaceModes.add(replace);
+        };
+        try (PageRuntime runtime = engine.createPageRuntime(
+                document, PageRuntimeObserver.NO_OP, null, null,
+                new StyleSheetRegistry(), () -> { }, handler)) {
+            JsExecutionResult result = runtime.execute(new JavaScriptSource(
+                    document.getElementsByTagName("script").get(0).getTextContent(),
+                    null, "nav-test.js"));
+
+            assertFalse(String.valueOf(result.errors()), result.hasErrors());
+            assertEquals(List.of(
+                    "log: function function function true true "
+                            + "http: example.test 8080 /pfad/index.html ?x=1 "
+                            + "http://example.test:8080"),
+                    result.consoleMessages());
+        }
+
+        assertEquals(List.of(
+                "http://example.test:8080/ziel",
+                "http://example.test:8080/andere?q=1",
+                "http://example.test:8080/pfad/index.html?x=1",
+                "http://example.test:8080/neu",
+                "http://example.test:8080/fenster"), navigated);
+        assertEquals(List.of(true, false, true, true, false), replaceModes);
+    }
+
+    @Test
+    public void locationHashChangesOnlyTheFragmentWithoutNavigating() {
+        Document document = parser.parse("""
+                <html><body><script>
+                  location.hash = 'abschnitt';
+                  console.log(location.hash, location.href);
+                </script></body></html>
+                """, "http://example.test/pfad/index.html");
+
+        List<String> navigated = new ArrayList<>();
+        PageNavigationHandler handler = (url, replace) -> navigated.add(url);
+        try (PageRuntime runtime = engine.createPageRuntime(
+                document, PageRuntimeObserver.NO_OP, null, null,
+                new StyleSheetRegistry(), () -> { }, handler)) {
+            JsExecutionResult result = runtime.execute(new JavaScriptSource(
+                    document.getElementsByTagName("script").get(0).getTextContent(),
+                    null, "hash-test.js"));
+
+            assertFalse(String.valueOf(result.errors()), result.hasErrors());
+            assertEquals(List.of("log: #abschnitt http://example.test/pfad/index.html#abschnitt"),
+                    result.consoleMessages());
+        }
+
+        assertTrue("Hash-Änderung darf nicht navigieren: " + navigated, navigated.isEmpty());
+    }
+
+    @Test
+    public void httpOnlyCookiesAreSentOnRequestsButHiddenFromScripts() {
+        Document document = parser.parse("""
+                <html><body></body></html>
+                """, "http://example.test/index.html");
+        JsCookieStore store = new JsCookieStore();
+        URI pageUri = URI.create("http://example.test/index.html");
+        store.storeFromHttp(pageUri, "sichtbar=ja; Path=/");
+        store.storeFromHttp(pageUri, "geheim=intern; Path=/; HttpOnly");
+
+        try (PageRuntime runtime = engine.createPageRuntime(
+                document, PageRuntimeObserver.NO_OP, null, store)) {
+            JsExecutionResult result = runtime.execute(new JavaScriptSource(
+                    "console.log(document.cookie);", null, "cookie-test.js"));
+
+            assertFalse(String.valueOf(result.errors()), result.hasErrors());
+            assertEquals(List.of("log: sichtbar=ja"), result.consoleMessages());
+        }
+
+        assertEquals("sichtbar=ja; geheim=intern", store.cookiesForRequest(pageUri));
+    }
+
+    @Test
+    public void urlConstructorResolvesRelativeUrlsAndExposesParts() {
+        Document document = parser.parse("""
+                <html><body><script>
+                  const a = new URL('/pfad?x=1#anker', 'http://example.test:8080/base/index.html');
+                  const b = new URL('https://andere.test/absolut');
+                  const c = new URL('../hoch', 'http://example.test:8080/base/tief/index.html');
+                  console.log(a.href, a.origin, a.pathname, a.search, a.hash, a.toString());
+                  console.log(b.origin, b.pathname, b.toString());
+                  console.log(c.href);
+                  try { new URL('kein schema'); } catch (error) { console.log(error.name); }
+                </script></body></html>
+                """, "http://example.test/index.html");
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                "log: http://example.test:8080/pfad?x=1#anker http://example.test:8080 "
+                        + "/pfad ?x=1 #anker http://example.test:8080/pfad?x=1#anker",
+                "log: https://andere.test /absolut https://andere.test/absolut",
+                "log: http://example.test:8080/base/hoch",
+                "log: TypeError"), result.consoleMessages());
+    }
+
+    @Test
+    public void documentReferrerIsAStringAndWindowDispatchesCustomEvents() {
+        Document document = parser.parse("""
+                <html><body><script>
+                  const received = [];
+                  window.addEventListener('kampagne', event => {
+                    received.push(event.detail && event.detail.wert);
+                  });
+                  const ok = window.dispatchEvent(
+                      new CustomEvent('kampagne', { detail: { wert: 42 } }));
+                  console.log(document.referrer, typeof document.referrer, ok, received.join(','));
+                </script></body></html>
+                """, "http://example.test/index.html");
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log:  string true 42"), result.consoleMessages());
+    }
+
+    @Test
+    public void performanceMarksAndMeasuresAreQueryable() {
+        Document document = parser.parse("""
+                <html><body><script>
+                  performance.mark('anfang');
+                  performance.mark('ende');
+                  const start = performance.getEntriesByName('anfang')[0];
+                  console.log(start && start.entryType, start && start.startTime >= 0,
+                              performance.getEntriesByType('mark').length,
+                              performance.getEntriesByType('navigation').length,
+                              typeof performance.measure);
+                </script></body></html>
+                """, "http://example.test/index.html");
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: mark true 2 1 function"), result.consoleMessages());
+    }
+
+    @Test
+    public void datasetReflectsDataAttributesAndContentWindowExposesPromise() {
+        Document document = parser.parse("""
+                <html><body><script>
+                  const script = document.createElement('script');
+                  script.dataset.golemTag = 'true';
+                  script.setAttribute('data-weitere-info', 'x');
+                  const frame = document.createElement('iframe');
+                  document.body.appendChild(frame);
+                  console.log(script.dataset.golemTag, script.getAttribute('data-golem-tag'),
+                              script.dataset.weitereInfo,
+                              typeof frame.contentWindow.Promise,
+                              frame.contentWindow.Promise === Promise);
+                </script></body></html>
+                """, "http://example.test/index.html");
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: true true x function true"), result.consoleMessages());
+    }
+
+    @Test
+    public void abortControllerScreenAndNodeExpandosAreAvailable() {
+        Document document = parser.parse("""
+                <html><body><script>
+                  const controller = new AbortController();
+                  let aborted = false;
+                  controller.signal.addEventListener('abort', () => { aborted = true; });
+                  controller.abort(new Error('stopp'));
+                  const text = document.createTextNode('x');
+                  Object.defineProperty(text, '__vue__', { value: { marker: 7 } });
+                  console.log(controller.signal.aborted, aborted,
+                              typeof screen.width, screen.width > 0,
+                              text.__vue__.marker);
+                </script></body></html>
+                """, "http://example.test/index.html");
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: true true number true 7"), result.consoleMessages());
+    }
+
+    @Test
+    public void cssEscapeAndLegacyEscapeGlobalsAreAvailable() {
+        Document document = parser.parse("""
+                <html><body><script>
+                  console.log(typeof CSS.escape, CSS.escape('.klasse#id'),
+                              CSS.escape('a b'), CSS.escape('123'),
+                              escape('a b c'), unescape('%E4%20x'),
+                              unescape('%u00E4'));
+                </script></body></html>
+                """, "http://example.test/index.html");
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of("log: function \\.klasse\\#id a\\ b \\31 23 "
+                        + "a%20b%20c ä x ä"),
+                result.consoleMessages());
+    }
+
+    @Test
+    public void mediaAndObserverAndCodingGlobalsAreAvailable() {
+        Document document = parser.parse("""
+                <html><head></head><body>
+                  <script id="s"></script>
+                  <div id="d"></div>
+                </body></html>
+                """, "http://example.test/index.html");
+
+        try (PageRuntime runtime = engine.createPageRuntime(
+                document, PageRuntimeObserver.NO_OP, null, null,
+                new StyleSheetRegistry(), () -> { })) {
+            JsExecutionResult result = runtime.execute(new JavaScriptSource("""
+                    const script = document.getElementById('s');
+                    const div = document.getElementById('d');
+                    const video = document.createElement('video');
+                    const io = new IntersectionObserver(() => {});
+                    const ro = new ResizeObserver(() => {});
+                    io.observe(div); ro.observe(div);
+                    const controller = new AbortController();
+                    console.log(script instanceof HTMLScriptElement,
+                                div instanceof HTMLDivElement,
+                                video instanceof HTMLVideoElement,
+                                typeof video.play, typeof div.getBoundingClientRect,
+                                document.location.protocol, document.location.hostname,
+                                document.scripts.length,
+                                typeof atob, atob('SGVsbG8='), btoa('Hello'),
+                                typeof requestAnimationFrame,
+                                typeof PromiseRejectionEvent,
+                                new PromiseRejectionEvent('unhandledrejection',
+                                    { promise: Promise.resolve(), reason: 'x' }).reason,
+                                new Blob(['abc']).size, typeof io.takeRecords);
+                    """, null, "globals-test.js"));
+            runtime.awaitIdle();
+            result = runtime.snapshot();
+
+            assertFalse(String.valueOf(result.errors()), result.hasErrors());
+            assertEquals(List.of("log: true true true function function "
+                            + "http: example.test 1 function Hello SGVsbG8= "
+                            + "function function x 3 function"),
+                    result.consoleMessages());
+        }
     }
 
 }

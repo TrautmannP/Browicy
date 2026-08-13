@@ -20,13 +20,20 @@ public final class JsCookieStore {
 
     static final int MAX_COOKIES = 256;
     static final int MAX_NAME_VALUE_BYTES = 4096;
+    static final int MAX_HEADER_LOG = 512;
     private static final Duration MAX_LIFETIME = Duration.ofDays(400);
+
+    /** Quelle eines erfassten {@code Set-Cookie}-Headers: Dokument-Antwort. */
+    public static final String SOURCE_DOCUMENT = "document";
+    /** Quelle eines erfassten {@code Set-Cookie}-Headers: XHR/fetch. */
+    public static final String SOURCE_FETCH = "fetch";
 
     private static final DateTimeFormatter LEGACY_EXPIRES_FORMAT = DateTimeFormatter.ofPattern(
             "EEE, dd-MMM-yyyy HH:mm:ss zzz", Locale.ROOT);
 
     private final Clock clock;
     private final Map<CookieKey, StoredCookie> cookies = new LinkedHashMap<>();
+    private final List<CookieHeaderRecord> receivedHeaders = new java.util.concurrent.CopyOnWriteArrayList<>();
     private long nextCreationOrder;
 
     public JsCookieStore() {
@@ -38,6 +45,15 @@ public final class JsCookieStore {
     }
 
     public void storeFromHttp(URI responseUri, String setCookieHeader) {
+        storeFromHttp(responseUri, setCookieHeader, SOURCE_FETCH);
+    }
+
+    public void storeFromHttp(URI responseUri, String setCookieHeader, String source) {
+        receivedHeaders.add(new CookieHeaderRecord(
+                source == null ? SOURCE_FETCH : source, responseUri, setCookieHeader));
+        if (receivedHeaders.size() > MAX_HEADER_LOG) {
+            receivedHeaders.subList(0, receivedHeaders.size() - MAX_HEADER_LOG).clear();
+        }
         store(responseUri, setCookieHeader, true);
     }
 
@@ -45,7 +61,16 @@ public final class JsCookieStore {
         store(documentUri, cookieString, false);
     }
 
+    /** Cookies für ausgehende Requests (Dokument, Subresources, XHR/fetch) – inkl. HttpOnly. */
+    public synchronized String cookiesForRequest(URI requestUri) {
+        return cookiesFor(requestUri, true);
+    }
+
     public synchronized String cookiesForScript(URI documentUri) {
+        return cookiesFor(documentUri, false);
+    }
+
+    private String cookiesFor(URI documentUri, boolean includeHttpOnly) {
         String host = hostOf(documentUri);
         if (host == null) {
             return "";
@@ -55,7 +80,7 @@ public final class JsCookieStore {
         purgeExpired(clock.instant());
         List<StoredCookie> matching = new ArrayList<>();
         for (StoredCookie cookie : cookies.values()) {
-            if (cookie.httpOnly()) {
+            if (cookie.httpOnly() && !includeHttpOnly) {
                 continue;
             }
             if (cookie.secure() && !secureContext) {
@@ -83,6 +108,23 @@ public final class JsCookieStore {
             result.append(cookie.value());
         }
         return result.toString();
+    }
+
+    /** Alle erfassten {@code Set-Cookie}-Header, älteste zuerst. */
+    public List<CookieHeaderRecord> receivedCookieHeaders() {
+        return List.copyOf(receivedHeaders);
+    }
+
+    /** Momentaufnahme des Stores (abgelaufene Cookies entfernt). */
+    public synchronized List<StoredCookieView> snapshotCookies() {
+        purgeExpired(clock.instant());
+        List<StoredCookieView> result = new ArrayList<>(cookies.size());
+        for (StoredCookie cookie : cookies.values()) {
+            result.add(new StoredCookieView(cookie.name(), cookie.value(), cookie.domain(),
+                    cookie.path(), cookie.hostOnly(), cookie.secure(), cookie.httpOnly(),
+                    cookie.expiresAt()));
+        }
+        return List.copyOf(result);
     }
 
     private synchronized void store(URI uri, String cookieString, boolean fromHttp) {
@@ -329,6 +371,21 @@ public final class JsCookieStore {
     }
 
     private record CookieKey(String name, String domain, String path) {
+    }
+
+    /** Ein erfasster {@code Set-Cookie}-Header mit Quelle (Dokument vs. XHR/fetch). */
+    public record CookieHeaderRecord(String source, URI responseUri, String header) {
+    }
+
+    /** Öffentliche Momentaufnahme eines gespeicherten Cookies. */
+    public record StoredCookieView(String name,
+                                   String value,
+                                   String domain,
+                                   String path,
+                                   boolean hostOnly,
+                                   boolean secure,
+                                   boolean httpOnly,
+                                   Instant expiresAt) {
     }
 
     private record StoredCookie(String name,

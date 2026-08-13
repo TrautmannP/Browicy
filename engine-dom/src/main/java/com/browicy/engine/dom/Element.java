@@ -89,6 +89,11 @@ public final class Element extends Node implements ParentNode {
         return attributes.containsKey(name.toLowerCase());
     }
 
+    /** Alle gesetzten Attribut-Namen (in Einfüge-Reihenfolge). */
+    public List<String> getAttributeNames() {
+        return List.copyOf(attributes.keySet());
+    }
+
     public String getId() {
         return getAttribute("id");
     }

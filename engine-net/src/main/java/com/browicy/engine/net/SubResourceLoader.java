@@ -11,18 +11,23 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 public final class SubResourceLoader implements AutoCloseable {
 
     private static final System.Logger LOGGER = System.getLogger(SubResourceLoader.class.getName());
     private static final int MAX_CONCURRENT_IMAGE_FETCHES = 8;
     private static final int MAX_CONCURRENT_FETCHES = 8;
+    static final long DEFAULT_FETCH_TIMEOUT_MILLIS =
+            Long.getLong("browicy.subresource.fetchTimeoutMillis", 20_000);
 
     private final HttpClient client;
     private final ExecutorService executor;
     private final List<NetworkRequestObserver> observers = new CopyOnWriteArrayList<>();
     private final Semaphore imageFetchPermits = new Semaphore(MAX_CONCURRENT_IMAGE_FETCHES);
     private final Semaphore fetchPermits = new Semaphore(MAX_CONCURRENT_FETCHES);
+    private volatile CookieProvider cookieProvider;
+    private volatile long fetchTimeoutMillis = DEFAULT_FETCH_TIMEOUT_MILLIS;
 
     public SubResourceLoader() {
         this(new HttpClient());
@@ -35,6 +40,16 @@ public final class SubResourceLoader implements AutoCloseable {
     SubResourceLoader(HttpClient client, ExecutorService executor) {
         this.client = Objects.requireNonNull(client, "client");
         this.executor = Objects.requireNonNull(executor, "executor");
+    }
+
+    /** Bestückt Subresource-Anfragen mit passenden Cookies aus dem Cookie-Store. */
+    public void setCookieProvider(CookieProvider provider) {
+        this.cookieProvider = provider;
+    }
+
+    /** Zeitlimit je fetch/XHR, nach dem die Anfrage als fehlgeschlagen gilt. */
+    void setFetchTimeoutMillisForTesting(long timeoutMillis) {
+        this.fetchTimeoutMillis = Math.max(1, timeoutMillis);
     }
 
     public SubResourceLoad loadAsync(URI uri, NetworkResourceType resourceType) {
@@ -181,12 +196,14 @@ public final class SubResourceLoader implements AutoCloseable {
         try {
             HttpResourceFetcher.FetchResult result = HttpResourceFetcher.fetch(
                     client,
-                    load.uri(),
-                    acceptFor(load.resourceType()),
+                    withCookies(HttpRequest.get(load.uri(), acceptFor(load.resourceType()))),
                     load::isCancelled,
                     (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
                             load.id(), Instant.now(), from, to, statusCode, load.resourceType())),
-                    true);
+                    true,
+                    null,
+                    ignored -> { },
+                    (int) fetchTimeoutMillis);
             HttpResponse response = result.response();
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IOException("HTTP " + response.statusCode() + " für " + result.uri());
@@ -205,8 +222,13 @@ public final class SubResourceLoader implements AutoCloseable {
     }
 
     private void fetchResource(FetchResourceLoad load, HttpRequest request) {
+        long timeout = fetchTimeoutMillis;
         try {
-            fetchPermits.acquire();
+            if (!fetchPermits.tryAcquire(timeout, TimeUnit.MILLISECONDS)) {
+                load.completeFailed(new IOException("Zeitüberschreitung: Warteschlange für "
+                        + load.uri() + " war nach " + timeout + " ms nicht frei"));
+                return;
+            }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             load.completeFailed(new IOException("Laden unterbrochen: " + load.uri(), interrupted));
@@ -215,12 +237,15 @@ public final class SubResourceLoader implements AutoCloseable {
         try {
             HttpResourceFetcher.FetchResult result = HttpResourceFetcher.fetch(
                     client,
-                    request,
+                    withCookies(request),
                     load::isCancelled,
                     (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
                             load.id(), Instant.now(), from, to, statusCode,
                             NetworkResourceType.FETCH)),
-                    true);
+                    true,
+                    null,
+                    ignored -> { },
+                    (int) timeout);
             HttpResponse response = result.response();
             load.completeLoaded(new FetchResource(
                     result.uri(),
@@ -238,8 +263,13 @@ public final class SubResourceLoader implements AutoCloseable {
     }
 
     private void fetchBinary(BinarySubResourceLoad load, URI pageUri, DownloadBudget budget) {
+        long timeout = fetchTimeoutMillis;
         try {
-            imageFetchPermits.acquire();
+            if (!imageFetchPermits.tryAcquire(timeout, TimeUnit.MILLISECONDS)) {
+                load.completeFailed(new IOException("Zeitüberschreitung: Warteschlange für "
+                        + load.uri() + " war nach " + timeout + " ms nicht frei"));
+                return;
+            }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             load.completeFailed(new IOException("Laden unterbrochen: " + load.uri(), interrupted));
@@ -248,15 +278,15 @@ public final class SubResourceLoader implements AutoCloseable {
         try {
             HttpResourceFetcher.FetchResult result = HttpResourceFetcher.fetch(
                     client,
-                    load.uri(),
-                    acceptFor(load.resourceType()),
+                    withCookies(HttpRequest.get(load.uri(), acceptFor(load.resourceType()))),
                     load::isCancelled,
                     (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
                             load.id(), Instant.now(), from, to, statusCode,
                             load.resourceType())),
                     true,
                     budget,
-                    uri -> SubresourceAccessPolicy.validate(uri, pageUri));
+                    uri -> SubresourceAccessPolicy.validate(uri, pageUri),
+                    (int) timeout);
             HttpResponse response = result.response();
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IOException("HTTP " + response.statusCode() + " für " + result.uri());
@@ -280,6 +310,20 @@ public final class SubResourceLoader implements AutoCloseable {
         }
         HttpHeaders headers = request.headers().copy();
         headers.set("Accept", acceptFor(NetworkResourceType.FETCH));
+        return new HttpRequest(request.method(), request.uri(), headers, request.body());
+    }
+
+    private HttpRequest withCookies(HttpRequest request) {
+        CookieProvider provider = cookieProvider;
+        if (provider == null || request.headers().contains("Cookie")) {
+            return request;
+        }
+        String cookies = provider.cookiesFor(request.uri());
+        if (cookies == null || cookies.isBlank()) {
+            return request;
+        }
+        HttpHeaders headers = request.headers().copy();
+        headers.add("Cookie", cookies);
         return new HttpRequest(request.method(), request.uri(), headers, request.body());
     }
 

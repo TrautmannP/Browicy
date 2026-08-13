@@ -9,7 +9,7 @@ import java.util.List;
 final class JsWindow implements ProxyObject {
 
     private static final List<String> MEMBERS = List.of(
-            "document", "window", "self", "getComputedStyle");
+            "document", "window", "self", "getComputedStyle", "Promise");
 
     private final JsDocument document;
 
@@ -22,6 +22,7 @@ final class JsWindow implements ProxyObject {
         return switch (key) {
             case "document" -> document;
             case "window", "self" -> this;
+            case "Promise" -> document.promiseGlobal();
             case "getComputedStyle" -> (ProxyExecutable) args -> {
                 if (args.length == 0 || !args[0].isProxyObject()
                         || !(args[0].asProxyObject() instanceof JsElement element)) {

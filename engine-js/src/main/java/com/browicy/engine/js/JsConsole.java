@@ -14,7 +14,8 @@ import java.util.stream.Collectors;
 
 final class JsConsole implements ProxyObject {
 
-    private static final List<String> LEVELS = List.of("log", "info", "warn", "error", "debug");
+    private static final List<String> LEVELS = List.of(
+            "log", "info", "warn", "error", "debug", "trace");
 
     @Getter(AccessLevel.PACKAGE)
     private final List<String> messages = new ArrayList<>();

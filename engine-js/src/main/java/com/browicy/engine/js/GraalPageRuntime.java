@@ -16,7 +16,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -37,6 +39,7 @@ import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.io.IOAccess;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
+import org.graalvm.polyglot.proxy.ProxyObject;
 
 final class GraalPageRuntime implements PageRuntime {
 
@@ -57,6 +60,7 @@ final class GraalPageRuntime implements PageRuntime {
     private final PageRuntimeObserver observer;
     private final JsFetchBackend fetchBackend;
     private final JsCookieStore cookieStore;
+    private final PageNavigationHandler navigationHandler;
     private final StyleSheetRegistry styleSheets;
     private final Runnable styleSheetMutationCallback;
     private final LinkedBlockingDeque<Envelope<?>> tasks = new LinkedBlockingDeque<>();
@@ -107,11 +111,20 @@ final class GraalPageRuntime implements PageRuntime {
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
                      JsFetchBackend fetchBackend, JsCookieStore cookieStore,
                      StyleSheetRegistry styleSheets, Runnable styleSheetMutationCallback) {
+        this(document, statementLimit, observer, fetchBackend, cookieStore,
+                styleSheets, styleSheetMutationCallback, PageNavigationHandler.NO_OP);
+    }
+
+    GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
+                     JsFetchBackend fetchBackend, JsCookieStore cookieStore,
+                     StyleSheetRegistry styleSheets, Runnable styleSheetMutationCallback,
+                     PageNavigationHandler navigationHandler) {
         this.document = Objects.requireNonNull(document, "document");
         this.statementLimit = statementLimit;
         this.observer = Objects.requireNonNull(observer, "observer");
         this.fetchBackend = fetchBackend;
         this.cookieStore = cookieStore == null ? new JsCookieStore() : cookieStore;
+        this.navigationHandler = Objects.requireNonNull(navigationHandler, "navigationHandler");
         this.styleSheets = Objects.requireNonNull(styleSheets, "styleSheets");
         this.styleSheetMutationCallback = Objects.requireNonNull(
                 styleSheetMutationCallback, "styleSheetMutationCallback");
@@ -275,7 +288,22 @@ final class GraalPageRuntime implements PageRuntime {
             }
             return jsDocument.computedStyle(element);
         });
+        bindings.putMember("__browicyNavigate", (ProxyExecutable) args -> {
+            if (args.length == 0 || args[0].isNull()) {
+                return null;
+            }
+            String url = asText(args[0]);
+            boolean replace = args.length > 1 && args[1].isBoolean() && args[1].asBoolean();
+            navigationHandler.navigate(url, replace);
+            return null;
+        });
+        bindings.putMember("__browicyLocationParse", (ProxyExecutable) args -> {
+            String url = args.length == 0 || args[0].isNull() ? "" : asText(args[0]);
+            return ProxyObject.fromMap(locationParts(url));
+        });
         context.eval("js", JavaScriptEngine.BROWSER_BOOTSTRAP);
+        Value promiseGlobal = context.getBindings("js").getMember("Promise");
+        jsDocument.setPromiseGlobal(promiseGlobal);
         jsDocument.setExpando("fonts", context.eval("js", "Object.freeze({"
                 + "status:'loaded', ready:Promise.resolve(undefined),"
                 + "load:()=>Promise.resolve([]), check:()=>true,"
@@ -656,6 +684,49 @@ final class GraalPageRuntime implements PageRuntime {
 
     private static String asText(Value value) {
         return value.isString() ? value.asString() : value.toString();
+    }
+
+    static Map<String, Object> locationParts(String url) {
+        Map<String, Object> parts = new LinkedHashMap<>();
+        URI uri;
+        try {
+            uri = new URI(url);
+        } catch (URISyntaxException invalid) {
+            parts.put("protocol", "");
+            parts.put("host", "");
+            parts.put("hostname", "");
+            parts.put("port", "");
+            parts.put("pathname", "");
+            parts.put("search", "");
+            parts.put("hash", "");
+            parts.put("origin", "");
+            parts.put("href", url == null ? "" : url);
+            return parts;
+        }
+        String scheme = uri.getScheme();
+        String protocol = scheme == null ? "" : scheme + ":";
+        String host = uri.getHost();
+        String hostname = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        String rawPath = uri.getRawPath();
+        String pathname = rawPath == null || rawPath.isEmpty() ? "/" : rawPath;
+        String search = uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery();
+        String hash = uri.getRawFragment() == null ? "" : "#" + uri.getRawFragment();
+        int port = uri.getPort();
+        int defaultPort = scheme != null && scheme.equalsIgnoreCase("https") ? 443 : 80;
+        String portText = port == -1 || port == defaultPort ? "" : String.valueOf(port);
+        String hostWithPort = host == null ? ""
+                : hostname + (portText.isEmpty() ? "" : ":" + portText);
+        String origin = scheme != null && host != null ? protocol + "//" + hostWithPort : "";
+        parts.put("protocol", protocol);
+        parts.put("host", hostWithPort);
+        parts.put("hostname", hostname);
+        parts.put("port", portText);
+        parts.put("pathname", pathname);
+        parts.put("search", search);
+        parts.put("hash", hash);
+        parts.put("origin", origin);
+        parts.put("href", url == null ? "" : url);
+        return parts;
     }
 
     private JsExecutionResult evaluate(JavaScriptSource source) {

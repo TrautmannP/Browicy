@@ -61,6 +61,11 @@ public final class HttpClient {
     }
 
     HttpResponse request(HttpRequest request, DownloadBudget budget) throws IOException {
+        return request(request, budget, 0);
+    }
+
+    HttpResponse request(HttpRequest request, DownloadBudget budget, int maxResponseDurationMillis)
+            throws IOException {
         URI url = request.uri();
         String scheme = url.getScheme() == null
                 ? "" : url.getScheme().toLowerCase(Locale.ROOT);
@@ -79,6 +84,9 @@ public final class HttpClient {
         boolean secure = scheme.equals("https");
         int defaultPort = secure ? 443 : 80;
         int port = url.getPort() != -1 ? url.getPort() : defaultPort;
+        int responseDuration = maxResponseDurationMillis > 0
+                ? maxResponseDurationMillis : MAX_RESPONSE_DURATION_MS;
+        int readTimeout = Math.min(READ_TIMEOUT_MS, responseDuration);
 
         String requestHead = buildRequestHead(request, host, port, defaultPort, requestBody);
         boolean retryable = request.method().equals("GET") || request.method().equals("HEAD");
@@ -92,7 +100,7 @@ public final class HttpClient {
             }
             long bytesBefore = connection.bytesReceived();
             try {
-                connection.socket().setSoTimeout(READ_TIMEOUT_MS);
+                connection.socket().setSoTimeout(readTimeout);
                 OutputStream out = connection.output();
                 out.write(requestHead.getBytes(StandardCharsets.ISO_8859_1));
                 if (requestBody != null) {
@@ -100,7 +108,7 @@ public final class HttpClient {
                 }
                 out.flush();
                 RawResponse raw = readResponse(
-                        new DeadlineInputStream(connection.input(), MAX_RESPONSE_DURATION_MS),
+                        new DeadlineInputStream(connection.input(), responseDuration),
                         budget, request.method());
                 if (raw.reusable() && !connection.hasPendingInput()) {
                     pool.release(origin, connection);

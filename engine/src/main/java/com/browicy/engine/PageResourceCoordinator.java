@@ -72,32 +72,27 @@ final class PageResourceCoordinator {
         this.styleApplicator = Objects.requireNonNull(styleApplicator, "styleApplicator");
     }
 
-    PageSession load(Document document, PageUpdateListener listener) {
-        return load(document, listener, () -> { }, new PageLoadProgress());
-    }
-
-    PageSession load(Document document, PageUpdateListener listener, Runnable onClose) {
-        return load(document, listener, onClose, new PageLoadProgress());
-    }
-
     PageSession load(Document document, PageUpdateListener listener, Runnable onClose,
-                     PageLoadProgress progress) {
+                     PageLoadProgress progress, JsCookieStore cookies,
+                     SessionNavigationHandler navigationHandler) {
         Objects.requireNonNull(document, "document");
         Objects.requireNonNull(listener, "listener");
         Objects.requireNonNull(onClose, "onClose");
         Objects.requireNonNull(progress, "progress");
+        Objects.requireNonNull(cookies, "cookies");
+        Objects.requireNonNull(navigationHandler, "navigationHandler");
 
         DocumentResources resources = scanner.scan(document);
         StyleSheetRegistry styleSheets = new StyleSheetRegistry();
         registerStyleSheets(resources, styleSheets);
         DocumentUpdateCoordinator updates = new DocumentUpdateCoordinator(
                 document, styleSheets, styleApplicator, listener);
-        JsCookieStore cookies = new JsCookieStore();
         PageFetchBackend fetchBackend = new PageFetchBackend(
                 resourceLoader, document.getUrl(), cookies);
         PageRuntime runtime = javaScriptEngine.createPageRuntime(
                 document, ignored -> updates.flush(), fetchBackend, cookies,
-                styleSheets, () -> updates.invalidate(InvalidationType.STYLE));
+                styleSheets, () -> updates.invalidate(InvalidationType.STYLE),
+                navigationHandler);
         List<ResourceLoad> cancellableLoads = new java.util.concurrent.CopyOnWriteArrayList<>();
         cancellableLoads.add(fetchBackend);
         ImageResourceRegistry images = new ImageResourceRegistry();
@@ -140,10 +135,7 @@ final class PageResourceCoordinator {
 
             resources.scripts().forEach(script -> progress.scriptPlanned());
             updates.enableNotifications();
-            CompletableFuture<Void> scriptsDone = runScriptsInBackground(
-                    document, resources, prefetchedScripts, runtime, cancellableLoads,
-                    progress, updates, images, pageUri, imageBudget, imageLoadsByUri);
-
+            CompletableFuture<Void> scriptsDone = new CompletableFuture<>();
             List<CompletableFuture<Void>> allResources = new ArrayList<>(styleLoads.allTasks());
             allResources.addAll(imageLoads);
             allResources.addAll(fontLoads);
@@ -152,9 +144,15 @@ final class PageResourceCoordinator {
                     allResources.toArray(CompletableFuture[]::new));
             resourcesLoaded.whenComplete((ignored, failure) ->
                     progress.phase(PageLoadProgress.Phase.COMPLETE, ""));
-            return new PageSession(
+            PageSession session = new PageSession(
                     document, runtime, styleSheets, images, fonts, cookies, resourcesLoaded,
                     cancellableLoads, updates, progress, onClose);
+            navigationHandler.bind(session);
+            runScriptsInBackground(
+                    document, resources, prefetchedScripts, runtime, cancellableLoads,
+                    progress, updates, images, pageUri, imageBudget, imageLoadsByUri,
+                    scriptsDone);
+            return session;
         } catch (RuntimeException failure) {
             progress.phase(PageLoadProgress.Phase.FAILED, String.valueOf(failure.getMessage()));
             cancellableLoads.forEach(ResourceLoad::cancel);
@@ -182,7 +180,7 @@ final class PageResourceCoordinator {
         return prefetched;
     }
 
-    private CompletableFuture<Void> runScriptsInBackground(
+    private void runScriptsInBackground(
             Document document,
             DocumentResources resources,
             Map<ScriptResource.External, SubResourceLoad> prefetchedScripts,
@@ -193,8 +191,8 @@ final class PageResourceCoordinator {
             ImageResourceRegistry images,
             URI pageUri,
             DownloadBudget imageBudget,
-            Map<URI, CompletableFuture<BinaryResource>> imageLoadsByUri) {
-        CompletableFuture<Void> scriptsDone = new CompletableFuture<>();
+            Map<URI, CompletableFuture<BinaryResource>> imageLoadsByUri,
+            CompletableFuture<Void> scriptsDone) {
         Thread.ofVirtual().name("browicy-page-scripts").start(() -> {
             try {
                 progress.phase(PageLoadProgress.Phase.RUNNING_SCRIPTS, "");
@@ -226,7 +224,6 @@ final class PageResourceCoordinator {
                 scriptsDone.complete(null);
             }
         });
-        return scriptsDone;
     }
 
     private void runDynamicallyAddedScripts(

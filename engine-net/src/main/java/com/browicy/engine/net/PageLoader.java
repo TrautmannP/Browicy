@@ -38,6 +38,8 @@ public final class PageLoader implements AutoCloseable {
     private final ExecutorService executor;
     private final List<PageLoadObserver> observers = new CopyOnWriteArrayList<>();
     private final List<NetworkRequestObserver> networkObservers = new CopyOnWriteArrayList<>();
+    private volatile CookieProvider cookieProvider;
+    private volatile CookieSink cookieSink;
 
     public PageLoader() {
         this(new HttpClient());
@@ -50,6 +52,16 @@ public final class PageLoader implements AutoCloseable {
     public PageLoader(HttpClient client, ExecutorService executor) {
         this.client = Objects.requireNonNull(client, "client");
         this.executor = Objects.requireNonNull(executor, "executor");
+    }
+
+    /** Bestückt Dokument-Anfragen mit passenden Cookies aus dem Cookie-Store. */
+    public void setCookieProvider(CookieProvider provider) {
+        this.cookieProvider = provider;
+    }
+
+    /** Empfängt {@code Set-Cookie}-Header aus Dokument-Antworten. */
+    public void setCookieSink(CookieSink sink) {
+        this.cookieSink = sink;
     }
 
     public static URI normalize(String input) {
@@ -113,18 +125,35 @@ public final class PageLoader implements AutoCloseable {
 
     private Page load(long loadId, String url, BooleanSupplier cancelled) throws IOException {
         URI initialUri = normalize(url);
+        HttpRequest request = HttpRequest.get(
+                initialUri, "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8");
+        CookieProvider provider = cookieProvider;
+        if (provider != null) {
+            String cookies = provider.cookiesFor(initialUri);
+            if (cookies != null && !cookies.isBlank()) {
+                HttpHeaders headers = request.headers().copy();
+                headers.add("Cookie", cookies);
+                request = new HttpRequest(request.method(), request.uri(), headers, request.body());
+            }
+        }
         HttpResourceFetcher.FetchResult result = HttpResourceFetcher.fetch(
                 client,
-                initialUri,
-                "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+                request,
                 cancelled,
                 (from, to, statusCode) -> {
                     Instant at = Instant.now();
                     emit(new PageLoadEvent.Redirected(loadId, at, from, to, statusCode));
                     emit(new NetworkRequestEvent.Redirected(loadId, at, from, to, statusCode,
                             NetworkResourceType.DOCUMENT));
-                });
+                },
+                false);
         HttpResponse response = result.response();
+        CookieSink sink = cookieSink;
+        if (sink != null) {
+            for (String value : response.headers().all("set-cookie")) {
+                sink.store(result.uri(), value);
+            }
+        }
         return new Page(result.uri(), response.statusCode(), decodeHtml(response), response.body().length);
     }
 

@@ -26,7 +26,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
 
     private static final List<String> MEMBERS = List.of(
             "tagName", "nodeName", "nodeType", "nodeValue", "namespaceURI", "prefix", "localName",
-            "id", "className", "classList", "name", "type", "value", "checked", "defaultChecked", "indeterminate", "selected", "defaultSelected",
+            "id", "className", "classList", "dataset", "name", "type", "value", "checked", "defaultChecked", "indeterminate", "selected", "defaultSelected",
             "src", "srcdoc", "contentDocument", "contentWindow",
             "textContent", "innerHTML", "style", "sheet", "children", "childNodes", "length", "elements", "form", "options", "selectedIndex",
             "caption", "tHead", "tFoot", "tBodies", "rows", "cells", "rowIndex", "sectionRowIndex", "cellIndex",
@@ -37,6 +37,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             "insertRow", "deleteRow", "insertCell", "deleteCell", "add", "remove",
             "append", "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
             "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode", "click", "focus", "blur", "scrollIntoView",
+            "getBoundingClientRect", "getClientRects", "play", "pause",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
             "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
@@ -45,6 +46,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
     private final Element element;
     private final JsDocument document;
     private JsDomTokenList classList;
+    private JsDomStringMap dataset;
     private JsStyleDeclaration style;
     private JsCssStyleSheet sheet;
     private final Map<String, Value> expandos = new LinkedHashMap<>();
@@ -71,6 +73,8 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "className" -> orEmpty(element.getAttribute("class"));
             case "classList" -> classList == null
                     ? classList = new JsDomTokenList(element.getClassList(), document) : classList;
+            case "dataset" -> dataset == null
+                    ? dataset = new JsDomStringMap(element) : dataset;
             case "name" -> orEmpty(element.getAttribute("name"));
             case "type" -> inputType();
             case "value" -> value();
@@ -212,6 +216,12 @@ final class JsElement implements ProxyObject, JsNodeLike {
                 return null;
             };
             case "scrollIntoView" -> (ProxyExecutable) args -> null;
+            case "getBoundingClientRect" -> (ProxyExecutable) args -> ProxyObject.fromMap(
+                    Map.of("x", 0.0, "y", 0.0, "width", 0.0, "height", 0.0,
+                            "top", 0.0, "right", 0.0, "bottom", 0.0, "left", 0.0,
+                            "toJSON", (org.graalvm.polyglot.proxy.ProxyExecutable) inner -> null));
+            case "getClientRects" -> (ProxyExecutable) args -> ProxyArray.fromArray();
+            case "play", "pause", "load" -> (ProxyExecutable) args -> null;
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(element, document);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(element, document);
             case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(element);
