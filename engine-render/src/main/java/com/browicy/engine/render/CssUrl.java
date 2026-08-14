@@ -105,9 +105,19 @@ public final class CssUrl {
             cursor[0]++;
             while (cursor[0] < text.length()) {
                 char c = text.charAt(cursor[0]++);
-                if (c == quote) return value.toString();
                 if (c == '\\' && cursor[0] < text.length()) c = text.charAt(cursor[0]++);
                 if (c == '\r' || c == '\n') return null;
+                if (c == quote) {
+                    // Toleriere unescapte Quotes im Wert, wenn danach noch
+                    // Zeichen bis zum echten Schließ-Quote + ) folgen.
+                    int after = cursor[0];
+                    while (after < text.length() && Character.isWhitespace(text.charAt(after))) {
+                        after++;
+                    }
+                    if (after >= text.length() || text.charAt(after) == ')') {
+                        return value.toString();
+                    }
+                }
                 value.append(c);
             }
             return null;

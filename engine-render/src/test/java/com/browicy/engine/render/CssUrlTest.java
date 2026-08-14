@@ -15,6 +15,9 @@ public class CssUrlTest {
         assertNull(CssUrl.parseSingle("url(javascript:alert(1))"));
         assertEquals("data:image/png;base64,AAAA",
                 CssUrl.parseSingle("url(data:image/png;base64,AAAA)"));
+        assertEquals("data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\">",
+                CssUrl.parseSingle("url(\"data:image/svg+xml;utf8,"
+                        + "<svg xmlns=\"http://www.w3.org/2000/svg\">\")"));
         assertNull(CssUrl.parseSingle("url(a.png) trailing"));
     }
 
