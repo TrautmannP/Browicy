@@ -187,7 +187,7 @@ public class CssParserTest {
         assertTrue(parser.supports("width", "25vw"));
         assertTrue(parser.supports("font-size", "1.5rem"));
         assertTrue(parser.supports("font-size", "87.5%"));
-        assertFalse(parser.supports("text-align", "justify"));
+        assertTrue(parser.supports("text-align", "justify"));
     }
 
     @Test
@@ -1258,8 +1258,9 @@ public class CssParserTest {
 
         assertTrue(parser.supportsProperty("filter"));
         assertTrue(parser.supports("filter", "grayscale()"));
+        assertTrue(parser.supports("filter", "drop-shadow(2px 2px 1px black)"));
         assertTrue(parser.supports("display", "-webkit-box"));
-        assertFalse(parser.parseDeclarations("filter:drop-shadow(0 0 2px red)")
+        assertFalse(parser.parseDeclarations("filter:url(#blur)")
                 .containsKey("filter"));
         assertFalse(parser.parseDeclarations("cursor:bogus").containsKey("cursor"));
 
@@ -1497,5 +1498,44 @@ public class CssParserTest {
 
         assertTrue(parser.supports("font-weight", "450"));
         assertTrue(parser.supports("box-shadow", "0"));
+    }
+
+    @Test
+    public void acceptsListItemDropShadowAndLastSingleValues() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                border-left:1px solid silver;border-style:dashed;
+                clip-path:rect(0 0 0 0);display:list-item;
+                filter:drop-shadow(2px 2px 1px #00000040);font:inherit;left:inherit;
+                object-fit:unset;object-position:"50% 100%";shape-rendering:unset;
+                stroke:none;text-align:start;text-transform:inherit;text-wrap:auto;
+                transform:translateY(calc(-50% - .3rem));transition-delay:0;
+                visibility:none;z-index:unset
+                """);
+
+        assertEquals("1px", declarations.get("border-left-width"));
+        assertEquals("dashed", declarations.get("border-left-style"));
+        assertEquals("silver", declarations.get("border-left-color"));
+        assertEquals("dashed", declarations.get("border-top-style"));
+        assertEquals("rect(0 0 0 0)", declarations.get("clip-path"));
+        assertEquals("list-item", declarations.get("display"));
+        assertEquals("drop-shadow(2px 2px 1px #00000040)", declarations.get("filter"));
+        assertEquals("inherit", declarations.get("font-family"));
+        assertEquals("inherit", declarations.get("left"));
+        assertEquals("unset", declarations.get("object-fit"));
+        assertEquals("50% 100%", declarations.get("object-position"));
+        assertEquals("unset", declarations.get("shape-rendering"));
+        assertEquals("none", declarations.get("stroke"));
+        assertEquals("start", declarations.get("text-align"));
+        assertEquals("inherit", declarations.get("text-transform"));
+        assertEquals("auto", declarations.get("text-wrap"));
+        assertEquals("translatey(calc(-50% - .3rem))", declarations.get("transform"));
+        assertEquals("0s", declarations.get("transition-delay"));
+        assertEquals("none", declarations.get("visibility"));
+        assertEquals("unset", declarations.get("z-index"));
+
+        assertTrue(parser.supports("display", "list-item"));
+        assertTrue(parser.supports("clip-path", "rect(0 0 0 0)"));
+        assertTrue(parser.supports("filter", "drop-shadow(1px 1px 1px black)"));
     }
 }

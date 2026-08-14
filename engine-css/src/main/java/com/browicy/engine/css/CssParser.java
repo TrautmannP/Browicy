@@ -818,7 +818,13 @@ public final class CssParser {
                 if (!value.isBlank()) target.put(property, value);
             }
             case "line-height" -> putIfMatches(target, property, value, LINE_HEIGHT);
-            case "font" -> expandFont(target, value);
+            case "font" -> {
+                if (value.equals("inherit") || value.equals("unset")) {
+                    target.put("font-family", value);
+                } else {
+                    expandFont(target, value);
+                }
+            }
             case "font-weight" -> {
                 if (value.equals("normal") || value.equals("bold") || value.equals("bolder")
                         || value.equals("lighter") || value.equals("inherit")
@@ -842,7 +848,7 @@ public final class CssParser {
                         || value.equals("table-cell") || value.equals("table-column-group")
                         || value.equals("table-column") || value.equals("table-caption")
                         || value.equals("inherit") || value.equals("-webkit-box")
-                        || value.equals("contents")) {
+                        || value.equals("contents") || value.equals("list-item")) {
                     target.put(property, value);
                 }
             }
@@ -959,15 +965,20 @@ public final class CssParser {
                  "animation-fill-mode" -> putAnimationLonghand(target, property, value);
             case "transition" -> putTransitionShorthand(target, value);
             case "transition-property", "transition-duration", "transition-timing-function",
-                 "transition-delay" -> putTransitionLonghand(target, property, value);
+                 "transition-delay" -> {
+                     String candidate = value.equals("0") ? "0s" : value;
+                     putTransitionLonghand(target, property, candidate);
+                 }
             case "clip-path" -> {
-                if (value.equals("none") || isClipPathFunction(value)) {
+                if (value.equals("none") || value.equals("inherit")
+                        || value.equals("unset")
+                        || isClipPathFunction(value)) {
                     target.put(property, value);
                 }
             }
             case "text-wrap" -> {
                 if (value.equals("wrap") || value.equals("nowrap") || value.equals("balance")
-                        || value.equals("pretty")) {
+                        || value.equals("pretty") || value.equals("auto")) {
                     target.put(property, value);
                 }
             }
@@ -989,8 +1000,14 @@ public final class CssParser {
                 }
             }
             case "object-position" -> {
-                if (isObjectPosition(value)) {
-                    target.put(property, value);
+                String candidate = value.strip();
+                if (candidate.length() >= 2 && (candidate.startsWith("\"")
+                        || candidate.startsWith("'")) && candidate.endsWith("\"")
+                        || candidate.endsWith("'")) {
+                    candidate = candidate.substring(1, candidate.length() - 1);
+                }
+                if (isObjectPosition(candidate)) {
+                    target.put(property, candidate);
                 }
             }
             case "user-select" -> {
@@ -1000,7 +1017,14 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
-            case "stroke", "stroke-color" -> putColor(target, property, value);
+            case "stroke", "stroke-color" -> {
+                if (value.equals("none") || value.equals("inherit")
+                        || value.equals("unset")) {
+                    target.put(property, value);
+                } else {
+                    putColor(target, property, value);
+                }
+            }
             case "stroke-width" -> putIfMatches(target, property, value, POSITIVE_LENGTH);
             case "scrollbar-width" -> {
                 if (value.equals("none") || value.equals("auto") || value.equals("thin")) {
@@ -1016,7 +1040,8 @@ public final class CssParser {
             }
             case "object-fit" -> {
                 if (value.equals("fill") || value.equals("contain") || value.equals("cover")
-                        || value.equals("none") || value.equals("scale-down")) {
+                        || value.equals("none") || value.equals("scale-down")
+                        || value.equals("unset") || value.equals("inherit")) {
                     target.put(property, value);
                 }
             }
@@ -1037,7 +1062,8 @@ public final class CssParser {
                 }
             }
             case "z-index" -> {
-                if (value.equals("auto") || INTEGER.matcher(value).matches()) {
+                if (value.equals("auto") || value.equals("unset")
+                        || value.equals("inherit") || INTEGER.matcher(value).matches()) {
                     target.put(property, value);
                 }
             }
@@ -1077,6 +1103,8 @@ public final class CssParser {
             case "top", "right", "bottom", "left" -> {
                 if (value.equals("unset")) {
                     target.put(property, "auto");
+                } else if (value.equals("inherit")) {
+                    target.put(property, "inherit");
                 } else if (isMathFunctionValue(value)) {
                     target.put(property, value);
                 } else {
@@ -1123,13 +1151,16 @@ public final class CssParser {
                 }
             }
             case "text-align" -> {
-                if (value.equals("left") || value.equals("center") || value.equals("right")) {
+                if (value.equals("left") || value.equals("center") || value.equals("right")
+                        || value.equals("start") || value.equals("end")
+                        || value.equals("justify")) {
                     target.put(property, value);
                 }
             }
             case "visibility" -> {
                 if (value.equals("visible") || value.equals("hidden")
-                        || value.equals("collapse")) {
+                        || value.equals("collapse") || value.equals("none")
+                        || value.equals("inherit")) {
                     target.put(property, value);
                 }
             }
@@ -1172,7 +1203,8 @@ public final class CssParser {
             }
             case "text-transform" -> {
                 if (value.equals("none") || value.equals("uppercase")
-                        || value.equals("lowercase") || value.equals("capitalize")) {
+                        || value.equals("lowercase") || value.equals("capitalize")
+                        || value.equals("inherit") || value.equals("unset")) {
                     target.put(property, value);
                 }
             }
@@ -1256,7 +1288,8 @@ public final class CssParser {
                 if (value.equals("auto") || value.equals("crispedges")
                         || value.equals("geometricprecision")
                         || value.equals("optimizespeed")
-                        || value.equals("optimizequality")) {
+                        || value.equals("optimizequality")
+                        || value.equals("unset") || value.equals("inherit")) {
                     target.put(property, value);
                 }
             }
@@ -1553,6 +1586,10 @@ public final class CssParser {
             }
             case "border-style" -> expandBorderStyles(target, value);
             case "border" -> expandBorder(target, null, value);
+            case "border-top" -> expandBorder(target, "top", value);
+            case "border-right" -> expandBorder(target, "right", value);
+            case "border-bottom" -> expandBorder(target, "bottom", value);
+            case "border-left" -> expandBorder(target, "left", value);
             case "border-radius" -> {
                 if (value.equals("inherit") || value.equals("unset")) {
                     target.put(property, value);
@@ -1639,7 +1676,7 @@ public final class CssParser {
     }
 
     private static final Pattern TRANSFORM_FUNCTION =
-            Pattern.compile("([a-zA-Z]+)\\(([^)]*)\\)");
+            Pattern.compile("([a-zA-Z]+)\\(((?:[^()]|\\([^()]*\\))*)\\)");
     private static final Pattern TRANSFORM_OFFSET =
             Pattern.compile("[-+]?[0-9]*\\.?[0-9]+(px|rem|em|vw|vh|%)?");
     private static final Pattern TRANSFORM_NUMBER =
@@ -1696,6 +1733,9 @@ public final class CssParser {
     }
 
     private static boolean isTransformOffset(String value) {
+        if (value.toLowerCase(Locale.ROOT).startsWith("calc(") && value.endsWith(")")) {
+            return true;
+        }
         if (!TRANSFORM_OFFSET.matcher(value).matches()) {
             return false;
         }
@@ -2432,12 +2472,13 @@ public final class CssParser {
         String normalized = value.toLowerCase(Locale.ROOT);
         if (property.equals("transition-duration")
                 || property.equals("transition-delay")) {
-            for (String part : splitTopLevel(value, ',')) {
+            String candidate = value.equals("0") ? "0s" : value;
+            for (String part : splitTopLevel(candidate, ',')) {
                 if (!TIME_VALUE.matcher(part.strip()).matches()) {
                     return;
                 }
             }
-            target.put(property, value);
+            target.put(property, candidate);
         } else if (property.equals("transition-timing-function")) {
             for (String part : splitTopLevel(value, ',')) {
                 if (!isTimingFunction(part.strip())) {
@@ -2737,7 +2778,8 @@ public final class CssParser {
                     || lower.startsWith("invert(") || lower.startsWith("contrast(")
                     || lower.startsWith("opacity(") || lower.startsWith("saturate(")
                     || lower.startsWith("sepia(") || lower.startsWith("blur(")
-                    || lower.startsWith("hue-rotate(")) {
+                    || lower.startsWith("hue-rotate(")
+                    || lower.startsWith("drop-shadow(")) {
                 if (!lower.endsWith(")")) {
                     return false;
                 }
@@ -2790,7 +2832,7 @@ public final class CssParser {
         if (normalized.equals("none")) {
             return true;
         }
-        for (String name : List.of("inset", "circle", "ellipse", "polygon", "path", "url")) {
+        for (String name : List.of("inset", "circle", "ellipse", "polygon", "path", "url", "rect")) {
             if (normalized.startsWith(name + "(") && normalized.endsWith(")")) {
                 return true;
             }
@@ -2966,7 +3008,9 @@ public final class CssParser {
             return;
         }
         for (String entry : values) {
-            if (!entry.equals("none") && !entry.equals("solid")) {
+            if (!entry.equals("none") && !entry.equals("solid")
+                    && !entry.equals("dotted") && !entry.equals("dashed")
+                    && !entry.equals("double")) {
                 return;
             }
         }

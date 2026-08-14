@@ -30,6 +30,16 @@ public record CssColor(int red, int green, int blue, int alpha) {
             Map.entry("cyan", rgb(0x00ffff)),
             Map.entry("magenta", rgb(0xff00ff)),
             Map.entry("purple", rgb(0x800080)),
+            Map.entry("silver", rgb(0xc0c0c0)),
+            Map.entry("maroon", rgb(0x800000)),
+            Map.entry("fuchsia", rgb(0xff00ff)),
+            Map.entry("lime", rgb(0x00ff00)),
+            Map.entry("olive", rgb(0x808000)),
+            Map.entry("navy", rgb(0x000080)),
+            Map.entry("teal", rgb(0x008080)),
+            Map.entry("aqua", rgb(0x00ffff)),
+            Map.entry("gold", rgb(0xffd700)),
+            Map.entry("violet", rgb(0xee82ee)),
             Map.entry("transparent", new CssColor(0, 0, 0, 0))
     );
 
