@@ -876,8 +876,10 @@ public final class RenderTreeBuilder {
             lineHeight = lineHeightValue.equals("inherit")
                     ? parent.lineHeight() : resolveLineHeight(lineHeightValue, fontSize);
         }
-        width = resolveDimension(declarations.get("width"), fontSize);
-        height = resolveDimension(declarations.get("height"), fontSize);
+        width = "inherit".equals(declarations.get("width"))
+                ? parent.width() : resolveDimension(declarations.get("width"), fontSize);
+        height = "inherit".equals(declarations.get("height"))
+                ? parent.height() : resolveDimension(declarations.get("height"), fontSize);
         minWidth = resolveDimension(declarations.get("min-width"), fontSize);
         maxWidth = "inherit".equals(declarations.get("max-width"))
                 ? parent.maxWidth() : resolveDimension(declarations.get("max-width"), fontSize);
@@ -1858,6 +1860,18 @@ public final class RenderTreeBuilder {
             Float evaluated = evaluateMathFunction(math, emBase);
             if (evaluated != null) {
                 return new RenderLength(Math.max(0, evaluated), RenderLength.Unit.PX);
+            }
+        }
+        if (math.startsWith("clamp(") && math.endsWith(")")) {
+            List<String> args = splitTopLevelCommas(math.substring(6, math.length() - 1));
+            if (args.size() == 3) {
+                Float min = evaluateMathArg(args.get(0), emBase);
+                Float preferred = evaluateMathArg(args.get(1), emBase);
+                Float max = evaluateMathArg(args.get(2), emBase);
+                if (min != null && preferred != null && max != null) {
+                    float clamped = Math.min(max, Math.max(min, preferred));
+                    return new RenderLength(Math.max(0, clamped), RenderLength.Unit.PX);
+                }
             }
         }
         if (math.startsWith("calc(") && math.endsWith(")")) {

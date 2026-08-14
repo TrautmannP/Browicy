@@ -537,7 +537,8 @@ public final class CssParser {
     private static void putContent(Map<String, String> target, String value) {
         String stripped = value.strip();
         String lower = stripped.toLowerCase(Locale.ROOT);
-        if (lower.equals("normal") || lower.equals("none")) {
+        if (lower.equals("normal") || lower.equals("none")
+                || lower.equals("unset") || lower.equals("inherit")) {
             target.put("content", lower);
         } else if (isQuotedContent(stripped) || isAttrContent(stripped)) {
             target.put("content", stripped);
@@ -618,6 +619,9 @@ public final class CssParser {
             case "stroke-dasharray" -> supports(normalized, "3 3");
             case "text-rendering" -> supports(normalized, "optimizelegibility");
             case "text-underline-offset" -> supports(normalized, "2px");
+            case "backface-visibility" -> supports(normalized, "hidden");
+            case "background-attachment" -> supports(normalized, "fixed");
+            case "caret-color" -> supports(normalized, "auto");
             case "align-self" -> supports(normalized, "stretch");
             case "align-content" -> supports(normalized, "stretch");
             case "order" -> supports(normalized, "0");
@@ -736,6 +740,7 @@ public final class CssParser {
         switch (property) {
             case "content" -> {
                 if (value.equals("normal") || value.equals("none")
+                        || value.equals("unset") || value.equals("inherit")
                         || isQuotedContent(value) || isAttrContent(value)) {
                     target.put(property, value);
                 }
@@ -972,7 +977,8 @@ public final class CssParser {
             }
             case "user-select" -> {
                 if (value.equals("none") || value.equals("all") || value.equals("text")
-                        || value.equals("auto")) {
+                        || value.equals("auto") || value.equals("contain")
+                        || value.equals("unset") || value.equals("inherit")) {
                     target.put(property, value);
                 }
             }
@@ -1034,7 +1040,8 @@ public final class CssParser {
                         || value.equals("s-resize") || value.equals("e-resize")
                         || value.equals("w-resize") || value.equals("ne-resize")
                         || value.equals("nw-resize") || value.equals("se-resize")
-                        || value.equals("sw-resize")) {
+                        || value.equals("sw-resize") || value.equals("nwse-resize")
+                        || value.equals("nesw-resize")) {
                     target.put(property, value);
                 }
             }
@@ -1050,7 +1057,9 @@ public final class CssParser {
                 }
             }
             case "top", "right", "bottom", "left" -> {
-                if (isMathFunctionValue(value)) {
+                if (value.equals("unset")) {
+                    target.put(property, "auto");
+                } else if (isMathFunctionValue(value)) {
                     target.put(property, value);
                 } else {
                     putIfMatches(target, property, value, POSITION_OFFSET);
@@ -1059,6 +1068,7 @@ public final class CssParser {
             case "width", "height", "min-width", "min-height" -> {
                 if (value.equals("max-content") || value.equals("min-content")
                         || value.equals("fit-content") || value.equals("unset")
+                        || value.equals("inherit") || value.startsWith("clamp(")
                         || isMathFunctionValue(value)) {
                     target.put(property, value);
                 } else {
@@ -1332,6 +1342,29 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
+            case "backface-visibility" -> {
+                if (value.equals("visible") || value.equals("hidden")) {
+                    target.put(property, value);
+                }
+            }
+            case "background-attachment" -> {
+                if (value.equals("scroll") || value.equals("fixed")
+                        || value.equals("local")) {
+                    target.put(property, value);
+                }
+            }
+            case "caret-color" -> {
+                if (isColorValue(value) || value.equals("auto")
+                        || value.equals("transparent")) {
+                    target.put(property, value);
+                }
+            }
+            case "-ms-overflow-style" -> {
+                if (value.equals("auto") || value.equals("scrollbar")
+                        || value.equals("none") || value.equals("scroll")) {
+                    target.put("overflow", value.equals("scrollbar") ? "auto" : value);
+                }
+            }
             case "color-scheme" -> {
                 if (value.equals("normal") || value.equals("light")
                         || value.equals("dark") || value.equals("light dark")
@@ -1432,14 +1465,28 @@ public final class CssParser {
                 }
             }
             case "border-top-left-radius", "border-top-right-radius",
-                 "border-bottom-right-radius", "border-bottom-left-radius" ->
+                 "border-bottom-right-radius", "border-bottom-left-radius" -> {
+                if (value.equals("inherit") || value.equals("unset")) {
+                    target.put(property, value);
+                } else {
                     putIfMatches(target, property, value, RADIUS_LENGTH);
+                }
+            }
             case "outline" -> expandOutline(target, value);
             case "outline-width" -> putIfMatches(target, property, value, POSITIVE_LENGTH);
-            case "outline-offset" -> putIfMatches(target, property, value, LENGTH_OR_ZERO);
+            case "outline-offset" -> {
+                if (value.equals("unset") || value.equals("inherit")) {
+                    target.put(property, "0");
+                } else if (LENGTH_OR_ZERO.matcher(value).matches()
+                        || value.matches("-?[0-9]+(px)?")) {
+                    target.put(property, value);
+                }
+            }
             case "outline-color" -> putColor(target, property, value);
             case "outline-style" -> {
-                if (value.equals("none") || value.equals("solid")) target.put(property, value);
+                if (value.equals("none") || value.equals("solid")
+                        || value.equals("dotted") || value.equals("dashed")
+                        || value.equals("double")) target.put(property, value);
             }
             case "transform" -> {
                 String normalized = normalizeTransform(value);
@@ -1491,7 +1538,7 @@ public final class CssParser {
     private static final Pattern TRANSFORM_FUNCTION =
             Pattern.compile("([a-zA-Z]+)\\(([^)]*)\\)");
     private static final Pattern TRANSFORM_OFFSET =
-            Pattern.compile("[-+]?[0-9]*\\.?[0-9]+(px|rem|vw|vh|%)?");
+            Pattern.compile("[-+]?[0-9]*\\.?[0-9]+(px|rem|em|vw|vh|%)?");
     private static final Pattern TRANSFORM_NUMBER =
             Pattern.compile("[-+]?[0-9]*\\.?[0-9]+");
     private static final Pattern TRANSFORM_ANGLE =
@@ -1550,7 +1597,7 @@ public final class CssParser {
             return false;
         }
         if (value.endsWith("%") || value.endsWith("px") || value.endsWith("rem")
-                || value.endsWith("vw") || value.endsWith("vh")) {
+                || value.endsWith("em") || value.endsWith("vw") || value.endsWith("vh")) {
             return true;
         }
         try {
@@ -2243,11 +2290,11 @@ public final class CssParser {
                     continue;
                 }
                 String tokenLower = token.toLowerCase(Locale.ROOT);
-                if (TIME_VALUE.matcher(tokenLower).matches()) {
+                if (TIME_VALUE.matcher(tokenLower).matches() || tokenLower.equals("0")) {
                     if (duration == null && delay == null) {
-                        duration = token;
+                        duration = tokenLower.equals("0") ? "0s" : token;
                     } else if (delay == null) {
-                        delay = token;
+                        delay = tokenLower.equals("0") ? "0s" : token;
                     } else {
                         return;
                     }
@@ -2830,7 +2877,9 @@ public final class CssParser {
             }
             if (POSITIVE_LENGTH.matcher(token).matches() && width == null) {
                 width = token;
-            } else if ((token.equals("none") || token.equals("solid")) && style == null) {
+            } else if ((token.equals("none") || token.equals("solid")
+                    || token.equals("dotted") || token.equals("dashed")
+                    || token.equals("double")) && style == null) {
                 style = token;
             } else if ((isColorValue(token) || containsVarFunction(token)) && color == null) {
                 color = token;
@@ -2864,7 +2913,9 @@ public final class CssParser {
         for (String token : value.split("\\s+")) {
             if (POSITIVE_LENGTH.matcher(token).matches() && width == null) {
                 width = token;
-            } else if ((token.equals("none") || token.equals("solid")) && style == null) {
+            } else if ((token.equals("none") || token.equals("solid")
+                    || token.equals("dotted") || token.equals("dashed")
+                    || token.equals("double")) && style == null) {
                 style = token;
             } else if ((isColorValue(token) || SYSTEM_COLORS.contains(token)
                     || containsVarFunction(token)) && color == null) {

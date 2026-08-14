@@ -1389,4 +1389,38 @@ public class CssParserTest {
         assertTrue(parser.supports("display", "contents"));
         assertFalse(parser.parseDeclarations("stroke-dasharray:abc").containsKey("stroke-dasharray"));
     }
+
+    @Test
+    public void acceptsZeroTransitionsClampInheritWidthAndUnsetValues() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                transition:visibility 0 linear 0,opacity 50ms;
+                width:inherit;width:clamp(8rem,16vw,14rem);
+                content:unset;cursor:nwse-resize;outline:1px dotted #0000;
+                outline-offset:-2;top:unset;user-select:contain;
+                backface-visibility:hidden;background-attachment:fixed;
+                caret-color:auto;border-top-left-radius:inherit
+                """);
+
+        assertEquals("visibility,opacity", declarations.get("transition-property"));
+        assertEquals("0s,50ms", declarations.get("transition-duration"));
+        assertEquals("clamp(8rem,16vw,14rem)", declarations.get("width"));
+        assertEquals("unset", declarations.get("content"));
+        assertEquals("nwse-resize", declarations.get("cursor"));
+        assertEquals("dotted", declarations.get("outline-style"));
+        assertEquals("-2", declarations.get("outline-offset"));
+        assertEquals("auto", declarations.get("top"));
+        assertEquals("contain", declarations.get("user-select"));
+        assertEquals("hidden", declarations.get("backface-visibility"));
+        assertEquals("fixed", declarations.get("background-attachment"));
+        assertEquals("auto", declarations.get("caret-color"));
+        assertEquals("inherit", declarations.get("border-top-left-radius"));
+
+        assertEquals("rotate(15deg) translatey(.0625em)",
+                parser.parseDeclarations("transform:rotate(15deg)translateY(.0625em)")
+                        .get("transform"));
+        assertTrue(parser.supports("width", "clamp(1rem,5vw,3rem)"));
+        assertFalse(parser.parseDeclarations("transition:1s").containsKey("transition-property"));
+        assertFalse(parser.parseDeclarations("caret-color:bogus").containsKey("caret-color"));
+    }
 }
