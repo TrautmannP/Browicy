@@ -71,6 +71,8 @@ public record RenderStyle(
         int order,
         java.util.List<GridTrack> gridTemplateColumns,
         java.util.List<GridTrack> gridTemplateRows,
+        java.util.List<GridTrack> gridAutoColumns,
+        java.util.List<GridTrack> gridAutoRows,
         String[][] gridTemplateAreas,
         String gridAreaName,
         GridAutoFlow gridAutoFlow,
@@ -179,7 +181,6 @@ public record RenderStyle(
     public RenderStyle withFlexGrow(float value) {
         return copy(display, width, height, value);
     }
-
     private RenderStyle copy(Display newDisplay,
                              RenderLength newWidth,
                              RenderLength newHeight,
@@ -199,7 +200,8 @@ public record RenderStyle(
                 textOverflow, overflow,
                 verticalAlign, flexDirection,
                 flexWrap, justifyContent, alignItems, alignSelf, alignContent, order,
-                gridTemplateColumns, gridTemplateRows, gridTemplateAreas, gridAreaName,
+                gridTemplateColumns, gridTemplateRows, gridAutoColumns, gridAutoRows,
+                gridTemplateAreas, gridAreaName,
                 gridAutoFlow, gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd,
                 rowGapPx, columnGapPx, textShadow,
                 newFlexGrow, flexShrink, flexBasis, opacity);

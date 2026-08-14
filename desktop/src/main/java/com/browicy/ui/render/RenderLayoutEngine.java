@@ -449,10 +449,23 @@ public final class RenderLayoutEngine {
             return new GridLayout(0, List.of());
         }
         RenderStyle style = container.style();
-        List<RenderStyle.GridTrack> columns = style.gridTemplateColumns().isEmpty()
-                ? List.of(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.AUTO, 0, 0, 0, 0))
-                : style.gridTemplateColumns();
+        List<RenderStyle.GridTrack> columns = style.gridTemplateColumns();
         List<RenderStyle.GridTrack> rows = style.gridTemplateRows();
+        boolean columnFlow = style.gridAutoFlow() == RenderStyle.GridAutoFlow.COLUMN
+                || style.gridAutoFlow() == RenderStyle.GridAutoFlow.COLUMN_DENSE;
+        int rowCapacity = rows.isEmpty() ? 1 : rows.size();
+        int requiredColumns = columnFlow
+                ? Math.max(1, (items.size() + rowCapacity - 1) / rowCapacity) : 1;
+        if (columns.isEmpty()) {
+            columns = implicitTracks(style.gridAutoColumns(), requiredColumns);
+        } else if (columnFlow && columns.size() < requiredColumns) {
+            List<RenderStyle.GridTrack> expanded = new ArrayList<>(columns);
+            expanded.addAll(implicitTracks(style.gridAutoColumns(), requiredColumns - columns.size()));
+            columns = List.copyOf(expanded);
+        }
+        if (rows.isEmpty() && columnFlow) {
+            rows = implicitTracks(style.gridAutoRows(), rowCapacity);
+        }
         int columnCount = columns.size();
         float columnGap = style.columnGapPx();
         float rowGap = style.rowGapPx();
@@ -485,7 +498,8 @@ public final class RenderLayoutEngine {
             }
             if (startCol == 0 && startRow == 0) {
                 // Auto-Platzierung im Raster.
-                int[] slot = findFreeCell(occupied, columnCount, spanCol, spanRow, startRow);
+                int[] slot = findFreeCell(occupied, columnCount, spanCol, spanRow, startRow,
+                        rowCapacity, columnFlow);
                 startRow = slot[0] + 1;
                 startCol = slot[1] + 1;
             } else {
@@ -658,29 +672,52 @@ public final class RenderLayoutEngine {
         return offset;
     }
 
+    private static List<RenderStyle.GridTrack> implicitTracks(
+            List<RenderStyle.GridTrack> pattern, int count) {
+        RenderStyle.GridTrack fallback = new RenderStyle.GridTrack(
+                RenderStyle.GridTrack.Type.AUTO, 0, 0, 0, 0);
+        List<RenderStyle.GridTrack> source = pattern.isEmpty() ? List.of(fallback) : pattern;
+        List<RenderStyle.GridTrack> result = new ArrayList<>(count);
+        for (int index = 0; index < count; index++) {
+            result.add(source.get(index % source.size()));
+        }
+        return List.copyOf(result);
+    }
+
     private static int[] findFreeCell(java.util.Set<String> occupied, int columnCount,
-                                      int spanCol, int spanRow, int startRow) {
+                                      int spanCol, int spanRow, int startRow,
+                                      int rowCapacity, boolean columnFlow) {
         int row = Math.max(0, startRow - 1);
-        while (true) {
+        if (columnFlow) {
             for (int column = 0; column < columnCount; column++) {
-                boolean free = true;
-                for (int r = row; r < row + spanRow; r++) {
-                    for (int c = column; c < column + spanCol; c++) {
-                        if (occupied.contains((r + 1) + ":" + (c + 1))) {
-                            free = false;
-                            break;
-                        }
-                    }
-                    if (!free) {
-                        break;
+                for (int candidateRow = 0; candidateRow < rowCapacity; candidateRow++) {
+                    if (cellIsFree(occupied, candidateRow, column, spanCol, spanRow)) {
+                        return new int[] {candidateRow, column};
                     }
                 }
-                if (free) {
+            }
+            return new int[] {0, columnCount};
+        }
+        while (true) {
+            for (int column = 0; column < columnCount; column++) {
+                if (cellIsFree(occupied, row, column, spanCol, spanRow)) {
                     return new int[] {row, column};
                 }
             }
             row++;
         }
+    }
+
+    private static boolean cellIsFree(java.util.Set<String> occupied,
+                                      int row, int column, int spanCol, int spanRow) {
+        for (int r = row; r < row + spanRow; r++) {
+            for (int c = column; c < column + spanCol; c++) {
+                if (occupied.contains((r + 1) + ":" + (c + 1))) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static int[] findArea(String[][] areas, String name) {
@@ -833,7 +870,7 @@ public final class RenderLayoutEngine {
             IntrinsicWidths intrinsic = intrinsicBoxWidth(items.get(index), contentWidth, graphics);
             RenderStyle itemStyle = items.get(index).style();
             widths[index] = flexBaseOuterWidth(itemStyle, intrinsic, contentWidth);
-            minimums[index] = intrinsic.minimum();
+            minimums[index] = flexMinimumOuterWidth(items.get(index), contentWidth, graphics);
             shrinkFactors[index] = itemStyle.flexShrink();
             totalGrow += itemStyle.flexGrow();
         }
@@ -925,6 +962,23 @@ public final class RenderLayoutEngine {
         return resolve(basis, percentageBase)
                 + style.margin().horizontal() + style.padding().horizontal()
                 + style.borderWidth().horizontal();
+    }
+
+    private float flexMinimumOuterWidth(RenderBox box,
+                                        float percentageBase,
+                                        Graphics2D graphics) {
+        RenderStyle style = box.style();
+        if (box.children().isEmpty() && !style.width().isAuto()) {
+            return intrinsicBoxWidth(box, percentageBase, graphics).minimum();
+        }
+        float boxDecoration = style.borderWidth().horizontal() + style.padding().horizontal();
+        float outerDecoration = style.margin().horizontal() + boxDecoration;
+        IntrinsicWidths content = intrinsicWidths(box.children(), percentageBase, graphics);
+        Float minConstraint = resolveBoxConstraint(
+                style, style.minWidth(), box, percentageBase, boxDecoration, graphics);
+        Float maxConstraint = resolveBoxConstraint(
+                style, style.maxWidth(), box, percentageBase, boxDecoration, graphics);
+        return constrain(content.minimum(), minConstraint, maxConstraint) + outerDecoration;
     }
 
     private static float flexItemBaseline(FlexItemLayout item) {

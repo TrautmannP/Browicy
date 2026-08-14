@@ -124,6 +124,8 @@ public final class RenderTreeBuilder {
                 0,
                 java.util.List.of(),
                 java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
                 null,
                 null,
                 RenderStyle.GridAutoFlow.ROW,
@@ -702,6 +704,8 @@ public final class RenderTreeBuilder {
                 0,
                 java.util.List.of(),
                 java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
                 null,
                 null,
                 RenderStyle.GridAutoFlow.ROW,
@@ -795,6 +799,8 @@ public final class RenderTreeBuilder {
         int order = 0;
         java.util.List<RenderStyle.GridTrack> gridTemplateColumns = java.util.List.of();
         java.util.List<RenderStyle.GridTrack> gridTemplateRows = java.util.List.of();
+        java.util.List<RenderStyle.GridTrack> gridAutoColumns = java.util.List.of();
+        java.util.List<RenderStyle.GridTrack> gridAutoRows = java.util.List.of();
         String[][] gridTemplateAreas = null;
         String gridAreaName = null;
         RenderStyle.GridAutoFlow gridAutoFlow = RenderStyle.GridAutoFlow.ROW;
@@ -1029,6 +1035,10 @@ public final class RenderTreeBuilder {
             case "column dense" -> RenderStyle.GridAutoFlow.COLUMN_DENSE;
             default -> RenderStyle.GridAutoFlow.ROW;
         };
+        gridAutoColumns = parseGridTracks(
+                declarations.get("grid-auto-columns"), fontSize, rootFontSizePx);
+        gridAutoRows = parseGridTracks(
+                declarations.get("grid-auto-rows"), fontSize, rootFontSizePx);
         gridColumnStart = parseGridLine(declarations.get("grid-column-start"));
         gridColumnEnd = parseGridLine(declarations.get("grid-column-end"));
         gridRowStart = parseGridLine(declarations.get("grid-row-start"));
@@ -1185,7 +1195,8 @@ public final class RenderTreeBuilder {
                 whiteSpace, letterSpacingPx, textOverflow,
                 overflow, verticalAlign, flexDirection, flexWrap, justifyContent,
                 alignItems, alignSelf, alignContent, order,
-                gridTemplateColumns, gridTemplateRows, gridTemplateAreas, gridAreaName,
+                gridTemplateColumns, gridTemplateRows, gridAutoColumns, gridAutoRows,
+                gridTemplateAreas, gridAreaName,
                 gridAutoFlow, gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd,
                 rowGapPx, columnGapPx, textShadow,
                 flexGrow, flexShrink, flexBasis,
