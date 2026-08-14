@@ -1456,6 +1456,12 @@ public final class RenderTreeBuilder {
         if (value == null || "auto".equals(value)) {
             return RenderLength.AUTO;
         }
+        if ("unset".equals(value)) {
+            return RenderLength.AUTO; // width/height erben nicht: unset = initial = auto
+        }
+        if ("fit-content".equals(value)) {
+            return new RenderLength(0, RenderLength.Unit.MAX_CONTENT);
+        }
         if ("max-content".equals(value)) {
             return new RenderLength(0, RenderLength.Unit.MAX_CONTENT);
         }

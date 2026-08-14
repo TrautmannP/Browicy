@@ -664,6 +664,25 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesUnsetFitContentInitialStrokeWidthAndScrollbarWidth() {
+        CssParser parser = new CssParser();
+        Map<String, String> batch = parser.parseDeclarations("""
+                width:unset;height:fit-content;background-color:initial;
+                stroke-width:2px;scrollbar-width:thin
+                """);
+        assertEquals("unset", batch.get("width"));
+        assertEquals("fit-content", batch.get("height"));
+        assertEquals("transparent", batch.get("background-color"));
+        assertEquals("2px", batch.get("stroke-width"));
+        assertEquals("thin", batch.get("scrollbar-width"));
+
+        assertFalse(parser.parseDeclarations("scrollbar-width:wide").containsKey("scrollbar-width"));
+        assertTrue(parser.supports("width", "unset"));
+        assertTrue(parser.supports("height", "fit-content"));
+        assertTrue(parser.supports("background-color", "initial"));
+    }
+
+    @Test
     public void parsesUserSelectFlexFlowStrokeAndMathFunctions() {
         CssParser parser = new CssParser();
         Map<String, String> batch = parser.parseDeclarations("""

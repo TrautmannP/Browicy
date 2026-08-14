@@ -547,6 +547,8 @@ public final class CssParser {
             case "overflow-wrap", "word-wrap" -> supports(normalized, "break-word");
             case "user-select" -> supports(normalized, "none");
             case "stroke" -> supports(normalized, "black");
+            case "stroke-width" -> supports(normalized, "1px");
+            case "scrollbar-width" -> supports(normalized, "auto");
             case "flex-flow" -> supports(normalized, "row wrap");
             case "transform" -> supports(normalized, "none");
             case "transform-origin" -> supports(normalized, "50% 50%");
@@ -591,7 +593,13 @@ public final class CssParser {
                 if (value.equals("inherit")) target.put(property, value);
                 else putColor(target, property, value);
             }
-            case "background-color" -> putColor(target, property, value);
+            case "background-color" -> {
+                if (value.equals("initial")) {
+                    target.put(property, "transparent");
+                } else {
+                    putColor(target, property, value);
+                }
+            }
             case "background" -> putBackground(target, value);
             case "background-repeat" -> {
                 if (value.equals("repeat") || value.equals("repeat-x")
@@ -720,6 +728,12 @@ public final class CssParser {
                 }
             }
             case "stroke", "stroke-color" -> putColor(target, property, value);
+            case "stroke-width" -> putIfMatches(target, property, value, POSITIVE_LENGTH);
+            case "scrollbar-width" -> {
+                if (value.equals("none") || value.equals("auto") || value.equals("thin")) {
+                    target.put(property, value);
+                }
+            }
             case "aspect-ratio" -> putIfMatches(target, property, value, ASPECT_RATIO);
             case "object-fit" -> {
                 if (value.equals("fill") || value.equals("contain") || value.equals("cover")
@@ -774,6 +788,7 @@ public final class CssParser {
                     putIfMatches(target, property, value, POSITION_OFFSET);
             case "width", "height", "min-width", "min-height" -> {
                 if (value.equals("max-content") || value.equals("min-content")
+                        || value.equals("fit-content") || value.equals("unset")
                         || isMathFunctionValue(value)) {
                     target.put(property, value);
                 } else {
@@ -782,6 +797,7 @@ public final class CssParser {
             }
             case "max-width", "max-height" -> {
                 if (value.equals("max-content") || value.equals("min-content")
+                        || value.equals("fit-content") || value.equals("unset")
                         || isMathFunctionValue(value)) {
                     target.put(property, value);
                 } else {
