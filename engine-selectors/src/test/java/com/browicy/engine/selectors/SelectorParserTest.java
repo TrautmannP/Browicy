@@ -328,6 +328,24 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void parsesFocusVisibleFocusWithinAndPlaceholderShownStates() {
+        assertEquals("input:focus-visible", parser.parse("input:focus-visible")
+                .selectors().getFirst().toString());
+        assertEquals("input:focus-within", parser.parse("input:focus-within")
+                .selectors().getFirst().toString());
+        assertEquals("input:placeholder-shown", parser.parse("input:placeholder-shown")
+                .selectors().getFirst().toString());
+        assertEquals("div:focus-within", parser.parse("div:focus-within")
+                .selectors().getFirst().toString());
+        assertEquals(new Specificity(0, 1, 1), parser.parse("input:focus-visible")
+                .selectors().getFirst().specificity());
+        assertEquals(new Specificity(0, 1, 1), parser.parse("input:focus-within")
+                .selectors().getFirst().specificity());
+        assertEquals(new Specificity(0, 1, 1), parser.parse("input:placeholder-shown")
+                .selectors().getFirst().specificity());
+    }
+
+    @Test
     public void parsesAndMatchesIsWhereAndSelectorListNot() {
         TestNode card = new TestNode("div", null, Set.of("card", "selected"), null,
                 Map.of("data-active", "true"));

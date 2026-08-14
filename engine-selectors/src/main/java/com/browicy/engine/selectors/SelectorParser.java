@@ -239,7 +239,9 @@ public final class SelectorParser {
                     || "focus".equals(name) || "active".equals(name)
                     || "disabled".equals(name) || "enabled".equals(name)
                     || "link".equals(name) || "visited".equals(name)
-                    || "target".equals(name) || "indeterminate".equals(name)) {
+                    || "target".equals(name) || "indeterminate".equals(name)
+                    || "focus-visible".equals(name) || "focus-within".equals(name)
+                    || "placeholder-shown".equals(name)) {
                 statePseudoClasses.add(name);
                 return;
             }

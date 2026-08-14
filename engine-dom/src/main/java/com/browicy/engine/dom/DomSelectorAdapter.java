@@ -2,6 +2,8 @@ package com.browicy.engine.dom;
 
 import com.browicy.engine.selectors.SelectorNodeAdapter;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Locale;
 
 public final class DomSelectorAdapter implements SelectorNodeAdapter<Element> {
@@ -90,8 +92,35 @@ public final class DomSelectorAdapter implements SelectorNodeAdapter<Element> {
             case "visited" -> false;
             case "target" -> matchesTarget(element);
             case "indeterminate" -> isIndeterminate(element);
+            case "focus-visible" -> element.isFocused();
+            case "focus-within" -> element.isFocused() || hasFocusedDescendant(element);
+            case "placeholder-shown" -> isPlaceholderShown(element);
             default -> false;
         };
+    }
+
+    private static boolean hasFocusedDescendant(Element element) {
+        Deque<Element> pending = new ArrayDeque<>(element.getChildElements());
+        while (!pending.isEmpty()) {
+            Element candidate = pending.pop();
+            if (candidate.isFocused()) {
+                return true;
+            }
+            pending.addAll(candidate.getChildElements());
+        }
+        return false;
+    }
+
+    private static boolean isPlaceholderShown(Element element) {
+        String tag = element.getTagName().toLowerCase(Locale.ROOT);
+        if (!"input".equals(tag) && !"textarea".equals(tag)) {
+            return false;
+        }
+        if (!element.hasAttribute("placeholder")) {
+            return false;
+        }
+        String value = element.getValueState();
+        return value == null || value.isEmpty();
     }
 
     private static boolean isLinkLike(Element element) {
