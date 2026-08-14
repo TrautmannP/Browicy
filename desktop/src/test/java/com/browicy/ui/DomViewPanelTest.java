@@ -1451,6 +1451,75 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void alignSelfOverridesTheContainerCrossAxisAlignment() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="flex" style="display:flex;width:300px;height:100px">
+                  <div id="start" style="width:50px;height:20px;align-self:flex-start"></div>
+                  <div id="middle" style="width:50px;height:20px;align-self:center"></div>
+                  <div id="end" style="width:50px;height:20px;align-self:flex-end"></div>
+                  <div id="stretch" style="width:50px;align-self:stretch"></div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment flex = boxById(layout, "flex");
+        BoxFragment start = boxById(layout, "start");
+        BoxFragment middle = boxById(layout, "middle");
+        BoxFragment end = boxById(layout, "end");
+        BoxFragment stretch = boxById(layout, "stretch");
+
+        assertEquals(flex.y(), start.y(), 0.001f);
+        assertEquals(flex.y() + 40f, middle.y(), 0.001f);
+        assertEquals(flex.y() + 80f, end.y(), 0.001f);
+        assertEquals(flex.y(), stretch.y(), 0.001f);
+        assertEquals(100f, stretch.height(), 0.001f);
+    }
+
+    @Test
+    public void orderReordersFlexItemsStably() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="flex" style="display:flex;width:300px">
+                  <div id="first" style="width:50px;height:20px"></div>
+                  <div id="second" style="width:50px;height:20px;order:-1"></div>
+                  <div id="third" style="width:50px;height:20px;order:1"></div>
+                  <div id="fourth" style="width:50px;height:20px"></div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment first = boxById(layout, "first");
+        BoxFragment second = boxById(layout, "second");
+        BoxFragment third = boxById(layout, "third");
+        BoxFragment fourth = boxById(layout, "fourth");
+
+        assertEquals(second.x() + second.width(), first.x(), 0.001f);
+        assertEquals(first.x() + first.width(), fourth.x(), 0.001f);
+        assertEquals(fourth.x() + fourth.width(), third.x(), 0.001f);
+    }
+
+    @Test
+    public void alignContentDistributesWrappedRowsInTheCrossAxis() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="flex" style="display:flex;flex-wrap:wrap;width:250px;
+                     height:100px;align-content:flex-end">
+                  <div id="row-one" style="width:100px;height:20px"></div>
+                  <div id="row-two" style="width:100px;height:20px"></div>
+                  <div id="row-three" style="width:250px;height:20px"></div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(300);
+        BoxFragment flex = boxById(layout, "flex");
+        BoxFragment rowOne = boxById(layout, "row-one");
+        BoxFragment rowThree = boxById(layout, "row-three");
+
+        // Zwei 20px-Reihen + 7px Gap? Kein row-gap gesetzt, also 20+20=40px.
+        // align-content:flex-end => 60px frei oben.
+        assertEquals(flex.y() + 60f, rowOne.y(), 0.001f);
+        assertEquals(rowOne.y() + 20f, rowThree.y(), 0.001f);
+    }
+
+    @Test
     public void wrapsTextWithinShrunkFlexItems() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body><div style="display:flex;width:180px">

@@ -300,6 +300,7 @@ public final class RenderLayoutEngine {
             }
         }
         if (items.isEmpty()) return new FlexLayout(0, List.of());
+        items.sort(java.util.Comparator.comparingInt(item -> item.style().order()));
         return switch (container.style().flexDirection()) {
             case ROW, ROW_REVERSE -> layoutFlexRow(container.style(), items, contentX, contentY,
                     contentWidth, contentHeight, graphics, lineBoxes);
@@ -339,17 +340,56 @@ public final class RenderLayoutEngine {
         if (containerStyle.flexWrap() == RenderStyle.FlexWrap.WRAP_REVERSE) {
             java.util.Collections.reverse(rows);
         }
-        List<PaintFragment> fragments = new ArrayList<>();
-        float offsetY = 0;
+        List<List<PaintFragment>> rowFragments = new ArrayList<>();
+        List<Float> rowHeights = new ArrayList<>();
         for (List<RenderBox> flexRow : rows) {
             FlexLayout layout = layoutFlexRowLine(containerStyle, flexRow, contentX,
-                    contentY + offsetY, contentWidth, null, graphics, lineBoxes);
-            fragments.addAll(layout.fragments());
-            offsetY += layout.height() + containerStyle.rowGapPx();
+                    contentY, contentWidth, null, graphics, lineBoxes);
+            rowFragments.add(layout.fragments());
+            rowHeights.add(layout.height());
         }
-        if (!rows.isEmpty()) offsetY -= containerStyle.rowGapPx();
-        return new FlexLayout(contentHeight == null ? offsetY : Math.max(offsetY, contentHeight),
-                List.copyOf(fragments));
+        float rowGap = containerStyle.rowGapPx();
+        float usedHeight = 0;
+        for (Float rowHeight : rowHeights) {
+            usedHeight += rowHeight;
+        }
+        usedHeight += rowGap * Math.max(0, rowHeights.size() - 1);
+        float alignHeight = contentHeight == null
+                ? usedHeight : Math.max(usedHeight, contentHeight);
+        float free = Math.max(0, alignHeight - usedHeight);
+        float firstOffset = 0;
+        float extraGap = 0;
+        switch (containerStyle.alignContent()) {
+            case FLEX_END -> firstOffset = free;
+            case CENTER -> firstOffset = free / 2f;
+            case SPACE_BETWEEN -> {
+                if (rowHeights.size() > 1) {
+                    extraGap = free / (rowHeights.size() - 1);
+                }
+            }
+            case SPACE_AROUND -> {
+                if (!rowHeights.isEmpty()) {
+                    extraGap = free / rowHeights.size();
+                    firstOffset = extraGap / 2f;
+                }
+            }
+            case SPACE_EVENLY -> {
+                if (!rowHeights.isEmpty()) {
+                    extraGap = free / (rowHeights.size() + 1);
+                    firstOffset = extraGap;
+                }
+            }
+            default -> { /* NORMAL/STRETCH/FLEX_START: Reihen oben beginnen */ }
+        }
+        List<PaintFragment> fragments = new ArrayList<>();
+        float cursor = firstOffset;
+        for (int index = 0; index < rowFragments.size(); index++) {
+            for (PaintFragment fragment : rowFragments.get(index)) {
+                fragments.add(translate(fragment, 0, cursor));
+            }
+            cursor += rowHeights.get(index) + rowGap + extraGap;
+        }
+        return new FlexLayout(alignHeight, List.copyOf(fragments));
     }
 
     private FlexLayout layoutFlexRowLine(RenderStyle containerStyle,
@@ -409,7 +449,10 @@ public final class RenderLayoutEngine {
         if (contentHeight != null) crossSize = contentHeight;
         if (containerStyle.alignItems() == RenderStyle.AlignItems.STRETCH) {
             for (int index = 0; index < items.size(); index++) {
-                if (!items.get(index).style().height().isAuto()) continue;
+                RenderStyle itemStyle = items.get(index).style();
+                if (effectiveAlignSelf(itemStyle, containerStyle)
+                        != RenderStyle.AlignSelf.STRETCH) continue;
+                if (!itemStyle.height().isAuto()) continue;
                 RenderBox sized = forceOuterHeight(
                         forceOuterWidth(items.get(index), widths[index]), crossSize);
                 layouts.set(index, layoutFlexItem(sized, widths[index], crossSize, graphics));
@@ -424,10 +467,11 @@ public final class RenderLayoutEngine {
         for (int index = 0; index < items.size(); index++) {
             if (reverse) cursor -= widths[index];
             FlexItemLayout item = layouts.get(index);
-            float crossOffset = containerStyle.alignItems() == RenderStyle.AlignItems.BASELINE
+            RenderStyle.AlignSelf alignment = effectiveAlignSelf(
+                    items.get(index).style(), containerStyle);
+            float crossOffset = alignment == RenderStyle.AlignSelf.BASELINE
                     ? sharedBaseline - flexItemBaseline(item)
-                    : crossOffset(containerStyle.alignItems(), crossSize,
-                            item.layout().outerHeight());
+                    : crossOffset(alignment, crossSize, item.layout().outerHeight());
             appendFlexItem(item, contentX + cursor, contentY + crossOffset,
                     fragments, lineBoxes);
             float gap = containerStyle.columnGapPx() + spacing.gap();
@@ -504,7 +548,8 @@ public final class RenderLayoutEngine {
             FlexItemLayout item = layouts.get(index);
             BoxFragment root = (BoxFragment) item.layout().fragments().getFirst();
             float outerWidth = root.width() + item.box().style().margin().horizontal();
-            float x = crossOffset(containerStyle.alignItems(), contentWidth, outerWidth);
+            float x = crossOffset(effectiveAlignSelf(items.get(index).style(), containerStyle),
+                    contentWidth, outerWidth);
             appendFlexItem(item, contentX + x, contentY + cursor, fragments, lineBoxes);
             float gap = containerStyle.rowGapPx() + spacing.gap();
             if (reverse) cursor -= gap;
@@ -596,7 +641,20 @@ public final class RenderLayoutEngine {
         };
     }
 
-    private static float crossOffset(RenderStyle.AlignItems align, float available, float used) {
+    private static RenderStyle.AlignSelf effectiveAlignSelf(RenderStyle itemStyle,
+                                                            RenderStyle containerStyle) {
+        return itemStyle.alignSelf() == RenderStyle.AlignSelf.AUTO
+                ? switch (containerStyle.alignItems()) {
+                    case FLEX_START -> RenderStyle.AlignSelf.FLEX_START;
+                    case CENTER -> RenderStyle.AlignSelf.CENTER;
+                    case FLEX_END -> RenderStyle.AlignSelf.FLEX_END;
+                    case BASELINE -> RenderStyle.AlignSelf.BASELINE;
+                    default -> RenderStyle.AlignSelf.STRETCH;
+                }
+                : itemStyle.alignSelf();
+    }
+
+    private static float crossOffset(RenderStyle.AlignSelf align, float available, float used) {
         float free = Math.max(0, available - used);
         return switch (align) {
             case CENTER -> free / 2f;

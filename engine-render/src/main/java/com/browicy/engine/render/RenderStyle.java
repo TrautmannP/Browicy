@@ -64,6 +64,9 @@ public record RenderStyle(
         FlexWrap flexWrap,
         JustifyContent justifyContent,
         AlignItems alignItems,
+        AlignSelf alignSelf,
+        AlignContent alignContent,
+        int order,
         float rowGapPx,
         float columnGapPx,
         float flexGrow,
@@ -94,6 +97,8 @@ public record RenderStyle(
     public enum FlexWrap { NOWRAP, WRAP, WRAP_REVERSE }
     public enum JustifyContent { FLEX_START, CENTER, FLEX_END, SPACE_BETWEEN, SPACE_AROUND, SPACE_EVENLY }
     public enum AlignItems { STRETCH, FLEX_START, CENTER, FLEX_END, BASELINE }
+    public enum AlignSelf { AUTO, STRETCH, FLEX_START, CENTER, FLEX_END, BASELINE }
+    public enum AlignContent { NORMAL, FLEX_START, FLEX_END, CENTER, SPACE_BETWEEN, SPACE_AROUND, SPACE_EVENLY, STRETCH }
     public enum ObjectFit { FILL, CONTAIN, COVER, NONE, SCALE_DOWN }
     public enum WhiteSpace { NORMAL, NOWRAP, PRE, PRE_WRAP, PRE_LINE, BREAK_SPACES }
 
@@ -164,7 +169,8 @@ public record RenderStyle(
                 outlineOffset, visible, pointerEvents,
                 borderCollapse, textAlign, textTransform, whiteSpace, overflow,
                 verticalAlign, flexDirection,
-                flexWrap, justifyContent, alignItems, rowGapPx, columnGapPx,
+                flexWrap, justifyContent, alignItems, alignSelf, alignContent, order,
+                rowGapPx, columnGapPx,
                 newFlexGrow, flexShrink, flexBasis, opacity);
     }
 }

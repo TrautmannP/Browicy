@@ -495,6 +495,9 @@ public final class CssParser {
             case "flex-wrap" -> supports(normalized, "wrap");
             case "justify-content" -> supports(normalized, "flex-start");
             case "align-items" -> supports(normalized, "stretch");
+            case "align-self" -> supports(normalized, "stretch");
+            case "align-content" -> supports(normalized, "stretch");
+            case "order" -> supports(normalized, "0");
             case "gap", "row-gap", "column-gap" -> supports(normalized, "1px");
             case "flex", "flex-grow", "flex-shrink" -> supports(normalized, "1");
             case "flex-basis" -> supports(normalized, "auto");
@@ -642,6 +645,28 @@ public final class CssParser {
                 if (value.equals("stretch") || value.equals("flex-start")
                         || value.equals("center") || value.equals("flex-end")
                         || value.equals("baseline")) {
+                    target.put(property, value);
+                }
+            }
+            case "align-self" -> {
+                if (value.equals("auto") || value.equals("stretch")
+                        || value.equals("flex-start") || value.equals("center")
+                        || value.equals("flex-end") || value.equals("baseline")) {
+                    target.put(property, value);
+                }
+            }
+            case "align-content" -> {
+                if (value.equals("flex-start") || value.equals("flex-end")
+                        || value.equals("center") || value.equals("space-between")
+                        || value.equals("space-around") || value.equals("space-evenly")
+                        || value.equals("stretch") || value.equals("normal")) {
+                    target.put(property, value);
+                }
+            }
+            case "order" -> {
+                if (value.equals("inherit")) {
+                    target.put(property, "0");
+                } else if (INTEGER.matcher(value).matches()) {
                     target.put(property, value);
                 }
             }

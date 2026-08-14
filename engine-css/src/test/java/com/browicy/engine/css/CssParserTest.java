@@ -664,6 +664,25 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesAlignSelfAlignContentAndOrder() {
+        CssParser parser = new CssParser();
+        Map<String, String> alignment = parser.parseDeclarations("""
+                align-self:flex-start;align-content:space-between;order:-1
+                """);
+        assertEquals("flex-start", alignment.get("align-self"));
+        assertEquals("space-between", alignment.get("align-content"));
+        assertEquals("-1", alignment.get("order"));
+
+        assertEquals("0", parser.parseDeclarations("order:inherit").get("order"));
+        assertFalse(parser.parseDeclarations("align-self:bogus").containsKey("align-self"));
+        assertFalse(parser.parseDeclarations("order:1.5").containsKey("order"));
+        assertTrue(parser.supportsProperty("align-self"));
+        assertTrue(parser.supportsProperty("align-content"));
+        assertTrue(parser.supports("order", "0"));
+        assertTrue(parser.supports("align-self", "center"));
+    }
+
+    @Test
     public void parsesTransformAndTransformOriginValues() {
         CssParser parser = new CssParser();
         Map<String, String> transforms = parser.parseDeclarations("""

@@ -117,6 +117,9 @@ public final class RenderTreeBuilder {
                 RenderStyle.FlexWrap.NOWRAP,
                 RenderStyle.JustifyContent.FLEX_START,
                 RenderStyle.AlignItems.STRETCH,
+                RenderStyle.AlignSelf.AUTO,
+                RenderStyle.AlignContent.NORMAL,
+                0,
                 0,
                 0,
                 0,
@@ -642,6 +645,9 @@ public final class RenderTreeBuilder {
                 RenderStyle.FlexWrap.NOWRAP,
                 RenderStyle.JustifyContent.FLEX_START,
                 RenderStyle.AlignItems.STRETCH,
+                RenderStyle.AlignSelf.AUTO,
+                RenderStyle.AlignContent.NORMAL,
+                0,
                 0,
                 0,
                 0,
@@ -720,6 +726,9 @@ public final class RenderTreeBuilder {
         RenderStyle.FlexWrap flexWrap = RenderStyle.FlexWrap.NOWRAP;
         RenderStyle.JustifyContent justifyContent = RenderStyle.JustifyContent.FLEX_START;
         RenderStyle.AlignItems alignItems = RenderStyle.AlignItems.STRETCH;
+        RenderStyle.AlignSelf alignSelf = RenderStyle.AlignSelf.AUTO;
+        RenderStyle.AlignContent alignContent = RenderStyle.AlignContent.NORMAL;
+        int order = 0;
         float rowGapPx = 0;
         float columnGapPx = 0;
         float flexGrow = 0;
@@ -870,6 +879,32 @@ public final class RenderTreeBuilder {
             case "baseline" -> RenderStyle.AlignItems.BASELINE;
             default -> RenderStyle.AlignItems.STRETCH;
         };
+        alignSelf = switch (declarations.getOrDefault("align-self", "auto")) {
+            case "stretch" -> RenderStyle.AlignSelf.STRETCH;
+            case "flex-start" -> RenderStyle.AlignSelf.FLEX_START;
+            case "center" -> RenderStyle.AlignSelf.CENTER;
+            case "flex-end" -> RenderStyle.AlignSelf.FLEX_END;
+            case "baseline" -> RenderStyle.AlignSelf.BASELINE;
+            default -> RenderStyle.AlignSelf.AUTO;
+        };
+        alignContent = switch (declarations.getOrDefault("align-content", "normal")) {
+            case "flex-start" -> RenderStyle.AlignContent.FLEX_START;
+            case "flex-end" -> RenderStyle.AlignContent.FLEX_END;
+            case "center" -> RenderStyle.AlignContent.CENTER;
+            case "space-between" -> RenderStyle.AlignContent.SPACE_BETWEEN;
+            case "space-around" -> RenderStyle.AlignContent.SPACE_AROUND;
+            case "space-evenly" -> RenderStyle.AlignContent.SPACE_EVENLY;
+            case "stretch" -> RenderStyle.AlignContent.STRETCH;
+            default -> RenderStyle.AlignContent.NORMAL;
+        };
+        order = 0;
+        if (declarations.containsKey("order")) {
+            try {
+                order = Integer.parseInt(declarations.get("order"));
+            } catch (NumberFormatException ignored) {
+                // "inherit" und ähnliche Werte verhalten sich wie der Default 0.
+            }
+        }
         rowGapPx = Math.max(0, resolveLength(
                 declarations.get("row-gap"), fontSize, rootFontSizePx, 0));
         columnGapPx = Math.max(0, resolveLength(
@@ -992,7 +1027,8 @@ public final class RenderTreeBuilder {
                 outlineOffset, visible, pointerEvents,
                 borderCollapse, textAlign, textTransform,
                 whiteSpace, overflow, verticalAlign, flexDirection, flexWrap, justifyContent,
-                alignItems, rowGapPx, columnGapPx, flexGrow,
+                alignItems, alignSelf, alignContent, order,
+                rowGapPx, columnGapPx, flexGrow,
                 flexShrink, flexBasis,
                 opacity);
     }
