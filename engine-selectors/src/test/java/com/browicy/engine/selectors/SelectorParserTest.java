@@ -328,6 +328,98 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void parsesAndMatchesIsWhereAndSelectorListNot() {
+        TestNode card = new TestNode("div", null, Set.of("card", "selected"), null,
+                Map.of("data-active", "true"));
+        TestNode plain = new TestNode("div", null, Set.of("card"), null);
+        TestNode button = new TestNode("button", null, Set.of(), null,
+                Map.of("disabled", ""));
+        TestAdapter adapter = new TestAdapter(card, plain, button);
+
+        assertTrue(parser.parse(":is(.selected, [data-active])").matchesAny(card, adapter));
+        assertFalse(parser.parse(":is(.selected, [data-active])").matchesAny(plain, adapter));
+        assertTrue(parser.parse("div:is(.card, .other)").matchesAny(plain, adapter));
+        assertFalse(parser.parse("span:is(.card, .other)").matchesAny(plain, adapter));
+        assertTrue(parser.parse(":where(.card, .selected)").matchesAny(plain, adapter));
+        assertTrue(parser.parse(":not(.selected, [data-active])").matchesAny(plain, adapter));
+        assertFalse(parser.parse(":not(.selected, [data-active])").matchesAny(card, adapter));
+        assertFalse(parser.parse(":not(:disabled, .selected)").matchesAny(button, adapter));
+        assertTrue(parser.parse(":not(:disabled, .selected)").matchesAny(plain, adapter));
+        assertTrue(parser.parse("div:is(.card):not(.selected)").matchesAny(plain, adapter));
+        assertFalse(parser.parse("div:is(.card):not(.selected)").matchesAny(card, adapter));
+        assertTrue(parser.parse(":is(div.card, button):not([disabled])")
+                .matchesAny(plain, adapter));
+        assertFalse(parser.parse(":is(div.card, button):not([disabled])")
+                .matchesAny(button, adapter));
+    }
+
+    @Test
+    public void parsesNestedIsWhereAndNotWithCombinators() {
+        TestNode main = new TestNode("main", null, Set.of(), null);
+        TestNode section = new TestNode("section", null, Set.of("card"), main);
+        TestNode target = new TestNode("p", null, Set.of("note"), section,
+                Map.of("lang", "de"));
+        TestNode wrapper = new TestNode("div", null, Set.of(), main);
+        TestNode orphan = new TestNode("p", null, Set.of(), wrapper);
+        TestNode deepCard = new TestNode("section", null, Set.of("card"), null);
+        TestNode deep = new TestNode("p", null, Set.of(), deepCard);
+        TestAdapter adapter = new TestAdapter(main, section, wrapper, deepCard,
+                target, orphan, deep);
+
+        ComplexSelector selector = parser.parse(
+                "main :is(section > p.note, aside p)").selectors().getFirst();
+        assertTrue(selector.matches(target, adapter));
+        assertFalse(selector.matches(orphan, adapter));
+
+        ComplexSelector nested = parser.parse(
+                ":not(:is(.card, .other)) p").selectors().getFirst();
+        assertTrue(nested.matches(target, adapter));
+        assertTrue(nested.matches(orphan, adapter));
+        assertFalse(nested.matches(deep, adapter));
+
+        ComplexSelector combined = parser.parse(
+                ":is(:is(.card, .note), :where([lang]))").selectors().getFirst();
+        assertTrue(combined.matches(target, adapter));
+        assertTrue(combined.matches(section, adapter));
+    }
+
+    @Test
+    public void calculatesIsWhereAndNotListSpecificity() {
+        assertEquals(new Specificity(1, 0, 0), parser.parse(":is(#id, .a)")
+                .selectors().getFirst().specificity());
+        assertEquals(new Specificity(1, 1, 0), parser.parse(":is(.a, #id) > .b")
+                .selectors().getFirst().specificity());
+        assertEquals(new Specificity(1, 0, 1), parser.parse("div:is(.a, #id)")
+                .selectors().getFirst().specificity());
+        assertEquals(Specificity.ZERO, parser.parse(":where(.a, #id)")
+                .selectors().getFirst().specificity());
+        assertEquals(new Specificity(0, 1, 0), parser.parse(":where(.a, #id) .b")
+                .selectors().getFirst().specificity());
+        assertEquals(new Specificity(1, 0, 0), parser.parse(":not(.a, #id)")
+                .selectors().getFirst().specificity());
+        assertEquals(Specificity.ZERO, parser.parse(":not(*)")
+                .selectors().getFirst().specificity());
+    }
+
+    @Test
+    public void roundTripsIsWhereAndNotListInToString() {
+        assertEquals(":is(.a, .b)", parser.parse(":is(.a,.b)")
+                .selectors().getFirst().toString());
+        assertEquals(":where(.a, #b)", parser.parse(":where(.a, #b)")
+                .selectors().getFirst().toString());
+        assertEquals("div:is(.a, .b):not(.c, .d)", parser.parse("div:is(.a,.b):not(.c,.d)")
+                .selectors().getFirst().toString());
+    }
+
+    @Test
+    public void rejectsPseudoElementsInsideIsWhereAndNot() {
+        for (String source : List.of(":is(.a::before)", ":where(.a::after)",
+                ":not(.a::before)", ":is(div::first-line)")) {
+            assertThrows(SelectorParseException.class, () -> parser.parse(source));
+        }
+    }
+
+    @Test
     public void parsesGeneratedPseudoElementsAndCountsTheirSpecificity() {
         ComplexSelector selector = parser.parse(".badge:hover::before").selectors().getFirst();
 
@@ -369,8 +461,8 @@ public class SelectorParserTest {
     @Test
     public void rejectsInvalidAndUnsupportedSelectorsWithPositions() {
         for (String source : List.of("", "div,",
-                ":nth-child(2n+)", ":nth-of-type()", ":not()", ":not(.a, .b)",
-                ":not(:not(.a))", "div > > p")) {
+                ":nth-child(2n+)", ":nth-of-type()", ":not()", ":is()", ":where()",
+                ":is(.a,)", "div > > p")) {
             SelectorParseException exception = assertThrows(
                     SelectorParseException.class, () -> parser.parse(source));
             assertEquals(source, exception.getSelector());

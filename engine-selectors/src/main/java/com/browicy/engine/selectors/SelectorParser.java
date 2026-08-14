@@ -43,7 +43,7 @@ public final class SelectorParser {
 
             while (true) {
                 boolean whitespace = skipWhitespace();
-                if (atEnd() || peek() == ',') {
+                if (atEnd() || peek() == ',' || peek() == ')') {
                     break;
                 }
                 if (steps.getLast().selector().pseudoElement() != null) {
@@ -82,7 +82,7 @@ public final class SelectorParser {
             List<AttributeSelector> attributes = new ArrayList<>();
             List<StructuralPseudoClass> pseudoClasses = new ArrayList<>();
             List<String> statePseudoClasses = new ArrayList<>();
-            List<CompoundSelector> negations = new ArrayList<>();
+            List<PseudoClassFunction> functions = new ArrayList<>();
             String pseudoElement = null;
 
             if (!atEnd() && consume('|')) {
@@ -137,7 +137,7 @@ public final class SelectorParser {
                                     && !isCombinator(peek())) throw error();
                         } else {
                             position = start;
-                            parsePseudoClass(pseudoClasses, statePseudoClasses, negations);
+                            parsePseudoClass(pseudoClasses, statePseudoClasses, functions);
                         }
                     }
                 } else {
@@ -147,12 +147,12 @@ public final class SelectorParser {
 
             if (typeName == null && id == null && classes.isEmpty()
                     && attributes.isEmpty() && pseudoClasses.isEmpty()
-                    && statePseudoClasses.isEmpty() && negations.isEmpty()
+                    && statePseudoClasses.isEmpty() && functions.isEmpty()
                     && pseudoElement == null) {
                 throw error();
             }
             return new CompoundSelector(typeNamespace, typeName, id, classes, attributes,
-                    pseudoClasses, statePseudoClasses, negations, pseudoElement);
+                    pseudoClasses, statePseudoClasses, functions, pseudoElement);
         }
 
         private AttributeSelector parseAttributeSelector() {
@@ -232,7 +232,7 @@ public final class SelectorParser {
 
         private void parsePseudoClass(List<StructuralPseudoClass> pseudoClasses,
                                       List<String> statePseudoClasses,
-                                      List<CompoundSelector> negations) {
+                                      List<PseudoClassFunction> functions) {
             consume(':');
             String name = readIdentifier().toLowerCase(java.util.Locale.ROOT);
             if ("hover".equals(name) || "checked".equals(name)
@@ -275,18 +275,34 @@ public final class SelectorParser {
                 pseudoClasses.add(StructuralPseudoClass.lastOfType());
                 return;
             }
-            if ("not".equals(name)) {
+            PseudoClassFunction.Kind kind = switch (name) {
+                case "is" -> PseudoClassFunction.Kind.IS;
+                case "where" -> PseudoClassFunction.Kind.WHERE;
+                case "not" -> PseudoClassFunction.Kind.NOT;
+                default -> null;
+            };
+            if (kind != null) {
                 if (!consume('(')) {
                     throw error();
                 }
                 skipWhitespace();
-                CompoundSelector negation = parseCompoundSelector();
+                List<ComplexSelector> arguments = new ArrayList<>();
+                arguments.add(parseComplexSelector());
                 skipWhitespace();
-                if (!consume(')') || !negation.negations().isEmpty()
-                        || negation.pseudoElement() != null) {
+                while (consume(',')) {
+                    skipWhitespace();
+                    arguments.add(parseComplexSelector());
+                    skipWhitespace();
+                }
+                if (!consume(')')) {
                     throw error();
                 }
-                negations.add(negation);
+                for (ComplexSelector argument : arguments) {
+                    if (argument.pseudoElement() != null) {
+                        throw error();
+                    }
+                }
+                functions.add(new PseudoClassFunction(kind, new SelectorList(arguments)));
                 return;
             }
             boolean nthChild = "nth-child".equals(name);

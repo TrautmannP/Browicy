@@ -18,7 +18,7 @@ public record CompoundSelector(String typeNamespace, String typeName, String id,
                                List<AttributeSelector> attributes,
                                List<StructuralPseudoClass> pseudoClasses,
                                List<String> statePseudoClasses,
-                               List<CompoundSelector> negations,
+                               List<PseudoClassFunction> functions,
                                String pseudoElement) {
 
     public CompoundSelector(String typeName, String id, List<String> classes) {
@@ -37,7 +37,7 @@ public record CompoundSelector(String typeNamespace, String typeName, String id,
         pseudoClasses = List.copyOf(Objects.requireNonNull(pseudoClasses, "pseudoClasses"));
         statePseudoClasses = List.copyOf(
                 Objects.requireNonNull(statePseudoClasses, "statePseudoClasses"));
-        negations = List.copyOf(Objects.requireNonNull(negations, "negations"));
+        functions = List.copyOf(Objects.requireNonNull(functions, "functions"));
         if (pseudoElement != null && !pseudoElement.equals("before")
                 && !pseudoElement.equals("after")
                 && !pseudoElement.equals("first-letter")
@@ -58,7 +58,7 @@ public record CompoundSelector(String typeNamespace, String typeName, String id,
         }
         if (typeName == null && id == null && classes.isEmpty()
                 && attributes.isEmpty() && pseudoClasses.isEmpty()
-                && statePseudoClasses.isEmpty() && negations.isEmpty() && pseudoElement == null) {
+                && statePseudoClasses.isEmpty() && functions.isEmpty() && pseudoElement == null) {
             throw new IllegalArgumentException("Ein Selektor benötigt mindestens einen Bestandteil");
         }
     }
@@ -69,8 +69,8 @@ public record CompoundSelector(String typeNamespace, String typeName, String id,
                         + statePseudoClasses.size(),
                 typeName == null || "*".equals(typeName) ? 0 : 1);
         if (pseudoElement != null) result = result.add(new Specificity(0, 0, 1));
-        for (CompoundSelector negation : negations) {
-            result = result.add(negation.specificity());
+        for (PseudoClassFunction function : functions) {
+            result = result.add(function.specificity());
         }
         return result;
     }
@@ -115,8 +115,8 @@ public record CompoundSelector(String typeNamespace, String typeName, String id,
         for (String state : statePseudoClasses) {
             if (!adapter.matchesState(element, state)) return false;
         }
-        for (CompoundSelector negation : negations) {
-            if (negation.matches(element, adapter)) {
+        for (PseudoClassFunction function : functions) {
+            if (!function.matches(element, adapter)) {
                 return false;
             }
         }
@@ -147,8 +147,8 @@ public record CompoundSelector(String typeNamespace, String typeName, String id,
             result.append(pseudoClass);
         }
         for (String state : statePseudoClasses) result.append(':').append(state);
-        for (CompoundSelector negation : negations) {
-            result.append(":not(").append(negation).append(')');
+        for (PseudoClassFunction function : functions) {
+            result.append(function);
         }
         if (pseudoElement != null) result.append("::").append(pseudoElement);
         return result.toString();
