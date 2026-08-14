@@ -119,11 +119,8 @@ final class PageResourceCoordinator {
             synchronized (document) {
                 styleApplicator.apply(document, styleSheets);
             }
-            // Alle (auch nicht render-blockierenden) Stylesheets einmalig anwenden,
-            // sobald sie geladen sind — statt nach jedem Stylesheet einzeln neu zu
-            // berechnen (quadratisch bei vielen Stylesheets).
-            CompletableFuture.allOf(
-                            styleLoads.allTasks().toArray(CompletableFuture[]::new))
+            CompletableFuture<Void> stylesheetsProcessed = CompletableFuture
+                    .allOf(styleLoads.allTasks().toArray(CompletableFuture[]::new))
                     .thenRun(updates::stylesheetsLoaded);
             progress.markFirstRender();
 
@@ -142,7 +139,8 @@ final class PageResourceCoordinator {
             resources.scripts().forEach(script -> progress.scriptPlanned());
             updates.enableNotifications();
             CompletableFuture<Void> scriptsDone = new CompletableFuture<>();
-            List<CompletableFuture<Void>> allResources = new ArrayList<>(styleLoads.allTasks());
+            List<CompletableFuture<Void>> allResources = new ArrayList<>();
+            allResources.add(stylesheetsProcessed);
             allResources.addAll(imageLoads);
             allResources.addAll(fontLoads);
             allResources.add(scriptsDone);
@@ -502,7 +500,7 @@ final class PageResourceCoordinator {
         if (resource == null || runtime.isClosed()) {
             return CompletableFuture.completedFuture(null);
         }
-        return runtime.submitTask(() -> {
+        return CompletableFuture.runAsync(() -> {
             styleSheets.register(external.sourceOrder(), external.element(),
                     resource.uri().toString(),
                     absolutizeCssUrls(resource.content(), resource.uri()));
@@ -666,8 +664,6 @@ final class PageResourceCoordinator {
                     Thread.currentThread().interrupt();
                     return;
                 } catch (IOException | RuntimeException failure) {
-                    // Fehlgeschlagene externe Skripte sichtbar machen, statt sie lautlos
-                    // zu überspringen: der Fehler landet in javascript.errors.
                     LOGGER.log(System.Logger.Level.DEBUG,
                             "Externe JavaScript-Ressource konnte nicht geladen werden: "
                                     + external.uri(), failure);

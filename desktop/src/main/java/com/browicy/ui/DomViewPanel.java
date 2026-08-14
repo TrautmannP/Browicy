@@ -93,7 +93,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private final RenderLayoutEngine layoutEngine;
 
     private final java.util.concurrent.ExecutorService renderExecutor;
-    private final Object renderLock = new Object();
+    private final Object snapshotLock = new Object();
     private InvalidationType pendingInvalidation;
     private boolean renderPassRunning;
     private boolean disposed;
@@ -239,7 +239,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
 
     private void requestRender(InvalidationType invalidation) {
         if (!SwingUtilities.isEventDispatchThread()) {
-            synchronized (renderLock) {
+            synchronized (snapshotLock) {
                 if (disposed) {
                     return;
                 }
@@ -247,7 +247,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             renderPass(invalidation);
             return;
         }
-        synchronized (renderLock) {
+        synchronized (snapshotLock) {
             if (disposed) {
                 return;
             }
@@ -261,7 +261,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         try {
             renderExecutor.execute(this::drainRenderRequests);
         } catch (java.util.concurrent.RejectedExecutionException alreadyDisposed) {
-            synchronized (renderLock) {
+            synchronized (snapshotLock) {
                 renderPassRunning = false;
             }
         }
@@ -270,7 +270,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     private void drainRenderRequests() {
         while (true) {
             InvalidationType invalidation;
-            synchronized (renderLock) {
+            synchronized (snapshotLock) {
                 invalidation = pendingInvalidation;
                 pendingInvalidation = null;
                 if (invalidation == null || disposed) {
@@ -287,7 +287,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         }
     }
 
-    private synchronized void renderPass(InvalidationType invalidation) {
+    private void renderPass(InvalidationType invalidation) {
         RenderSnapshot current = snapshot;
         int width = Math.max(1, currentLayoutWidth());
         int viewportHeight = Math.max(1, currentViewportHeight());
@@ -323,8 +323,11 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             graphics.dispose();
         }
 
-        boolean heightChanged = current == null || current.layout().height() != layout.height();
-        snapshot = new RenderSnapshot(tree, layout, width, viewportHeight);
+        boolean heightChanged;
+        synchronized (snapshotLock) {
+            heightChanged = snapshot == null || snapshot.layout().height() != layout.height();
+            snapshot = new RenderSnapshot(tree, layout, width, viewportHeight);
+        }
         if (heightChanged) {
             revalidate();
         }
@@ -346,7 +349,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     }
 
     public void dispose() {
-        synchronized (renderLock) {
+        synchronized (snapshotLock) {
             disposed = true;
             pendingInvalidation = null;
         }
@@ -508,15 +511,18 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         setCursor(Cursor.getPredefinedCursor(type));
     }
 
-    public synchronized BufferedImage captureScreenshot(int viewportWidth,
-                                                        int viewportHeight,
-                                                        boolean fullPage) {
+    public BufferedImage captureScreenshot(int viewportWidth,
+                                           int viewportHeight,
+                                           boolean fullPage) {
         if (viewportWidth <= 0 || viewportHeight <= 0) {
             throw new IllegalArgumentException("Viewport-Abmessungen müssen positiv sein");
         }
         setSize(viewportWidth, viewportHeight);
         renderPass(InvalidationType.STYLE);
-        RenderSnapshot current = snapshot;
+        RenderSnapshot current;
+        synchronized (snapshotLock) {
+            current = snapshot;
+        }
         if (current == null) {
             throw new IllegalStateException("Die Webseite konnte nicht gerendert werden");
         }
@@ -931,11 +937,11 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         return current == null ? null : current.tree();
     }
 
-    synchronized LayoutResult layoutForTesting(int width) {
+    LayoutResult layoutForTesting(int width) {
         return layoutForTesting(width, DEFAULT_VIEWPORT_HEIGHT);
     }
 
-    synchronized LayoutResult layoutForTesting(int width, int viewportHeight) {
+    LayoutResult layoutForTesting(int width, int viewportHeight) {
         BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = image.createGraphics();
         try {

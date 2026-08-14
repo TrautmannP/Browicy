@@ -61,6 +61,8 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     @Setter(AccessLevel.PACKAGE)
     private Value domOperationWrapper;
     @Setter(AccessLevel.PACKAGE)
+    private java.util.function.LongSupplier taskBudgetMillis = () -> 0L;
+    @Setter(AccessLevel.PACKAGE)
     private JsCookieStore cookieStore;
     private JsCustomElementRegistry customElements;
     private JsDomImplementation implementation;
@@ -125,6 +127,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
                 styleSheets, styleSheetMutationCallback);
         wrapper.setEventListenerInvoker(eventListenerInvoker);
         wrapper.setDomOperationWrapper(domOperationWrapper);
+        wrapper.setTaskBudgetMillis(taskBudgetMillis);
         wrapper.setCookieStore(cookieStore);
         wrapper.setPromiseGlobal(promiseGlobal);
         wrapper.setReferrer(referrer);
@@ -225,7 +228,8 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             if (exception.isCancelled() || exception.isResourceExhausted()) {
                 throw exception;
             }
-            errorSink.accept(exception.getMessage() == null ? exception.toString() : exception.getMessage());
+            errorSink.accept(GraalPageRuntime.describePolyglotFailure(
+                    exception, taskBudgetMillis.getAsLong()));
         }
     }
 

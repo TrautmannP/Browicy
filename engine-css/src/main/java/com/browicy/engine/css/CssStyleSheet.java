@@ -16,6 +16,8 @@ public final class CssStyleSheet {
     private final List<String> ruleTexts = new ArrayList<>();
     private List<CssFontFace> fontFaces = List.of();
     private String sourceText;
+    private volatile long generation;
+    private List<CssRule> cachedParsedRules;
 
     CssStyleSheet(CssParser parser, int sourceOrder, Element ownerNode, String href, String css) {
         this.parser = Objects.requireNonNull(parser, "parser");
@@ -25,6 +27,8 @@ public final class CssStyleSheet {
         this.sourceText = css == null ? "" : css;
         ruleTexts.addAll(parser.ruleSources(css));
         fontFaces = parser.fontFaces(css);
+        cachedParsedRules = parseRules();
+        generation = 1;
     }
 
     public Element ownerNode() {
@@ -56,6 +60,8 @@ public final class CssStyleSheet {
         ruleTexts.clear();
         ruleTexts.addAll(parser.ruleSources(css));
         fontFaces = parser.fontFaces(css);
+        cachedParsedRules = parseRules();
+        generation++;
     }
 
     public synchronized List<CssFontFace> fontFaces() {
@@ -73,6 +79,8 @@ public final class CssStyleSheet {
         }
         ruleTexts.add(index, parsed.getFirst());
         sourceText = String.join(System.lineSeparator(), ruleTexts);
+        cachedParsedRules = parseRules();
+        generation++;
         return index;
     }
 
@@ -82,10 +90,20 @@ public final class CssStyleSheet {
         }
         ruleTexts.remove(index);
         sourceText = String.join(System.lineSeparator(), ruleTexts);
+        cachedParsedRules = parseRules();
+        generation++;
+    }
+
+    private List<CssRule> parseRules() {
+        long nextOrder = Math.multiplyExact((long) sourceOrder, RULE_ORDER_RANGE);
+        return List.copyOf(parser.parse(sourceText, nextOrder));
     }
 
     synchronized List<CssRule> parsedRules() {
-        long nextOrder = Math.multiplyExact((long) sourceOrder, RULE_ORDER_RANGE);
-        return List.copyOf(parser.parse(sourceText, nextOrder));
+        return cachedParsedRules;
+    }
+
+    long generation() {
+        return generation;
     }
 }

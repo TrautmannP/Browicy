@@ -53,6 +53,9 @@ final class GraalPageRuntime implements PageRuntime {
     static final long TASK_TIME_BUDGET_MILLIS =
             Long.getLong("browicy.js.taskBudgetMillis", 10_000);
 
+    static final long INITIAL_SCRIPT_BUDGET_MILLIS = Long.getLong(
+            "browicy.js.initialScriptBudgetMillis", 60_000);
+
     private static final long INTERRUPT_GRACE_MILLIS = 5_000;
 
     private final Document document;
@@ -76,6 +79,8 @@ final class GraalPageRuntime implements PageRuntime {
 
     private volatile Context context;
     private volatile long taskTimeBudgetMillis = TASK_TIME_BUDGET_MILLIS;
+    private volatile long initialScriptBudgetMillis = INITIAL_SCRIPT_BUDGET_MILLIS;
+    private volatile long currentTaskBudgetMillis;
     private volatile String currentTaskDescription;
     private volatile long currentTaskStartNanos;
     private volatile long taskSequence;
@@ -255,6 +260,7 @@ final class GraalPageRuntime implements PageRuntime {
         console = new JsConsole();
         jsDocument = new JsDocument(
                 document, errors::add, styleSheets, styleSheetMutationCallback);
+        jsDocument.setTaskBudgetMillis(() -> currentTaskBudgetMillis);
         jsDocument.setCookieStore(cookieStore);
         Value bindings = context.getBindings("js");
         bindings.putMember("document", jsDocument);
@@ -322,9 +328,6 @@ final class GraalPageRuntime implements PageRuntime {
                 (ProxyExecutable) mutationObservers::disconnect);
         bindings.putMember("__browicyMutationTakeRecords",
                 (ProxyExecutable) mutationObservers::takeRecords);
-        // customElements: Java-Registry stößt Lebenszyklus-Callbacks auf Basis der
-        // DOM-Mutations-Meldungen an; die JS-seitige Registry verwaltet define/get/
-        // whenDefined/upgrade und die instanceof-Kennung.
         Value customElementInvoker = context.eval("js",
                 "(ctor, el, method, args) => { const fn = ctor.prototype[method]; "
                         + "if (typeof fn === 'function') fn.apply(el, args); }");
@@ -552,9 +555,11 @@ final class GraalPageRuntime implements PageRuntime {
         Throwable taskFailure = null;
         long sequence = ++taskSequence;
         currentTaskDescription = describe(envelope.task());
+        currentTaskBudgetMillis = budgetFor(envelope.task());
         currentTaskStartNanos = System.nanoTime();
         executingTask.set(true);
-        ScheduledFuture<?> watchdog = scheduleTaskWatchdog(sequence, currentTaskDescription);
+        ScheduledFuture<?> watchdog =
+                scheduleTaskWatchdog(sequence, currentTaskDescription, envelope.task());
         try {
             result = process(envelope.task());
             drainMicrotasks();
@@ -578,22 +583,36 @@ final class GraalPageRuntime implements PageRuntime {
 
     void taskTimeBudgetMillisForTesting(long budgetMillis) {
         this.taskTimeBudgetMillis = budgetMillis;
+        this.initialScriptBudgetMillis = budgetMillis;
     }
 
-    private ScheduledFuture<?> scheduleTaskWatchdog(long sequence, String description) {
-        long budgetMillis = taskTimeBudgetMillis;
+    void initialScriptBudgetMillisForTesting(long budgetMillis) {
+        this.initialScriptBudgetMillis = budgetMillis;
+    }
+
+    private long budgetFor(PageTask task) {
+        if (task instanceof PageTask.Script) {
+            return Math.max(taskTimeBudgetMillis, initialScriptBudgetMillis);
+        }
+        return taskTimeBudgetMillis;
+    }
+
+    private ScheduledFuture<?> scheduleTaskWatchdog(long sequence, String description,
+                                                    PageTask task) {
+        long budgetMillis = budgetFor(task);
         if (budgetMillis <= 0 || scheduler.isShutdown()) {
             return null;
         }
         try {
-            return scheduler.schedule(() -> interruptOverdueTask(sequence, description),
+            return scheduler.schedule(
+                    () -> interruptOverdueTask(sequence, description, budgetMillis),
                     budgetMillis, TimeUnit.MILLISECONDS);
         } catch (java.util.concurrent.RejectedExecutionException shuttingDown) {
             return null;
         }
     }
 
-    private void interruptOverdueTask(long sequence, String description) {
+    private void interruptOverdueTask(long sequence, String description, long budgetMillis) {
         if (taskSequence != sequence || !executingTask.get()) {
             return;
         }
@@ -602,8 +621,8 @@ final class GraalPageRuntime implements PageRuntime {
             return;
         }
         LOGGER.log(System.Logger.Level.WARNING,
-                "JavaScript-Task überschreitet das Zeitbudget von " + taskTimeBudgetMillis
-                        + " ms und wird unterbrochen: " + description);
+                "JavaScript-Task überschreitet das Zeitbudget von " + budgetMillis
+                        + " ms und wird unterbrochen (Task: " + description + ")");
         try {
             activeContext.interrupt(java.time.Duration.ofMillis(INTERRUPT_GRACE_MILLIS));
         } catch (java.util.concurrent.TimeoutException stuck) {
@@ -619,10 +638,12 @@ final class GraalPageRuntime implements PageRuntime {
 
     private static String describe(PageTask task) {
         return switch (task) {
-            case PageTask.Script script -> "Skript " + script.source().sourceName();
-            case PageTask.DomEvent domEvent -> "DOM-Event '" + domEvent.event().getType() + "'";
-            case PageTask.Timer timer -> "Timer-Callback #" + timer.timerId();
-            case PageTask.Callback ignored -> "interner Callback";
+            case PageTask.Script script ->
+                    "Skript-Task '" + script.source().sourceName() + "'";
+            case PageTask.DomEvent domEvent ->
+                    "DOM-Event-Task '" + domEvent.event().getType() + "'";
+            case PageTask.Timer timer -> "Timer-Task #" + timer.timerId();
+            case PageTask.Callback ignored -> "interner Callback-Task";
         };
     }
 
@@ -868,6 +889,13 @@ final class GraalPageRuntime implements PageRuntime {
     }
 
     private void recordPolyglotFailure(PolyglotException exception) {
+        errors.add(describePolyglotFailure(exception, currentTaskBudgetMillis));
+        if (exception.isCancelled() || exception.isResourceExhausted()) {
+            contextUsable = false;
+        }
+    }
+
+    static String describePolyglotFailure(PolyglotException exception, long budgetMillis) {
         String detail = message(exception);
         if (exception.getSourceLocation() != null) {
             var location = exception.getSourceLocation();
@@ -876,13 +904,10 @@ final class GraalPageRuntime implements PageRuntime {
         }
         if (exception.isInterrupted()) {
             detail = "Skript wurde nach Überschreitung des Zeitbudgets von "
-                    + taskTimeBudgetMillis + " ms unterbrochen (mögliche Endlosschleife): "
+                    + budgetMillis + " ms unterbrochen (mögliche Endlosschleife): "
                     + detail;
         }
-        errors.add(detail);
-        if (exception.isCancelled() || exception.isResourceExhausted()) {
-            contextUsable = false;
-        }
+        return detail;
     }
 
     private void markContextIfFatal(Throwable failure) {
@@ -951,9 +976,6 @@ final class GraalPageRuntime implements PageRuntime {
                 .out(OutputStream.nullOutputStream())
                 .err(OutputStream.nullOutputStream());
         if (fetchBackend != null) {
-            // ES-Modul-Importe (statisch wie dynamisch) laufen über das Browicy-
-            // Netzwerk-Backend; das Dateisystem lässt ausschließlich HTTP(S)-Lesezugriffe
-            // auf Modul-URLs zu und ist ansonsten vollständig gesperrt.
             builder.allowIO(IOAccess.newBuilder()
                     .fileSystem(new EsModuleFileSystem(fetchBackend, document.getUrl()))
                     .build());

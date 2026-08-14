@@ -14,6 +14,8 @@ public final class StyleSheetRegistry {
     private final CssParser parser;
     private final NavigableMap<Integer, CssStyleSheet> sheetsBySource = new TreeMap<>();
     private final IdentityHashMap<Element, CssStyleSheet> sheetsByOwner = new IdentityHashMap<>();
+    private List<CssRule> cachedRules;
+    private long cachedRulesGeneration = Long.MIN_VALUE;
 
     public StyleSheetRegistry() {
         this(new CssParser());
@@ -81,9 +83,17 @@ public final class StyleSheetRegistry {
     }
 
     public synchronized List<CssRule> rules() {
-        List<CssRule> snapshot = new ArrayList<>();
-        sheetsBySource.values().forEach(sheet -> snapshot.addAll(sheet.parsedRules()));
-        return List.copyOf(snapshot);
+        long generation = 0;
+        for (CssStyleSheet sheet : sheetsBySource.values()) {
+            generation += sheet.generation();
+        }
+        if (cachedRules == null || generation != cachedRulesGeneration) {
+            List<CssRule> snapshot = new ArrayList<>();
+            sheetsBySource.values().forEach(sheet -> snapshot.addAll(sheet.parsedRules()));
+            cachedRules = List.copyOf(snapshot);
+            cachedRulesGeneration = generation;
+        }
+        return cachedRules;
     }
 
     public synchronized List<CssFontFace> fontFaces() {
