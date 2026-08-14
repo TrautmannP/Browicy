@@ -66,6 +66,8 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     private java.util.function.Supplier<String> taskDescriptionSupplier = () -> null;
     @Setter(AccessLevel.PACKAGE)
     private JsCookieStore cookieStore;
+    @Setter(AccessLevel.PACKAGE)
+    private LayoutMetricsAccess layoutMetrics = LayoutMetricsAccess.DISABLED;
     private JsCustomElementRegistry customElements;
     private JsDomImplementation implementation;
     private JsWindow defaultView;
@@ -103,7 +105,12 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         if (element == null) {
             return null;
         }
-        return (JsElement) wrappers.computeIfAbsent(element, el -> new JsElement((Element) el, this));
+        return (JsElement) wrappers.computeIfAbsent(
+                element, el -> new JsElement((Element) el, this));
+    }
+
+    LayoutMetricsAccess layoutMetrics() {
+        return layoutMetrics;
     }
 
     Object wrap(Node node) {
@@ -154,7 +161,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         if (owner != null && owner != document) {
             new StyleApplicator().apply(owner);
         }
-        return new JsComputedStyleDeclaration(element.unwrap());
+        return new JsComputedStyleDeclaration(element.unwrap(), layoutMetrics);
     }
 
     JsWindow defaultView() {

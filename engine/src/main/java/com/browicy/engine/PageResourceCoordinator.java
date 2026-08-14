@@ -75,6 +75,13 @@ final class PageResourceCoordinator {
     PageSession load(Document document, PageUpdateListener listener, Runnable onClose,
                      PageLoadProgress progress, JsCookieStore cookies,
                      SessionNavigationHandler navigationHandler) {
+        return load(document, listener, onClose, progress, cookies, navigationHandler, null);
+    }
+
+    PageSession load(Document document, PageUpdateListener listener, Runnable onClose,
+                     PageLoadProgress progress, JsCookieStore cookies,
+                     SessionNavigationHandler navigationHandler,
+                     com.browicy.engine.js.LayoutMetricsAccess layoutMetrics) {
         Objects.requireNonNull(document, "document");
         Objects.requireNonNull(listener, "listener");
         Objects.requireNonNull(onClose, "onClose");
@@ -92,7 +99,7 @@ final class PageResourceCoordinator {
         PageRuntime runtime = javaScriptEngine.createPageRuntime(
                 document, ignored -> updates.flush(), fetchBackend, cookies,
                 styleSheets, () -> updates.invalidate(InvalidationType.STYLE),
-                navigationHandler);
+                navigationHandler, layoutMetrics);
         List<ResourceLoad> cancellableLoads = new java.util.concurrent.CopyOnWriteArrayList<>();
         cancellableLoads.add(fetchBackend);
         ImageResourceRegistry images = new ImageResourceRegistry();

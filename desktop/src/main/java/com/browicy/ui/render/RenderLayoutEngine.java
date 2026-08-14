@@ -84,6 +84,25 @@ public final class RenderLayoutEngine {
                                     Graphics2D graphics,
                                     List<LineBox> lineBoxes,
                                     PositionedContext positionedContext) {
+        return layoutBlock(box, containingX, y, availableWidth, containingHeight,
+                shrinkToFitAuto, graphics, lineBoxes, positionedContext, false);
+    }
+
+    /**
+     * @param collapseTopMargin {@code true}, wenn die obere Margin dieser Box
+     *                          bereits mit der Margin ihres Eltern-Elements
+     *                          kollabiert ist und nicht angewendet werden darf
+     */
+    private BlockLayout layoutBlock(RenderBox box,
+                                    float containingX,
+                                    float y,
+                                    float availableWidth,
+                                    Float containingHeight,
+                                    boolean shrinkToFitAuto,
+                                    Graphics2D graphics,
+                                    List<LineBox> lineBoxes,
+                                    PositionedContext positionedContext,
+                                    boolean collapseTopMargin) {
         int firstLine = lineBoxes.size();
         RenderStyle style = box.style();
         if (style.display() == RenderStyle.Display.TABLE) {
@@ -131,7 +150,9 @@ public final class RenderLayoutEngine {
                 ? (style.autoMargins().right() ? freeWidth / 2f : freeWidth)
                 : 0;
         float borderX = containingX + margin.left() + automaticLeft;
-        float borderY = y + margin.top();
+        // Vertikaler Margin-Kollaps: eigene Margin ggf. mit erster/letzter
+        // Kind-Kette kollabiert (max-Regel), oder komplett vom Elternteil absorbiert.
+        float borderY = y + (collapseTopMargin ? 0 : effectiveTopMargin(box));
         float contentX = borderX + border.left() + padding.left();
         float contentY = borderY + border.top() + padding.top();
         float contentWidth = Math.max(1, contentBoxWidth);
@@ -181,7 +202,9 @@ public final class RenderLayoutEngine {
                         style, style.maxHeight(), containingHeight, verticalDecoration));
         float borderBoxHeight = border.top() + padding.top() + contentHeight
                 + padding.bottom() + border.bottom();
-        float outerHeight = Math.max(0, margin.top() + borderBoxHeight + margin.bottom());
+        float outerHeight = Math.max(0,
+                (collapseTopMargin ? 0 : effectiveTopMargin(box))
+                        + borderBoxHeight + effectiveBottomMargin(box));
 
         if (childPositionedContext != positionedContext) {
             childPositionedContext.setGeometry(
@@ -233,6 +256,12 @@ public final class RenderLayoutEngine {
         List<FloatRegion> floats = new ArrayList<>();
         float currentY = contentY;
         Float previousBottomMargin = null;
+        // Erstes/letztes in-flow Block-Kind: deren Margins kollabieren mit den
+        // eigenen Margins dieser Box (sofern diese keine Border/Padding hat).
+        RenderBox firstBlockChild = firstInFlowBlockChild(box);
+        RenderBox lastBlockChild = lastInFlowBlockChild(box);
+        boolean parentCollapsesTop = collapsesWithChildren(box.style());
+        boolean parentCollapsesBottom = collapsesWithChildren(box.style());
         for (RenderNode child : box.children()) {
             if (child instanceof RenderBox childBox) {
                 float inlineMinimum = floats.isEmpty() || inlineBuffer.isEmpty()
@@ -283,16 +312,19 @@ public final class RenderLayoutEngine {
                     continue;
                 }
                 float collapsedOverlap = previousBottomMargin == null ? 0
-                        : previousBottomMargin + childBox.style().margin().top()
-                        - Math.max(previousBottomMargin, childBox.style().margin().top());
+                        : previousBottomMargin + effectiveTopMargin(childBox)
+                        - Math.max(previousBottomMargin, effectiveTopMargin(childBox));
                 currentY -= collapsedOverlap;
+                boolean collapseTop = parentCollapsesTop && childBox == firstBlockChild;
                 BlockLayout childLayout = layoutBlock(
                         childBox, blockArea.x(), currentY, blockArea.width(),
                         childContainingHeight, false, graphics, lineBoxes,
-                        childPositionedContext);
+                        childPositionedContext, collapseTop);
                 childFragments.addAll(childLayout.fragments());
-                currentY += childLayout.outerHeight();
-                previousBottomMargin = childBox.style().margin().bottom();
+                float bottomAbsorbed = childBox == lastBlockChild && parentCollapsesBottom
+                        ? effectiveBottomMargin(childBox) : 0;
+                currentY += childLayout.outerHeight() - bottomAbsorbed;
+                previousBottomMargin = effectiveBottomMargin(childBox);
             } else {
                 previousBottomMargin = null;
                 inlineBuffer.add(child);
@@ -309,6 +341,87 @@ public final class RenderLayoutEngine {
                 childContainingHeight, box.style().textAlign(), graphics, childFragments,
                 lineBoxes);
         return Math.max(0, currentY - contentY);
+    }
+
+    /**
+     * Vertikale Margins kollabieren mit der ersten/letzten Kind-Kette, wenn diese
+     * Box keine top/bottom Border, kein top/bottom Padding, sichtbaren Overflow
+     * und statisches, nicht-floatendes Block-Layout hat (CSS 2.1 §8.3.1).
+     */
+    private static boolean collapsesWithChildren(RenderStyle style) {
+        return style.position() == RenderStyle.Position.STATIC
+                && style.floatMode() == RenderStyle.FloatMode.NONE
+                && style.overflow() == RenderStyle.Overflow.VISIBLE
+                && style.display() == RenderStyle.Display.BLOCK
+                && style.borderWidth().top() == 0
+                && style.borderWidth().bottom() == 0
+                && style.padding().top() == 0
+                && style.padding().bottom() == 0;
+    }
+
+    /** Effektive obere Margin (max-Regel über die erste in-flow Kind-Kette). */
+    private static float effectiveTopMargin(RenderBox box) {
+        RenderStyle style = box.style();
+        if (!collapsesWithChildren(style)) {
+            return style.margin().top();
+        }
+        RenderBox first = firstInFlowBlockChild(box);
+        return first == null ? style.margin().top()
+                : Math.max(style.margin().top(), effectiveTopMargin(first));
+    }
+
+    /** Effektive untere Margin (max-Regel über die letzte in-flow Kind-Kette). */
+    private static float effectiveBottomMargin(RenderBox box) {
+        RenderStyle style = box.style();
+        if (!collapsesWithChildren(style)) {
+            return style.margin().bottom();
+        }
+        RenderBox last = lastInFlowBlockChild(box);
+        return last == null ? style.margin().bottom()
+                : Math.max(style.margin().bottom(), effectiveBottomMargin(last));
+    }
+
+    /**
+     * Erstes in-flow Block-Kind ohne Clearance; {@code null}, wenn Text/Inline-,
+     * Float- oder Cleared-Inhalt die Kette unterbricht. Absolut/Fix positionierte
+     * Kinder sind out-of-flow und werden übersprungen.
+     */
+    private static RenderBox firstInFlowBlockChild(RenderBox box) {
+        for (RenderNode node : box.children()) {
+            if (node instanceof RenderBox child) {
+                if (child.style().position() == RenderStyle.Position.ABSOLUTE
+                        || child.style().position() == RenderStyle.Position.FIXED) {
+                    continue;
+                }
+                if (child.style().floatMode() != RenderStyle.FloatMode.NONE
+                        || child.style().clear() != RenderStyle.Clear.NONE) {
+                    return null;
+                }
+                return child;
+            }
+            return null;
+        }
+        return null;
+    }
+
+    /** Letztes in-flow Block-Kind ohne Clearance; {@code null} bei Unterbrechung. */
+    private static RenderBox lastInFlowBlockChild(RenderBox box) {
+        List<RenderNode> children = box.children();
+        for (int index = children.size() - 1; index >= 0; index--) {
+            if (children.get(index) instanceof RenderBox child) {
+                if (child.style().position() == RenderStyle.Position.ABSOLUTE
+                        || child.style().position() == RenderStyle.Position.FIXED) {
+                    continue;
+                }
+                if (child.style().floatMode() != RenderStyle.FloatMode.NONE
+                        || child.style().clear() != RenderStyle.Clear.NONE) {
+                    return null;
+                }
+                return child;
+            }
+            return null;
+        }
+        return null;
     }
 
     private record GridLayout(float height, List<PaintFragment> fragments) {
@@ -432,10 +545,12 @@ public final class RenderLayoutEngine {
             float itemWidth = Math.max(1, cellWidth - item.style().margin().horizontal());
             float rowY = rowOffset(provisional, placement.row() - 1, rowGap, 0);
             float x = columnOffset(columnWidths, placement.column() - 1, columnGap, contentX);
-            BlockLayout itemLayout = layoutBlock(item, x + item.style().margin().left(),
-                    contentY + rowY + item.style().margin().top(), itemWidth, null,
+            // Margins wendet layoutBlock selbst an (borderX/Y = Pos + margin);
+            // hier NICHT zusätzlich addieren, sonst doppelt.
+            BlockLayout itemLayout = layoutBlock(item, x,
+                    contentY + rowY, itemWidth, null,
                     false, graphics, lineBoxes, positionedContext);
-            float itemHeight = itemLayout.outerHeight() + item.style().margin().vertical();
+            float itemHeight = itemLayout.outerHeight();
             for (int r = 0; r < placement.rowSpan(); r++) {
                 provisional[placement.row() - 1 + r] = Math.max(
                         provisional[placement.row() - 1 + r], itemHeight);
@@ -495,8 +610,9 @@ public final class RenderLayoutEngine {
             float itemWidth = Math.max(1, cellWidth - item.style().margin().horizontal());
             boolean stretch = item.style().height().isAuto()
                     && placement.rowSpan() == 1;
-            BlockLayout itemLayout = layoutBlock(item, x + item.style().margin().left(),
-                    y + item.style().margin().top(), itemWidth, stretch ? cellHeight : null,
+            // Margins wendet layoutBlock selbst an (borderX/Y = Pos + margin).
+            BlockLayout itemLayout = layoutBlock(item, x,
+                    y, itemWidth, stretch ? cellHeight : null,
                     false, graphics, lineBoxes, positionedContext);
             for (PaintFragment fragment : itemLayout.fragments()) {
                 fragments.add(fragment);

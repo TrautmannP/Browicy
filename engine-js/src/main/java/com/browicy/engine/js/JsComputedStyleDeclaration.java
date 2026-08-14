@@ -4,23 +4,35 @@ import com.browicy.engine.dom.Element;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
-import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 final class JsComputedStyleDeclaration implements ProxyObject {
 
     private static final List<String> MEMBERS = List.of(
             "cssText", "length", "getPropertyValue", "getPropertyPriority", "item", "parentRule");
 
-    private final Element element;
+    /** Dimensionale Eigenschaften, deren Used Value gegen das Layout aufgelöst wird. */
+    private static final Set<String> DIMENSION_PROPERTIES = Set.of(
+            "width", "height",
+            "padding-top", "padding-right", "padding-bottom", "padding-left",
+            "margin-top", "margin-right", "margin-bottom", "margin-left",
+            "top", "right", "bottom", "left",
+            "border-top-width", "border-right-width", "border-bottom-width", "border-left-width",
+            "font-size");
 
-    JsComputedStyleDeclaration(Element element) {
+    private final Element element;
+    private final LayoutMetricsAccess layoutMetrics;
+
+    JsComputedStyleDeclaration(Element element, LayoutMetricsAccess layoutMetrics) {
         this.element = element;
+        this.layoutMetrics = layoutMetrics == null
+                ? LayoutMetricsAccess.DISABLED : layoutMetrics;
     }
 
     @Override
@@ -30,17 +42,35 @@ final class JsComputedStyleDeclaration implements ProxyObject {
             case "cssText" -> cssText(declarations);
             case "length" -> declarations.size();
             case "getPropertyValue" -> (ProxyExecutable) args ->
-                    declarations.getOrDefault(normalizeProperty(text(args, 0)), "");
+                    propertyValue(declarations, text(args, 0));
             case "getPropertyPriority" -> (ProxyExecutable) args -> "";
             case "item" -> (ProxyExecutable) args -> item(declarations, index(args));
             case "parentRule" -> null;
             default -> {
-                Integer index = numericIndex(key);
-                yield index == null
-                        ? declarations.getOrDefault(normalizeProperty(key), "")
-                        : item(declarations, index);
+                Integer numeric = numericIndex(key);
+                if (numeric != null) {
+                    yield item(declarations, numeric);
+                }
+                String property = normalizeProperty(key);
+                String resolved = resolve(property);
+                yield resolved != null ? resolved
+                        : declarations.getOrDefault(property, "");
             }
         };
+    }
+
+    private String propertyValue(Map<String, String> declarations, String propertyName) {
+        String property = normalizeProperty(propertyName);
+        String resolved = resolve(property);
+        return resolved != null ? resolved : declarations.getOrDefault(property, "");
+    }
+
+    /** Used Value aus dem Layout, sonst {@code null} (Rückfall auf die Kaskade). */
+    private String resolve(String property) {
+        if (!DIMENSION_PROPERTIES.contains(property)) {
+            return null;
+        }
+        return layoutMetrics.resolvedValue(element, property);
     }
 
     @Override
@@ -64,7 +94,11 @@ final class JsComputedStyleDeclaration implements ProxyObject {
         if (MEMBERS.contains(key)) return true;
         Integer index = numericIndex(key);
         if (index != null) return index >= 0 && index < element.getComputedStyles().size();
-        return element.getComputedStyles().containsKey(normalizeProperty(key));
+        String property = normalizeProperty(key);
+        // Dimensionale Eigenschaften sind immer abfragbar (Used-Value-Auflösung),
+        // auch wenn sie nicht deklariert sind (z. B. height: auto).
+        return DIMENSION_PROPERTIES.contains(property)
+                || element.getComputedStyles().containsKey(property);
     }
 
     private static String item(Map<String, String> declarations, int index) {

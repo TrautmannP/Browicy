@@ -1467,8 +1467,21 @@ public final class JavaScriptEngine {
                                          StyleSheetRegistry styleSheets,
                                          Runnable styleSheetMutationCallback,
                                          PageNavigationHandler navigationHandler) {
+        return createPageRuntime(document, observer, fetchBackend, cookieStore,
+                styleSheets, styleSheetMutationCallback, navigationHandler,
+                LayoutMetricsAccess.DISABLED);
+    }
+
+    public PageRuntime createPageRuntime(Document document,
+                                         PageRuntimeObserver observer,
+                                         JsFetchBackend fetchBackend,
+                                         JsCookieStore cookieStore,
+                                         StyleSheetRegistry styleSheets,
+                                         Runnable styleSheetMutationCallback,
+                                         PageNavigationHandler navigationHandler,
+                                         LayoutMetricsAccess layoutMetrics) {
         return new GraalPageRuntime(document, statementLimit, observer, fetchBackend, cookieStore,
-                styleSheets, styleSheetMutationCallback, navigationHandler);
+                styleSheets, styleSheetMutationCallback, navigationHandler, layoutMetrics);
     }
 
     private static StyleSheetRegistry defaultStyleSheets(Document document) {

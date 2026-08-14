@@ -39,7 +39,8 @@ final class JsElement implements ProxyObject, JsNodeLike {
             "insertRow", "deleteRow", "insertCell", "deleteCell", "add", "remove",
             "append", "prepend", "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
             "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode", "click", "focus", "blur", "scrollIntoView",
-            "getBoundingClientRect", "getClientRects", "play", "pause",
+            "getBoundingClientRect", "getClientRects", "offsetWidth", "offsetHeight", "offsetLeft", "offsetTop",
+            "clientWidth", "clientHeight", "play", "pause",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
             "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
@@ -174,7 +175,16 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "insertCell" -> (ProxyExecutable) args -> document.wrap(insertCell(indexArg(args, 0, -1)));
             case "deleteCell" -> (ProxyExecutable) args -> { deleteFrom(cells(), indexArg(args, 0, -2)); return null; };
             case "add" -> (ProxyExecutable) args -> { addOption(args); return null; };
-            case "remove" -> (ProxyExecutable) args -> { removeOption(args); return null; };
+            case "remove" -> (ProxyExecutable) args -> {
+                // ChildNode.remove(): entfernt das Element selbst; mit Argument
+                // HTMLSelectElement.remove(index): entfernt eine Option.
+                if (args.length == 0 && element.getParent() != null) {
+                    element.getParent().removeChild(element);
+                } else {
+                    removeOption(args);
+                }
+                return null;
+            };
             case "append" -> (ProxyExecutable) args -> {
                 for (Value value : args) {
                     if (value.isProxyObject() && value.asProxyObject() instanceof JsNodeLike node) {
@@ -246,11 +256,25 @@ final class JsElement implements ProxyObject, JsNodeLike {
                 return null;
             };
             case "scrollIntoView" -> (ProxyExecutable) args -> null;
-            case "getBoundingClientRect" -> (ProxyExecutable) args -> ProxyObject.fromMap(
-                    Map.of("x", 0.0, "y", 0.0, "width", 0.0, "height", 0.0,
-                            "top", 0.0, "right", 0.0, "bottom", 0.0, "left", 0.0,
-                            "toJSON", (org.graalvm.polyglot.proxy.ProxyExecutable) inner -> null));
-            case "getClientRects" -> (ProxyExecutable) args -> ProxyArray.fromArray();
+            case "getBoundingClientRect" -> (ProxyExecutable) args -> boundingClientRect();
+            case "getClientRects" -> (ProxyExecutable) args -> {
+                LayoutElementMetrics metrics = layoutMetrics();
+                if (!metrics.rendered()) {
+                    return ProxyArray.fromArray();
+                }
+                org.graalvm.polyglot.proxy.ProxyObject rect = ProxyObject.fromMap(
+                        Map.of("x", (double) metrics.left(), "y", (double) metrics.top(),
+                                "width", (double) metrics.width(), "height", (double) metrics.height(),
+                                "top", (double) metrics.top(), "right", (double) metrics.right(),
+                                "bottom", (double) metrics.bottom(), "left", (double) metrics.left()));
+                return ProxyArray.fromArray(rect);
+            };
+            case "offsetWidth" -> (double) layoutMetrics().width();
+            case "offsetHeight" -> (double) layoutMetrics().height();
+            case "clientWidth" -> (double) layoutMetrics().clientWidth();
+            case "clientHeight" -> (double) layoutMetrics().clientHeight();
+            case "offsetLeft" -> (double) offsetLeft();
+            case "offsetTop" -> (double) offsetTop();
             case "play", "pause", "load" -> (ProxyExecutable) args -> null;
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(element, document);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(element, document);
@@ -274,6 +298,101 @@ final class JsElement implements ProxyObject, JsNodeLike {
     private static boolean matchesSelector(Element candidate, String selector) {
         Document owner = candidate.getOwnerDocument();
         return owner != null && owner.querySelectorAll(selector).contains(candidate);
+    }
+
+    private LayoutElementMetrics layoutMetrics() {
+        return document.layoutMetrics().metricsFor(element);
+    }
+
+    private Object boundingClientRect() {
+        LayoutElementMetrics metrics = layoutMetrics();
+        if (!metrics.rendered()) {
+            return ProxyObject.fromMap(rectMap(0, 0, 0, 0));
+        }
+        return ProxyObject.fromMap(rectMap(metrics.left(), metrics.top(),
+                metrics.width(), metrics.height()));
+    }
+
+    private static Map<String, Object> rectMap(double x, double y, double width, double height) {
+        Map<String, Object> rect = new LinkedHashMap<>();
+        rect.put("x", x);
+        rect.put("y", y);
+        rect.put("width", width);
+        rect.put("height", height);
+        rect.put("top", y);
+        rect.put("right", x + width);
+        rect.put("bottom", y + height);
+        rect.put("left", x);
+        rect.put("toJSON", (org.graalvm.polyglot.proxy.ProxyExecutable) inner -> {
+            Map<String, Object> json = new LinkedHashMap<>();
+            json.put("x", x);
+            json.put("y", y);
+            json.put("width", width);
+            json.put("height", height);
+            json.put("top", y);
+            json.put("right", x + width);
+            json.put("bottom", y + height);
+            json.put("left", x);
+            return json;
+        });
+        return rect;
+    }
+
+    /** Abstand der äußeren Border-Kante zur Padding-Kante (innerer Rand) des offsetParent. */
+    private float offsetLeft() {
+        LayoutElementMetrics own = layoutMetrics();
+        if (!own.rendered()) {
+            return 0;
+        }
+        Element parent = offsetParentElement();
+        if (parent == null) {
+            return 0;
+        }
+        LayoutElementMetrics parentMetrics = document.layoutMetrics().metricsFor(parent);
+        return own.left() - (parentMetrics.left() + parentMetrics.borderLeft());
+    }
+
+    private float offsetTop() {
+        LayoutElementMetrics own = layoutMetrics();
+        if (!own.rendered()) {
+            return 0;
+        }
+        Element parent = offsetParentElement();
+        if (parent == null) {
+            return 0;
+        }
+        LayoutElementMetrics parentMetrics = document.layoutMetrics().metricsFor(parent);
+        return own.top() - (parentMetrics.top() + parentMetrics.borderTop());
+    }
+
+    /**
+     * Nächster positionierter Vorfahre (CSSOM {@code offsetParent}); {@code null}
+     * für fixed-Elemente, {@code body}/{@code html} und ohne positionierten Vorfahren.
+     */
+    private Element offsetParentElement() {
+        if ("fixed".equals(position())) {
+            return null;
+        }
+        String tag = tag();
+        if ("body".equals(tag) || "html".equals(tag)) {
+            return null;
+        }
+        for (com.browicy.engine.dom.Node node = element.getParent(); node != null;
+             node = node.getParent()) {
+            if (node instanceof Element ancestor && !"static".equals(positionOf(ancestor))) {
+                return ancestor;
+            }
+        }
+        Document owner = element.getOwnerDocument();
+        return owner == null ? null : owner.getBody();
+    }
+
+    private String position() {
+        return positionOf(element);
+    }
+
+    private static String positionOf(Element candidate) {
+        return candidate.getComputedStyles().getOrDefault("position", "static");
     }
 
     @Override

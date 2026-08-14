@@ -31,6 +31,10 @@
         </dependency>
         <dependency>
             <groupId>com.browicy</groupId>
+            <artifactId>browicy-engine-js</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.browicy</groupId>
             <artifactId>browicy-engine-html</artifactId>
         </dependency>
         <dependency>

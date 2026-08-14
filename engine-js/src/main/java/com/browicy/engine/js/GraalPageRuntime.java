@@ -66,6 +66,7 @@ final class GraalPageRuntime implements PageRuntime {
     private final PageNavigationHandler navigationHandler;
     private final StyleSheetRegistry styleSheets;
     private final Runnable styleSheetMutationCallback;
+    private final LayoutMetricsAccess layoutMetrics;
     private final LinkedBlockingDeque<Envelope<?>> tasks = new LinkedBlockingDeque<>();
     private final Deque<Envelope<?>> microtasks = new ArrayDeque<>();
     private final AtomicBoolean acceptingTasks = new AtomicBoolean(true);
@@ -125,6 +126,15 @@ final class GraalPageRuntime implements PageRuntime {
                      JsFetchBackend fetchBackend, JsCookieStore cookieStore,
                      StyleSheetRegistry styleSheets, Runnable styleSheetMutationCallback,
                      PageNavigationHandler navigationHandler) {
+        this(document, statementLimit, observer, fetchBackend, cookieStore,
+                styleSheets, styleSheetMutationCallback, navigationHandler,
+                LayoutMetricsAccess.DISABLED);
+    }
+
+    GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
+                     JsFetchBackend fetchBackend, JsCookieStore cookieStore,
+                     StyleSheetRegistry styleSheets, Runnable styleSheetMutationCallback,
+                     PageNavigationHandler navigationHandler, LayoutMetricsAccess layoutMetrics) {
         this.document = Objects.requireNonNull(document, "document");
         this.statementLimit = statementLimit;
         this.observer = Objects.requireNonNull(observer, "observer");
@@ -134,6 +144,8 @@ final class GraalPageRuntime implements PageRuntime {
         this.styleSheets = Objects.requireNonNull(styleSheets, "styleSheets");
         this.styleSheetMutationCallback = Objects.requireNonNull(
                 styleSheetMutationCallback, "styleSheetMutationCallback");
+        this.layoutMetrics = layoutMetrics == null
+                ? LayoutMetricsAccess.DISABLED : layoutMetrics;
         long runtimeId = NEXT_RUNTIME_ID.incrementAndGet();
         ThreadFactory schedulerThreads = runnable -> {
             Thread thread = new Thread(runnable, "browicy-page-timer-" + runtimeId);
@@ -263,6 +275,7 @@ final class GraalPageRuntime implements PageRuntime {
         jsDocument.setTaskBudgetMillis(() -> currentTaskBudgetMillis);
         jsDocument.setTaskDescriptionSupplier(() -> currentTaskDescription);
         jsDocument.setCookieStore(cookieStore);
+        jsDocument.setLayoutMetrics(layoutMetrics);
         Value bindings = context.getBindings("js");
         bindings.putMember("document", jsDocument);
         bindings.putMember("console", console);
