@@ -1750,8 +1750,13 @@ public final class RenderLayoutEngine {
                 width = resolve(widthLength, percentageBase);
             }
             width = constrain(contentBoxDimension(style, width, boxDecoration),
-                    minConstraint, maxConstraint) + outerDecoration;
-            return new IntrinsicWidths(width, width);
+                    minConstraint, maxConstraint);
+            float minimum = width;
+            if (widthLength.unit() == RenderLength.Unit.PERCENT) {
+                IntrinsicWidths content = intrinsicWidths(box.children(), percentageBase, graphics);
+                minimum = constrain(content.minimum(), minConstraint, maxConstraint);
+            }
+            return new IntrinsicWidths(width + outerDecoration, minimum + outerDecoration);
         }
         IntrinsicWidths content = intrinsicWidths(box.children(), percentageBase, graphics);
         float preferred = constrain(content.preferred(), minConstraint, maxConstraint);
@@ -1805,7 +1810,9 @@ public final class RenderLayoutEngine {
         }
         if (node instanceof RenderImage image) {
             ImageLayout layout = imageLayout(image, percentageBase, null);
-            return new IntrinsicWidths(layout.width(), layout.width());
+            float minimum = image.style().width().unit() == RenderLength.Unit.PERCENT
+                    ? 0 : layout.width();
+            return new IntrinsicWidths(layout.width(), minimum);
         }
         return new IntrinsicWidths(0, 0);
     }
