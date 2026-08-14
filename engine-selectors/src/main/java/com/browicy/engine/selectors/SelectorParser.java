@@ -199,13 +199,42 @@ public final class SelectorParser {
                 throw error();
             }
             skipWhitespace();
-            String value = peek() == '\'' || peek() == '"'
-                    ? readQuotedString() : readIdentifier();
+            String value = readAttributeValue();
             skipWhitespace();
             if (!consume(']')) {
                 throw error();
             }
             return new AttributeSelector(namespace, name, operator, value);
+        }
+
+        private String readAttributeValue() {
+            if (peek() == '\'' || peek() == '"') {
+                return readQuotedString();
+            }
+            return readUnquotedValue();
+        }
+
+        private String readUnquotedValue() {
+            StringBuilder result = new StringBuilder();
+            while (!atEnd()) {
+                char value = peek();
+                if (value == ']' || Character.isWhitespace(value)) {
+                    break;
+                }
+                if (value == '\\') {
+                    position++;
+                    if (atEnd()) {
+                        throw error();
+                    }
+                    value = peek();
+                }
+                result.append(value);
+                position++;
+            }
+            if (result.isEmpty()) {
+                throw error();
+            }
+            return result.toString();
         }
 
         private String readQuotedString() {

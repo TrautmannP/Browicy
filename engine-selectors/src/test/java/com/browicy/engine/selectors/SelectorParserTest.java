@@ -39,6 +39,29 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void parsesBackslashEscapesInUnquotedAttributeValues() {
+        assertEquals("[data-target=\"qbsearch-input.inputButtonText\"]",
+                parser.parse("[data-target=qbsearch-input\\.inputButtonText]")
+                        .selectors().getFirst().toString());
+        assertEquals("[type=\"A s\"]", parser.parse("[type=A\\ s]")
+                .selectors().getFirst().toString());
+        assertEquals("[class=\"octicon octicon-x\"]", parser.parse(
+                "[class=octicon\\ octicon-x]").selectors().getFirst().toString());
+        assertEquals("[href^=\"a.pdf\"]", parser.parse("[href^=a\\.pdf]")
+                .selectors().getFirst().toString());
+
+        TestNode link = new TestNode("a", null, Set.of(), null,
+                Map.of("data-target", "qbsearch-input.inputButtonText",
+                        "type", "A s", "class", "octicon octicon-x"));
+        TestAdapter adapter = new TestAdapter(link);
+        assertTrue(parser.parse("[data-target=qbsearch-input\\.inputButtonText]")
+                .matchesAny(link, adapter));
+        assertTrue(parser.parse("[type=A\\ s]").matchesAny(link, adapter));
+        assertTrue(parser.parse("[class=octicon\\ octicon-x]").matchesAny(link, adapter));
+        assertFalse(parser.parse("[data-target=other\\.value]").matchesAny(link, adapter));
+    }
+
+    @Test
     public void parsesAndMatchesPrefixAndSuffixAttributeSelectors() {
         TestNode link = new TestNode("a", null, Set.of(), null,
                 Map.of("href", "https://example.com/page.pdf", "lang", "de-DE"));
