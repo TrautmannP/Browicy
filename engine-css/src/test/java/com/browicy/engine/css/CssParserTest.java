@@ -1423,4 +1423,54 @@ public class CssParserTest {
         assertFalse(parser.parseDeclarations("transition:1s").containsKey("transition-property"));
         assertFalse(parser.parseDeclarations("caret-color:bogus").containsKey("caret-color"));
     }
+
+    @Test
+    public void acceptsContainerMaskPlaceItemsAndSingleGapProperties() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                -webkit-text-decoration-color:blue;background-blend-mode:normal;
+                border-end-end-radius:4px;break-after:avoid;container:controlbox/inline-size;
+                container-type:inline-size;field-sizing:content;font-variant:tabular-nums;
+                font-variant-ligatures:contextual;font-variant-numeric:lining-nums tabular-nums;
+                forced-color-adjust:none;grid:none/1fr;grid-auto-columns:max-content;
+                hyphens:auto;interpolate-size:allow-keywords;line-break:anywhere;
+                mask:url("data:image/svg+xml;base64,AAAA");offset:2px;perspective:1000px;
+                place-items:center;scroll-behavior:auto;
+                scrollbar-color:var(--brand-color-text-muted) transparent;
+                scrollbar-gutter:stable;stroke-linecap:round;text-anchor:end;
+                text-size-adjust:100%;transform-style:preserve-3d
+                """);
+
+        assertEquals("blue", declarations.get("text-decoration-color"));
+        assertEquals("normal", declarations.get("background-blend-mode"));
+        assertEquals("4px", declarations.get("border-radius"));
+        assertEquals("avoid", declarations.get("break-after"));
+        assertEquals("controlbox/inline-size", declarations.get("container"));
+        assertEquals("inline-size", declarations.get("container-type"));
+        assertEquals("content", declarations.get("field-sizing"));
+        assertEquals("tabular-nums", declarations.get("font-variant"));
+        assertEquals("contextual", declarations.get("font-variant-ligatures"));
+        assertEquals("lining-nums tabular-nums", declarations.get("font-variant-numeric"));
+        assertEquals("none", declarations.get("forced-color-adjust"));
+        assertEquals("none/1fr", declarations.get("grid"));
+        assertEquals("max-content", declarations.get("grid-auto-columns"));
+        assertEquals("auto", declarations.get("hyphens"));
+        assertEquals("allow-keywords", declarations.get("interpolate-size"));
+        assertEquals("anywhere", declarations.get("line-break"));
+        assertEquals("center", declarations.get("align-items"));
+        assertEquals("center", declarations.get("justify-items"));
+        assertEquals("auto", declarations.get("scroll-behavior"));
+        assertEquals("stable", declarations.get("scrollbar-gutter"));
+        assertEquals("round", declarations.get("stroke-linecap"));
+        assertEquals("end", declarations.get("text-anchor"));
+        assertEquals("100%", declarations.get("text-size-adjust"));
+        assertEquals("preserve-3d", declarations.get("transform-style"));
+        assertEquals("var(--brand-color-text-muted) transparent",
+                declarations.get("scrollbar-color"));
+
+        assertTrue(parser.supportsProperty("container-type"));
+        assertTrue(parser.supports("grid", "none/1fr"));
+        assertFalse(parser.parseDeclarations("font-variant-ligatures:bogus")
+                .containsKey("font-variant-ligatures"));
+    }
 }

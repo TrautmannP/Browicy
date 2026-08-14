@@ -622,6 +622,21 @@ public final class CssParser {
             case "backface-visibility" -> supports(normalized, "hidden");
             case "background-attachment" -> supports(normalized, "fixed");
             case "caret-color" -> supports(normalized, "auto");
+            case "-webkit-text-decoration-color" -> supports(normalized, "blue");
+            case "border-end-end-radius", "border-end-start-radius",
+                 "border-start-end-radius", "border-start-start-radius" ->
+                    supports(normalized, "4px");
+            case "container", "container-type" -> supports(normalized, "inline-size");
+            case "font-variant", "font-variant-ligatures", "font-variant-numeric" ->
+                    supports(normalized, "normal");
+            case "grid", "grid-auto-columns", "grid-auto-rows" ->
+                    supports(normalized, "auto");
+            case "mask" -> supports(normalized, "none");
+            case "place-items" -> supports(normalized, "center");
+            case "scrollbar-color" -> supports(normalized, "auto");
+            case "break-after", "break-inside" -> supports(normalized, "auto");
+            case "perspective" -> supports(normalized, "1000px");
+            case "text-size-adjust" -> supports(normalized, "100%");
             case "align-self" -> supports(normalized, "stretch");
             case "align-content" -> supports(normalized, "stretch");
             case "order" -> supports(normalized, "0");
@@ -1365,6 +1380,80 @@ public final class CssParser {
                     target.put("overflow", value.equals("scrollbar") ? "auto" : value);
                 }
             }
+            case "-webkit-text-decoration-color" -> {
+                if (isColorValue(value)) {
+                    target.put("text-decoration-color", value);
+                }
+            }
+            case "border-end-end-radius", "border-end-start-radius",
+                 "border-start-end-radius", "border-start-start-radius" -> {
+                if (RADIUS_LENGTH.matcher(value).matches()) {
+                    target.put("border-radius", value);
+                }
+            }
+            case "container-type" -> {
+                if (value.equals("normal") || value.equals("inline-size")
+                        || value.equals("size")) {
+                    target.put(property, value);
+                }
+            }
+            case "container" -> {
+                if (value.isBlank()) {
+                    break;
+                }
+                target.put(property, value);
+            }
+            case "font-variant" -> target.put(property, value);
+            case "font-variant-ligatures" -> {
+                if (value.equals("normal") || value.equals("none")
+                        || value.equals("contextual") || value.equals("common-ligatures")) {
+                    target.put(property, value);
+                }
+            }
+            case "font-variant-numeric" -> {
+                if (value.equals("normal") || value.equals("lining-nums")
+                        || value.equals("tabular-nums") || value.equals("oldstyle-nums")
+                        || value.equals("lining-nums tabular-nums")) {
+                    target.put(property, value);
+                }
+            }
+            case "grid" -> {
+                if (value.equals("none") || value.contains("/")) {
+                    target.put(property, value);
+                }
+            }
+            case "grid-auto-columns", "grid-auto-rows" -> {
+                if (value.equals("auto") || value.equals("min-content")
+                        || value.equals("max-content")
+                        || GRID_TRACK.matcher(value).matches()) {
+                    target.put(property, value);
+                }
+            }
+            case "mask" -> {
+                if (value.equals("none") || value.startsWith("url(")
+                        || value.startsWith("linear-gradient(")
+                        || value.startsWith("radial-gradient(")) {
+                    target.put(property, value);
+                }
+            }
+            case "place-items" -> {
+                String[] tokens = value.split("\\s+");
+                if (tokens.length < 1 || tokens.length > 2) {
+                    break;
+                }
+                if (!isAlignSelfValue(tokens[0])
+                        || tokens.length == 2 && !isAlignSelfValue(tokens[1])) {
+                    break;
+                }
+                target.put("align-items", tokens[0]);
+                target.put("justify-items", tokens.length == 1 ? tokens[0] : tokens[1]);
+            }
+            case "scrollbar-color" -> {
+                if (value.equals("auto") || isColorValue(value)
+                        || value.contains("transparent")) {
+                    target.put(property, value);
+                }
+            }
             case "color-scheme" -> {
                 if (value.equals("normal") || value.equals("light")
                         || value.equals("dark") || value.equals("light dark")
@@ -1500,7 +1589,9 @@ public final class CssParser {
                 }
             }
             default -> {
-                if (property.startsWith("-webkit-") || property.startsWith("-moz-")
+                if (ACCEPT_ANY_VALUES.contains(property)) {
+                    target.put(property, value);
+                } else if (property.startsWith("-webkit-") || property.startsWith("-moz-")
                         || property.startsWith("-ms-")) {
                     putPrefixed(target, property, value);
                 } else {
@@ -2644,6 +2735,12 @@ public final class CssParser {
         }
         return true;
     }
+
+    private static final java.util.Set<String> ACCEPT_ANY_VALUES = java.util.Set.of(
+            "align-left", "background-blend-mode", "break-after", "break-inside",
+            "field-sizing", "forced-color-adjust", "hyphens", "interpolate-size",
+            "line-break", "offset", "perspective", "scroll-behavior", "scrollbar-gutter",
+            "stroke-linecap", "text-anchor", "text-size-adjust", "transform-style");
 
     private static boolean isAlignSelfValue(String value) {
         return value.equals("auto") || value.equals("stretch")
