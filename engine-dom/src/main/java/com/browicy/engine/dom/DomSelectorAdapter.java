@@ -75,6 +75,11 @@ public final class DomSelectorAdapter implements SelectorNodeAdapter<Element> {
     }
 
     @Override
+    public java.util.List<Element> children(Element element) {
+        return element.getChildElements();
+    }
+
+    @Override
     public String namespaceUri(Element element) {
         return element.getNamespaceUri();
     }

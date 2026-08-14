@@ -1,8 +1,19 @@
 package com.browicy.engine.selectors;
 
+import java.util.List;
+
 public interface SelectorNodeAdapter<N> {
 
     N parentElement(N element);
+
+    /**
+     * Element children in tree order. Only needed by selectors that walk
+     * downward ({@code :has()}); adapters without child access default to
+     * no children so such selectors never match spuriously.
+     */
+    default List<N> children(N element) {
+        return List.of();
+    }
 
     N previousElementSibling(N element);
 

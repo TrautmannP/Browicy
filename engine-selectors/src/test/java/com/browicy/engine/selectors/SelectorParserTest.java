@@ -39,6 +39,80 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void parsesAndMatchesHasWithDescendantAndChildRelations() {
+        TestNode plain = new TestNode("div", null, Set.of("card"), null);
+        TestNode card = new TestNode("div", null, Set.of("card"), null);
+        TestNode badge = new TestNode("span", null, Set.of("badge"), null);
+        TestNode deepBadge = new TestNode("section", null, Set.of(), null);
+        TestNode innerBadge = new TestNode("span", null, Set.of("badge"), null);
+
+        TestNode wiredInner = innerBadge.withParent(deepBadge);
+        TestNode wiredDeep = deepBadge.withParent(card).withChildren(List.of(wiredInner));
+        TestNode wiredBadge = badge.withParent(card);
+        TestNode wiredCard = card.withChildren(List.of(wiredBadge, wiredDeep));
+        TestAdapter adapter = new TestAdapter(wiredCard, wiredBadge, wiredDeep, wiredInner,
+                plain);
+
+        assertTrue(parser.parse(":has(.badge)").matchesAny(wiredCard, adapter));
+        assertTrue(parser.parse(".card:has(.badge)").matchesAny(wiredCard, adapter));
+        assertFalse(parser.parse(":has(.badge)").matchesAny(plain, adapter));
+        assertTrue(parser.parse(":has(> .badge)").matchesAny(wiredCard, adapter));
+        assertFalse(parser.parse(":has(> .badge)").matchesAny(plain, adapter));
+        assertTrue(parser.parse(":has(section .badge)").matchesAny(wiredCard, adapter));
+        assertTrue(parser.parse(":has(section > .badge)").matchesAny(wiredCard, adapter));
+        assertFalse(parser.parse(":has(> section .badge)").matchesAny(wiredCard, adapter));
+        assertTrue(parser.parse(":is(.card):has(.badge)").matchesAny(wiredCard, adapter));
+        assertFalse(parser.parse(":is(.card):has(.badge)").matchesAny(plain, adapter));
+    }
+
+    @Test
+    public void parsesAndMatchesHasWithSiblingRelations() {
+        TestNode root = new TestNode("ul", null, Set.of(), null);
+        TestNode first = new TestNode("li", null, Set.of("first"), root);
+        TestNode second = new TestNode("li", null, Set.of("second"), root);
+        TestNode third = new TestNode("li", null, Set.of("third"), root);
+        TestAdapter adapter = new TestAdapter(root, first, second, third);
+
+        assertTrue(parser.parse(":has(+ .second)").matchesAny(first, adapter));
+        assertFalse(parser.parse(":has(+ .second)").matchesAny(second, adapter));
+        assertTrue(parser.parse("li:has(+ li)").matchesAny(first, adapter));
+        assertTrue(parser.parse(":has(~ .third)").matchesAny(first, adapter));
+        assertTrue(parser.parse(":has(~ .third)").matchesAny(second, adapter));
+        assertFalse(parser.parse(":has(~ .third)").matchesAny(third, adapter));
+        assertTrue(parser.parse("li:has(~ li)").matchesAny(first, adapter));
+        assertFalse(parser.parse("li:has(~ li)").matchesAny(third, adapter));
+    }
+
+    @Test
+    public void parsesNestedHasAndCalculatesItsSpecificity() {
+        TestNode card = new TestNode("div", null, Set.of("card"), null);
+        TestNode wrapper = new TestNode("div", null, Set.of("wrapper"), null);
+        TestNode badge = new TestNode("span", null, Set.of("badge", "selected"), null);
+        TestNode wiredBadge = badge.withParent(wrapper);
+        TestNode wiredWrapper = wrapper.withParent(card).withChildren(List.of(wiredBadge));
+        TestNode wiredCard = card.withChildren(List.of(wiredWrapper));
+        TestAdapter adapter = new TestAdapter(wiredCard, wiredWrapper, wiredBadge);
+
+        assertTrue(parser.parse(":has(:is(.badge, .other))").matchesAny(wiredCard, adapter));
+        assertTrue(parser.parse(":has(.wrapper:has(.selected))").matchesAny(wiredCard, adapter));
+        assertFalse(parser.parse(":has(:is(.missing, .other))").matchesAny(wiredCard, adapter));
+        assertEquals(":has(> .a, .b)", parser.parse(":has(> .a,.b)")
+                .selectors().getFirst().toString());
+        assertEquals(new Specificity(1, 0, 0), parser.parse(":has(.a, #id)")
+                .selectors().getFirst().specificity());
+        assertEquals(new Specificity(0, 1, 1), parser.parse("div:has(> .a)")
+                .selectors().getFirst().specificity());
+    }
+
+    @Test
+    public void rejectsEmptyHasAndPseudoElementsInsideHas() {
+        for (String source : List.of(":has()", ":has(, .a)", ":has(.a::before)",
+                ":has(> .a::after)")) {
+            assertThrows(SelectorParseException.class, () -> parser.parse(source));
+        }
+    }
+
+    @Test
     public void parsesBackslashEscapesInUnquotedAttributeValues() {
         assertEquals("[data-target=\"qbsearch-input.inputButtonText\"]",
                 parser.parse("[data-target=qbsearch-input\\.inputButtonText]")
@@ -565,6 +639,14 @@ public class SelectorParserTest {
             attributes = Map.copyOf(attributes);
             children = List.copyOf(children);
         }
+
+        private TestNode withParent(TestNode newParent) {
+            return new TestNode(tagName, id, classes, newParent, attributes, children);
+        }
+
+        private TestNode withChildren(List<TestNode> newChildren) {
+            return new TestNode(tagName, id, classes, parent, attributes, newChildren);
+        }
     }
 
     private static final class TestAdapter implements SelectorNodeAdapter<TestNode> {
@@ -597,6 +679,11 @@ public class SelectorParserTest {
         @Override
         public boolean hasChildren(TestNode element) {
             return !element.children().isEmpty();
+        }
+
+        @Override
+        public List<TestNode> children(TestNode element) {
+            return element.children();
         }
 
         private TestNode sibling(TestNode element, int offset) {

@@ -310,6 +310,7 @@ public final class SelectorParser {
                 case "is" -> PseudoClassFunction.Kind.IS;
                 case "where" -> PseudoClassFunction.Kind.WHERE;
                 case "not" -> PseudoClassFunction.Kind.NOT;
+                case "has" -> PseudoClassFunction.Kind.HAS;
                 default -> null;
             };
             if (kind != null) {
@@ -317,6 +318,21 @@ public final class SelectorParser {
                     throw error();
                 }
                 skipWhitespace();
+                if (kind == PseudoClassFunction.Kind.HAS) {
+                    List<RelativeSelector> relatives = new ArrayList<>();
+                    relatives.add(parseRelativeSelector());
+                    skipWhitespace();
+                    while (consume(',')) {
+                        skipWhitespace();
+                        relatives.add(parseRelativeSelector());
+                        skipWhitespace();
+                    }
+                    if (!consume(')')) {
+                        throw error();
+                    }
+                    functions.add(new PseudoClassFunction(relatives));
+                    return;
+                }
                 List<ComplexSelector> arguments = new ArrayList<>();
                 arguments.add(parseComplexSelector());
                 skipWhitespace();
@@ -365,6 +381,23 @@ public final class SelectorParser {
                 pseudoClasses.add(StructuralPseudoClass.nthLastOfType(
                         coefficients[0], coefficients[1]));
             }
+        }
+
+        private RelativeSelector parseRelativeSelector() {
+            Combinator combinator = null;
+            if (consume('>')) {
+                combinator = Combinator.CHILD;
+            } else if (consume('+')) {
+                combinator = Combinator.ADJACENT_SIBLING;
+            } else if (consume('~')) {
+                combinator = Combinator.GENERAL_SIBLING;
+            }
+            skipWhitespace();
+            ComplexSelector selector = parseComplexSelector();
+            if (selector.pseudoElement() != null) {
+                throw error();
+            }
+            return new RelativeSelector(combinator, selector);
         }
 
         private int[] parseNthFormula(String sourceFormula) {
