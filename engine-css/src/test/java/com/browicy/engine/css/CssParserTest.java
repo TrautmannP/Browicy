@@ -1191,4 +1191,44 @@ public class CssParserTest {
         assertEquals("56px", shorthand.get("grid-template-rows"));
         assertEquals("1fr 2fr", shorthand.get("grid-template-columns"));
     }
+
+    @Test
+    public void acceptsStartEndValuesInheritShadowAndViewportUnits() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                place-content:center;justify-content:start;align-items:end;
+                line-height:inherit;padding:inherit;
+                text-shadow:0 -1px #0000004d;shape-rendering:crispedges;
+                flex:0 auto;max-height:100dvh
+                """);
+
+        assertEquals("start", declarations.get("justify-content"));
+        assertEquals("end", declarations.get("align-items"));
+        assertEquals("center", declarations.get("align-content"));
+        assertEquals("start", declarations.get("justify-content"));
+        assertEquals("inherit", declarations.get("line-height"));
+        assertEquals("inherit", declarations.get("padding"));
+        assertEquals("0 -1px #0000004d", declarations.get("text-shadow"));
+        assertEquals("crispedges", declarations.get("shape-rendering"));
+        assertEquals("0", declarations.get("flex-grow"));
+        assertEquals("1", declarations.get("flex-shrink"));
+        assertEquals("auto", declarations.get("flex-basis"));
+        assertEquals("100dvh", declarations.get("max-height"));
+
+        assertEquals("100%", parser.parseDeclarations("flex:100%").get("flex-basis"));
+        assertEquals("none", parser.parseDeclarations("text-shadow:none").get("text-shadow"));
+        assertEquals("linear-gradient(#fff0 -8.14%,#ffffff1a 62.09%)",
+                parser.parseDeclarations("background-image:linear-gradient(#fff0 -8.14%,#ffffff1a 62.09%)")
+                        .get("background-image"));
+        assertEquals("radial-gradient(141.53% 114.68% at 87.46% 55.27%,#9a7cff 36.75%,#0e0aa200 100%)",
+                parser.parseDeclarations(
+                        "background:radial-gradient(141.53% 114.68% at 87.46% 55.27%,#9a7cff 36.75%,#0e0aa200 100%)")
+                        .get("background-image"));
+
+        assertTrue(parser.supportsProperty("text-shadow"));
+        assertTrue(parser.supports("max-height", "100dvh"));
+        assertFalse(parser.parseDeclarations("flex:1 2 3 4").containsKey("flex-grow"));
+        assertFalse(parser.parseDeclarations("shape-rendering:bogus")
+                .containsKey("shape-rendering"));
+    }
 }

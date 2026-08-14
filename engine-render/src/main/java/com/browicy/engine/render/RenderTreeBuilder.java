@@ -133,6 +133,7 @@ public final class RenderTreeBuilder {
                 0,
                 0,
                 0,
+                null,
                 0,
                 1,
                 RenderLength.AUTO,
@@ -679,6 +680,7 @@ public final class RenderTreeBuilder {
                 0,
                 0,
                 0,
+                inherited.textShadow(),
                 0,
                 1,
                 RenderLength.AUTO,
@@ -845,7 +847,9 @@ public final class RenderTreeBuilder {
             fontFamily = firstFontFamily(declarations.get("font-family"));
         }
         if (declarations.containsKey("line-height")) {
-            lineHeight = resolveLineHeight(declarations.get("line-height"), fontSize);
+            String lineHeightValue = declarations.get("line-height");
+            lineHeight = lineHeightValue.equals("inherit")
+                    ? parent.lineHeight() : resolveLineHeight(lineHeightValue, fontSize);
         }
         width = resolveDimension(declarations.get("width"), fontSize);
         height = resolveDimension(declarations.get("height"), fontSize);
@@ -912,16 +916,16 @@ public final class RenderTreeBuilder {
         };
         justifyContent = switch (declarations.getOrDefault("justify-content", "flex-start")) {
             case "center" -> RenderStyle.JustifyContent.CENTER;
-            case "flex-end" -> RenderStyle.JustifyContent.FLEX_END;
+            case "flex-end", "end", "right" -> RenderStyle.JustifyContent.FLEX_END;
             case "space-between" -> RenderStyle.JustifyContent.SPACE_BETWEEN;
             case "space-around" -> RenderStyle.JustifyContent.SPACE_AROUND;
             case "space-evenly" -> RenderStyle.JustifyContent.SPACE_EVENLY;
-            default -> RenderStyle.JustifyContent.FLEX_START;
+            default -> RenderStyle.JustifyContent.FLEX_START; // start/left/Flex-Fallback
         };
         alignItems = switch (declarations.getOrDefault("align-items", "stretch")) {
-            case "flex-start" -> RenderStyle.AlignItems.FLEX_START;
+            case "flex-start", "start" -> RenderStyle.AlignItems.FLEX_START;
             case "center" -> RenderStyle.AlignItems.CENTER;
-            case "flex-end" -> RenderStyle.AlignItems.FLEX_END;
+            case "flex-end", "end" -> RenderStyle.AlignItems.FLEX_END;
             case "baseline" -> RenderStyle.AlignItems.BASELINE;
             default -> RenderStyle.AlignItems.STRETCH;
         };
@@ -967,6 +971,8 @@ public final class RenderTreeBuilder {
         gridColumnEnd = parseGridLine(declarations.get("grid-column-end"));
         gridRowStart = parseGridLine(declarations.get("grid-row-start"));
         gridRowEnd = parseGridLine(declarations.get("grid-row-end"));
+        RenderStyle.TextShadow textShadow = parseTextShadow(
+                declarations.get("text-shadow"), fontSize);
         rowGapPx = Math.max(0, resolveLength(
                 declarations.get("row-gap"), fontSize, rootFontSizePx, 0));
         columnGapPx = Math.max(0, resolveLength(
@@ -1039,7 +1045,9 @@ public final class RenderTreeBuilder {
         autoMargins = new HorizontalAutoMargins(
                 "auto".equals(declarations.get("margin-left")),
                 "auto".equals(declarations.get("margin-right")));
-        padding = nonNegative(resolveEdges(declarations, "padding", fontSize, padding));
+        padding = "inherit".equals(declarations.get("padding"))
+                ? parent.padding()
+                : nonNegative(resolveEdges(declarations, "padding", fontSize, padding));
         borderWidth = nonNegative(resolveEdges(declarations, "border", fontSize, borderWidth, "-width"));
         borderColor = resolveBorderColors(declarations, color);
         borderStyle = resolveBorderStyles(declarations);
@@ -1101,8 +1109,8 @@ public final class RenderTreeBuilder {
                 alignItems, alignSelf, alignContent, order,
                 gridTemplateColumns, gridTemplateRows, gridTemplateAreas, gridAreaName,
                 gridAutoFlow, gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd,
-                rowGapPx, columnGapPx, flexGrow,
-                flexShrink, flexBasis,
+                rowGapPx, columnGapPx, textShadow,
+                flexGrow, flexShrink, flexBasis,
                 opacity);
     }
 
@@ -1218,6 +1226,38 @@ public final class RenderTreeBuilder {
         } catch (RuntimeException ignored) {
             return false;
         }
+    }
+
+    private RenderStyle.TextShadow parseTextShadow(String value, float fontSize) {
+        if (value == null || value.isBlank() || value.equals("none")) {
+            return null;
+        }
+        CssColor color = null;
+        float offsetX = 0;
+        float offsetY = 0;
+        int offsetCount = 0;
+        for (String token : value.strip().split("\\s+")) {
+            String lower = token.toLowerCase(Locale.ROOT);
+            CssColor candidate = CssColor.parse(lower);
+            if (candidate != null && !"transparent".equals(lower) || lower.equals("currentcolor")) {
+                color = CssColor.parse(lower);
+                continue;
+            }
+            if (offsetCount < 2 && (lower.equals("0") || lower.endsWith("px")
+                    || lower.endsWith("em") || lower.endsWith("rem"))) {
+                float offset = resolveLength(lower, fontSize, 16f, 0);
+                if (offsetCount == 0) {
+                    offsetX = offset;
+                } else {
+                    offsetY = offset;
+                }
+                offsetCount++;
+            }
+        }
+        if (color == null) {
+            color = CssColor.rgb(0);
+        }
+        return offsetCount == 0 ? null : new RenderStyle.TextShadow(color, offsetX, offsetY);
     }
 
     private static String[][] parseGridAreas(String value) {
@@ -1817,11 +1857,13 @@ public final class RenderTreeBuilder {
 
     private static ParsedLength parseLength(String value) {
         String normalized = value.toLowerCase(Locale.ROOT);
-        for (String unit : List.of("rem", "px", "em", "vw", "vh", "%")) {
+        for (String unit : List.of("rem", "px", "em", "vw", "vh", "dvh", "svh", "lvh", "%")) {
             if (normalized.endsWith(unit)) {
                 float number = Float.parseFloat(
                         normalized.substring(0, normalized.length() - unit.length()));
-                return new ParsedLength(number, unit);
+                // dvh/svh/lvh werden wie vh gegen die Viewport-Höhe aufgelöst.
+                return new ParsedLength(number,
+                        unit.equals("dvh") || unit.equals("svh") || unit.equals("lvh") ? "vh" : unit);
             }
         }
         throw new IllegalArgumentException("Unsupported CSS length: " + value);

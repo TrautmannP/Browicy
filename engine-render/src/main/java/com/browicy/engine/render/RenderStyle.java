@@ -80,6 +80,7 @@ public record RenderStyle(
         int gridRowEnd,
         float rowGapPx,
         float columnGapPx,
+        TextShadow textShadow,
         float flexGrow,
         float flexShrink,
         RenderLength flexBasis,
@@ -96,6 +97,9 @@ public record RenderStyle(
     public record GridTrack(Type type, float fixed, float fraction,
                             float minFixed, float maxFixed) {
         public enum Type { FIXED, PERCENT, FRACTION, AUTO, MINMAX }
+    }
+
+    public record TextShadow(CssColor color, float offsetX, float offsetY) {
     }
     public enum BorderCollapse { SEPARATE, COLLAPSE }
     public enum ListStyleType { DISC, CIRCLE, SQUARE, NONE }
@@ -192,7 +196,7 @@ public record RenderStyle(
                 flexWrap, justifyContent, alignItems, alignSelf, alignContent, order,
                 gridTemplateColumns, gridTemplateRows, gridTemplateAreas, gridAreaName,
                 gridAutoFlow, gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd,
-                rowGapPx, columnGapPx,
+                rowGapPx, columnGapPx, textShadow,
                 newFlexGrow, flexShrink, flexBasis, opacity);
     }
 }

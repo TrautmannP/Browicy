@@ -1270,7 +1270,7 @@ public final class RenderLayoutEngine {
                 text.color(), text.underline(), text.lineThrough(),
                 text.decorationColor(), text.opacity(), text.letterSpacingPx(),
                 text.ellipsis(),
-                translate(text.clip(), dx, dy), text.transform());
+                translate(text.clip(), dx, dy), text.transform(), text.shadow());
     }
 
     private static PaintFragment withTransform(PaintFragment fragment,
@@ -1294,7 +1294,7 @@ public final class RenderLayoutEngine {
                 text.top(), text.height(), text.font(), text.color(), text.underline(),
                 text.lineThrough(), text.decorationColor(), text.opacity(),
                 text.letterSpacingPx(), text.ellipsis(), text.clip(),
-                compose(text.transform(), transform));
+                compose(text.transform(), transform), text.shadow());
     }
 
     private static java.awt.geom.AffineTransform compose(
@@ -1593,7 +1593,7 @@ public final class RenderLayoutEngine {
         return new TextFragment(text.text(), text.x(), text.width(), text.baseline(), text.top(),
                 text.height(), text.font(), text.color(), text.underline(), text.lineThrough(),
                 text.decorationColor(), text.opacity(), text.letterSpacingPx(),
-                text.ellipsis(), effective, text.transform());
+                text.ellipsis(), effective, text.transform(), text.shadow());
     }
 
     private static ClipRect intersect(ClipRect first, ClipRect second) {
@@ -1695,19 +1695,20 @@ public final class RenderLayoutEngine {
                                float letterSpacingPx,
                                boolean ellipsis,
                                ClipRect clip,
-                               java.awt.geom.AffineTransform transform) implements InlineFragment {
+                               java.awt.geom.AffineTransform transform,
+                               RenderStyle.TextShadow shadow) implements InlineFragment {
         public TextFragment(String text, float x, float width, float baseline, float top,
                             float height, Font font, CssColor color, boolean underline,
                             boolean lineThrough, CssColor decorationColor, float opacity) {
             this(text, x, width, baseline, top, height, font, color, underline, lineThrough,
-                    decorationColor, opacity, 0, false, null, null);
+                    decorationColor, opacity, 0, false, null, null, null);
         }
         public TextFragment(String text, float x, float width, float baseline, float top,
                             float height, Font font, CssColor color, boolean underline,
                             boolean lineThrough, CssColor decorationColor, float opacity,
                             float letterSpacingPx, boolean ellipsis) {
             this(text, x, width, baseline, top, height, font, color, underline, lineThrough,
-                    decorationColor, opacity, letterSpacingPx, ellipsis, null, null);
+                    decorationColor, opacity, letterSpacingPx, ellipsis, null, null, null);
         }
         @Override public float bottom() { return top + height; }
     }
@@ -2208,7 +2209,8 @@ public final class RenderLayoutEngine {
                             float opacity,
                             float usedLineHeight,
                             float letterSpacingPx,
-                            RenderStyle.TextOverflow textOverflow) implements LineItem {
+                            RenderStyle.TextOverflow textOverflow,
+                            RenderStyle.TextShadow shadow) implements LineItem {
         private float adjustment() {
             return usedLineHeight <= 0 ? 0 : (usedLineHeight - metrics.getHeight()) / 2f;
         }
@@ -2372,7 +2374,7 @@ public final class RenderLayoutEngine {
             addItem(new TextItem(text, width, itemWidth, font, metrics, style.color(),
                     style.underline(), style.lineThrough(), style.textDecorationColor(),
                     style.opacity(), style.usedLineHeightPx(), style.letterSpacingPx(),
-                    style.textOverflow()));
+                    style.textOverflow(), style.textShadow()));
             width += itemWidth;
             placedContent = true;
         }
@@ -2489,7 +2491,10 @@ public final class RenderLayoutEngine {
                             text.decorationColor,
                             text.opacity,
                             text.letterSpacingPx,
-                            text.textOverflow == RenderStyle.TextOverflow.ELLIPSIS));
+                            text.textOverflow == RenderStyle.TextOverflow.ELLIPSIS,
+                            null,
+                            null,
+                            text.shadow));
                 } else if (item instanceof BoxItem box) {
                     float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
                     float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
@@ -2589,7 +2594,7 @@ public final class RenderLayoutEngine {
                     text.color(), text.underline(), text.lineThrough(),
                     text.decorationColor(), text.opacity(), text.letterSpacingPx(),
                     text.ellipsis(),
-                    translate(text.clip(), dx, dy), text.transform());
+                    translate(text.clip(), dx, dy), text.transform(), text.shadow());
         }
 
         private static ClipRect translate(ClipRect clip, float dx, float dy) {

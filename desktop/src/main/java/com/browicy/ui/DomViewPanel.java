@@ -640,6 +640,12 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             }
             content = visible + ellipsis;
         }
+        if (text.shadow() != null) {
+            RenderStyle.TextShadow shadow = text.shadow();
+            graphics.setColor(toAwtColor(shadow.color()));
+            graphics.drawString(content, x + shadow.offsetX(), text.baseline() + shadow.offsetY());
+            graphics.setColor(toAwtColor(text.color()));
+        }
         if (text.letterSpacingPx() == 0 || content.length() <= 1) {
             graphics.drawString(content, x, text.baseline());
             return;

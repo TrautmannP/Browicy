@@ -1480,6 +1480,39 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void inheritsLineHeightAndPaddingAndPaintsTextShadow() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="host" style="line-height:24px;padding:8px">
+                  <div id="child" style="display:block;line-height:inherit;padding:inherit">x</div>
+                </div>
+                <div id="sh" style="width:120px;height:60px;background:white;
+                  color:black;text-shadow:2px 2px #ff0000">X</div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment host = boxById(layout, "host");
+        BoxFragment child = boxById(layout, "child");
+
+        assertEquals(host.box().style().usedLineHeightPx(),
+                child.box().style().usedLineHeightPx(), 0.001f);
+        assertEquals(host.box().style().padding().top(),
+                child.box().style().padding().top(), 0.001f);
+
+        panel.setSize(400, 120);
+        BufferedImage image = paint(panel);
+        boolean redShadow = false;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                Color pixel = new Color(image.getRGB(x, y));
+                if (pixel.getRed() > 180 && pixel.getGreen() < 80 && pixel.getBlue() < 80) {
+                    redShadow = true;
+                }
+            }
+        }
+        assertTrue("text-shadow muss rote Pixel malen", redShadow);
+    }
+
+    @Test
     public void honorsFlexDirectionJustificationAndInlineFlex() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body>

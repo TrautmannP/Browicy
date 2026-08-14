@@ -35,12 +35,12 @@ public final class CssParser {
             "(?:(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0)|auto)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern DIMENSION = Pattern.compile(
-            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|auto|"
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|dvh|svh|lvh|%)|0|auto|"
                     + "calc\\(\\s*(?:\\d+(?:\\.\\d+)?|\\.\\d+)%\\s*[+-]\\s*"
                     + "(?:\\d+(?:\\.\\d+)?|\\.\\d+)px\\s*\\))",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern MAX_DIMENSION = Pattern.compile(
-            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|none)",
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|dvh|svh|lvh|%)|0|none)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern POSITION_OFFSET = Pattern.compile(
             "(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|auto)",
@@ -54,7 +54,7 @@ public final class CssParser {
     private static final Pattern GRADIENT_ANGLE = Pattern.compile(
             "[-+]?[0-9]*\\.?[0-9]+(deg|turn|rad|grad)");
     private static final Pattern GRADIENT_POSITION = Pattern.compile(
-            "[0-9]*\\.?[0-9]+%");
+            "[-+]?[0-9]*\\.?[0-9]+%");
     private static final Pattern NON_NEGATIVE_NUMBER = Pattern.compile(
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)");
     private static final Pattern ASPECT_RATIO = Pattern.compile(
@@ -62,7 +62,7 @@ public final class CssParser {
                     + "(?:\\d+(?:\\.\\d+)?|\\.\\d+))?)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern LINE_HEIGHT = Pattern.compile(
-            "(?:normal|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:(?:px|em|rem|vw|vh|%)?))",
+            "(?:normal|inherit|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:(?:px|em|rem|vw|vh|%)?))",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern BACKGROUND_LENGTH = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0)",
@@ -582,6 +582,9 @@ public final class CssParser {
             case "flex-wrap" -> supports(normalized, "wrap");
             case "justify-content" -> supports(normalized, "flex-start");
             case "align-items" -> supports(normalized, "stretch");
+            case "place-content" -> supports(normalized, "center");
+            case "text-shadow" -> supports(normalized, "none");
+            case "shape-rendering" -> supports(normalized, "crispedges");
             case "align-self" -> supports(normalized, "stretch");
             case "align-content" -> supports(normalized, "stretch");
             case "order" -> supports(normalized, "0");
@@ -835,14 +838,17 @@ public final class CssParser {
             case "justify-content" -> {
                 if (value.equals("flex-start") || value.equals("center")
                         || value.equals("flex-end") || value.equals("space-between")
-                        || value.equals("space-around") || value.equals("space-evenly")) {
+                        || value.equals("space-around") || value.equals("space-evenly")
+                        || value.equals("start") || value.equals("end")
+                        || value.equals("left") || value.equals("right")) {
                     target.put(property, value);
                 }
             }
             case "align-items" -> {
                 if (value.equals("stretch") || value.equals("flex-start")
                         || value.equals("center") || value.equals("flex-end")
-                        || value.equals("baseline")) {
+                        || value.equals("baseline") || value.equals("start")
+                        || value.equals("end")) {
                     target.put(property, value);
                 }
             }
@@ -1081,9 +1087,47 @@ public final class CssParser {
             case "margin", "padding" -> {
                 if (value.equals("unset")) {
                     target.put(property, "0");
+                } else if (value.equals("inherit")) {
+                    target.put(property, "inherit");
                 } else {
                     expandLengths(target, property, value,
                             property.equals("margin") ? MARGIN_LENGTH : POSITIVE_LENGTH, "");
+                }
+            }
+            case "place-content" -> {
+                String[] tokens = value.split("\\s+");
+                if (tokens.length < 1 || tokens.length > 2) {
+                    break;
+                }
+                if (!tokens[0].equals("flex-start") && !tokens[0].equals("flex-end")
+                        && !tokens[0].equals("center") && !tokens[0].equals("space-between")
+                        && !tokens[0].equals("space-around") && !tokens[0].equals("space-evenly")
+                        && !tokens[0].equals("stretch") && !tokens[0].equals("normal")
+                        && !tokens[0].equals("start") && !tokens[0].equals("end")) {
+                    break;
+                }
+                if (tokens.length == 2 && !tokens[1].equals("flex-start")
+                        && !tokens[1].equals("flex-end") && !tokens[1].equals("center")
+                        && !tokens[1].equals("space-between") && !tokens[1].equals("space-around")
+                        && !tokens[1].equals("space-evenly") && !tokens[1].equals("start")
+                        && !tokens[1].equals("end") && !tokens[1].equals("left")
+                        && !tokens[1].equals("right")) {
+                    break;
+                }
+                target.put("align-content", tokens[0]);
+                target.put("justify-content", tokens.length == 1 ? tokens[0] : tokens[1]);
+            }
+            case "text-shadow" -> {
+                if (value.equals("none") || isTextShadow(value)) {
+                    target.put(property, value);
+                }
+            }
+            case "shape-rendering" -> {
+                if (value.equals("auto") || value.equals("crispedges")
+                        || value.equals("geometricprecision")
+                        || value.equals("optimizespeed")
+                        || value.equals("optimizequality")) {
+                    target.put(property, value);
                 }
             }
             case "margin-inline", "margin-inline-start", "margin-inline-end",
@@ -1405,13 +1449,17 @@ public final class CssParser {
             target.put("background-image", "none");
             return;
         }
-        if (isLinearGradient(stripped) || com.browicy.engine.render.CssUrl.parseSingle(stripped) != null) {
+        if (isGradientFunction(stripped) || com.browicy.engine.render.CssUrl.parseSingle(stripped) != null) {
             target.put("background-image", stripped);
         }
     }
 
     private static String extractTopLevelGradient(String value) {
-        int start = value.toLowerCase(Locale.ROOT).indexOf("linear-gradient(");
+        String lower = value.toLowerCase(Locale.ROOT);
+        int start = lower.indexOf("linear-gradient(");
+        if (start < 0) {
+            start = lower.indexOf("radial-gradient(");
+        }
         if (start < 0) {
             return null;
         }
@@ -1424,19 +1472,21 @@ public final class CssParser {
                 depth--;
                 if (depth == 0) {
                     String candidate = value.substring(start, index + 1);
-                    return isLinearGradient(candidate) ? candidate : null;
+                    return isGradientFunction(candidate) ? candidate : null;
                 }
             }
         }
         return null;
     }
 
-    private static boolean isLinearGradient(String value) {
+    private static boolean isGradientFunction(String value) {
         String normalized = value.toLowerCase(Locale.ROOT);
-        if (!normalized.startsWith("linear-gradient(")) {
+        if (!normalized.startsWith("linear-gradient(") && !normalized.startsWith("radial-gradient(")) {
             return false;
         }
-        String body = value.substring("linear-gradient(".length(), value.length() - 1);
+        int nameLength = normalized.startsWith("radial-gradient(") ? "radial-gradient(".length()
+                : "linear-gradient(".length();
+        String body = value.substring(nameLength, value.length() - 1);
         if (body.isEmpty()) {
             return false;
         }
@@ -1460,6 +1510,13 @@ public final class CssParser {
             return true;
         }
         if (GRADIENT_ANGLE.matcher(part).matches()) {
+            return true;
+        }
+        if (lower.matches("[-+]?[0-9.]+% [-+]?[0-9.]+% at [-+]?[0-9.]+% [-+]?[0-9.]+%")
+                || lower.matches("[-+]?[0-9.]+% at [-+]?[0-9.]+% [-+]?[0-9.]+%")
+                || lower.equals("ellipse") || lower.equals("circle")
+                || lower.equals("closest-side") || lower.equals("closest-corner")
+                || lower.equals("farthest-side") || lower.equals("farthest-corner")) {
             return true;
         }
         String[] tokens = part.split("\\s+");
@@ -1668,20 +1725,36 @@ public final class CssParser {
         if (normalized.equals("auto")) normalized = "1 1 auto";
         else if (normalized.equals("initial")) normalized = "0 1 auto";
         String[] tokens = normalized.split("\\s+");
-        if (tokens.length == 1 && NON_NEGATIVE_NUMBER.matcher(tokens[0]).matches()) {
-            target.put("flex-grow", tokens[0]);
-            target.put("flex-shrink", "1");
-            target.put("flex-basis", "0%");
+        if (tokens.length == 1) {
+            if (NON_NEGATIVE_NUMBER.matcher(tokens[0]).matches()) {
+                target.put("flex-grow", tokens[0]);
+                target.put("flex-shrink", "1");
+                target.put("flex-basis", "0%");
+                return;
+            }
+            if (tokens[0].equals("auto") || DIMENSION.matcher(tokens[0]).matches()) {
+                target.put("flex-grow", "0");
+                target.put("flex-shrink", "1");
+                target.put("flex-basis", tokens[0]);
+                return;
+            }
             return;
         }
-        if (tokens.length < 2 || tokens.length > 3
-                || !NON_NEGATIVE_NUMBER.matcher(tokens[0]).matches()
-                || !NON_NEGATIVE_NUMBER.matcher(tokens[1]).matches()) return;
-        String basis = tokens.length == 3 ? tokens[2] : "0%";
-        if (!basis.equals("auto") && !DIMENSION.matcher(basis).matches()) return;
-        target.put("flex-grow", tokens[0]);
-        target.put("flex-shrink", tokens[1]);
-        target.put("flex-basis", basis);
+        if (tokens.length > 3 || !NON_NEGATIVE_NUMBER.matcher(tokens[0]).matches()) return;
+        if (NON_NEGATIVE_NUMBER.matcher(tokens[1]).matches()) {
+            String basis = tokens.length == 3 ? tokens[2] : "0%";
+            if (!basis.equals("auto") && !DIMENSION.matcher(basis).matches()) return;
+            target.put("flex-grow", tokens[0]);
+            target.put("flex-shrink", tokens[1]);
+            target.put("flex-basis", basis);
+            return;
+        }
+        if (tokens.length == 2 && (tokens[1].equals("auto")
+                || DIMENSION.matcher(tokens[1]).matches())) {
+            target.put("flex-grow", tokens[0]);
+            target.put("flex-shrink", "1");
+            target.put("flex-basis", tokens[1]);
+        }
     }
 
     private static void expandGap(Map<String, String> target, String value) {
@@ -2178,6 +2251,23 @@ public final class CssParser {
             value = value.substring(5).strip();
         }
         return value.matches("[-+]?[0-9]+");
+    }
+
+    private static boolean isTextShadow(String value) {
+        String[] tokens = value.strip().split("\\s+");
+        if (tokens.length < 2 || tokens.length > 4) {
+            return false;
+        }
+        for (String token : tokens) {
+            String lower = token.toLowerCase(Locale.ROOT);
+            if (DIMENSION.matcher(lower).matches() || lower.equals("0")
+                    || lower.matches("[-+]?[0-9]*\\.?[0-9]+(px|em|rem)")
+                    || isColorValue(lower)) {
+                continue;
+            }
+            return false;
+        }
+        return true;
     }
 
     private static boolean isClipPathFunction(String value) {
