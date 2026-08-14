@@ -531,9 +531,20 @@ public final class CssParser {
             case "outline-color" -> supports(normalized, "black");
             case "outline-style" -> supports(normalized, "solid");
             case "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+                 "margin-inline", "margin-inline-start", "margin-inline-end",
+                 "margin-block", "margin-block-start", "margin-block-end",
                  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+                 "padding-inline", "padding-inline-start", "padding-inline-end",
+                 "padding-block", "padding-block-start", "padding-block-end",
                  "border", "border-width", "border-top-width", "border-right-width",
-                 "border-bottom-width", "border-left-width" -> supports(normalized, "0");
+                 "border-bottom-width", "border-left-width",
+                 "border-inline", "border-inline-start", "border-inline-end",
+                 "border-block", "border-block-start", "border-block-end" ->
+                    supports(normalized, "0");
+            case "inset", "inset-inline", "inset-inline-start", "inset-inline-end",
+                 "inset-block", "inset-block-start", "inset-block-end",
+                 "inline-size", "block-size", "min-inline-size", "min-block-size",
+                 "max-inline-size", "max-block-size" -> supports(normalized, "auto");
             case "border-top", "border-right", "border-bottom", "border-left" ->
                     supports(normalized, "1px solid black");
             case "border-color", "border-top-color", "border-right-color",
@@ -750,6 +761,26 @@ public final class CssParser {
             }
             case "margin", "padding" -> expandLengths(target, property, value,
                     property.equals("margin") ? MARGIN_LENGTH : POSITIVE_LENGTH, "");
+            case "margin-inline", "margin-inline-start", "margin-inline-end",
+                 "margin-block", "margin-block-start", "margin-block-end" ->
+                    putLogicalLengths(target, property, value, "margin", MARGIN_LENGTH);
+            case "padding-inline", "padding-inline-start", "padding-inline-end",
+                 "padding-block", "padding-block-start", "padding-block-end" ->
+                    putLogicalLengths(target, property, value, "padding", POSITIVE_LENGTH);
+            case "inset", "inset-inline", "inset-inline-start", "inset-inline-end",
+                 "inset-block", "inset-block-start", "inset-block-end" ->
+                    putLogicalOffsets(target, property, value);
+            case "border-inline", "border-inline-start", "border-inline-end",
+                 "border-block", "border-block-start", "border-block-end" ->
+                    putLogicalBorders(target, property, value);
+            case "inline-size" -> putIfMatches(target, "width", value, DIMENSION);
+            case "block-size" -> putIfMatches(target, "height", value, DIMENSION);
+            case "min-inline-size", "min-block-size" -> putIfMatches(target,
+                    property.equals("min-inline-size") ? "min-width" : "min-height",
+                    value, DIMENSION);
+            case "max-inline-size", "max-block-size" -> putIfMatches(target,
+                    property.equals("max-inline-size") ? "max-width" : "max-height",
+                    value, MAX_DIMENSION);
             case "border-width" -> expandLengths(target, "border", value, POSITIVE_LENGTH, "-width");
             case "border-color" -> expandColors(target, value);
             case "border-style" -> expandBorderStyles(target, value);
@@ -771,6 +802,71 @@ public final class CssParser {
                 if (value.equals("none") || value.equals("solid")) target.put(property, value);
             }
             default -> parseLonghand(target, property, value);
+        }
+    }
+
+    private static List<String> logicalSides(String property) {
+        return switch (property) {
+            case "padding-inline", "margin-inline", "border-inline",
+                 "inset-inline" -> List.of("left", "right");
+            case "padding-inline-start", "margin-inline-start", "border-inline-start",
+                 "inset-inline-start" -> List.of("left");
+            case "padding-inline-end", "margin-inline-end", "border-inline-end",
+                 "inset-inline-end" -> List.of("right");
+            case "padding-block", "margin-block", "border-block",
+                 "inset-block" -> List.of("top", "bottom");
+            case "padding-block-start", "margin-block-start", "border-block-start",
+                 "inset-block-start" -> List.of("top");
+            default -> List.of("bottom"); // *-block-end
+        };
+    }
+
+    private static void putLogicalLengths(Map<String, String> target, String property,
+                                          String value, String prefix, Pattern pattern) {
+        List<String> sides = logicalSides(property);
+        String[] parts = value.trim().split("\\s+");
+        if (parts.length < 1 || parts.length > sides.size() || parts.length > 2) {
+            return;
+        }
+        for (String part : parts) {
+            if (!pattern.matcher(part).matches()) {
+                return;
+            }
+        }
+        for (int index = 0; index < sides.size(); index++) {
+            target.put(prefix + "-" + sides.get(index),
+                    parts[Math.min(index, parts.length - 1)]);
+        }
+    }
+
+    private static void putLogicalOffsets(Map<String, String> target, String property,
+                                          String value) {
+        List<String> sides = property.equals("inset")
+                ? List.of("top", "right", "bottom", "left") : logicalSides(property);
+        String[] parts = value.trim().split("\\s+");
+        if (parts.length < 1 || parts.length > sides.size() || parts.length > 4) {
+            return;
+        }
+        for (String part : parts) {
+            if (!POSITION_OFFSET.matcher(part).matches()) {
+                return;
+            }
+        }
+        for (int index = 0; index < sides.size(); index++) {
+            int source = switch (parts.length) {
+                case 1 -> 0;
+                case 2 -> index % 2;
+                case 3 -> index == 2 ? 2 : index % 2;
+                default -> index;
+            };
+            target.put(sides.get(index), parts[source]);
+        }
+    }
+
+    private static void putLogicalBorders(Map<String, String> target, String property,
+                                          String value) {
+        for (String side : logicalSides(property)) {
+            expandBorder(target, side, value);
         }
     }
 

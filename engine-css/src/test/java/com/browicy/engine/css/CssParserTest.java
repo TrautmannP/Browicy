@@ -664,6 +664,65 @@ public class CssParserTest {
     }
 
     @Test
+    public void mapsLogicalPropertiesToPhysicalSides() {
+        CssParser parser = new CssParser();
+        Map<String, String> padding = parser.parseDeclarations(
+                "padding-inline:8px;padding-block:4px 2px");
+        assertEquals("8px", padding.get("padding-left"));
+        assertEquals("8px", padding.get("padding-right"));
+        assertEquals("4px", padding.get("padding-top"));
+        assertEquals("2px", padding.get("padding-bottom"));
+
+        Map<String, String> paddingSides = parser.parseDeclarations(
+                "padding-inline-start:5px;padding-inline-end:7px;"
+                        + "padding-block-start:1px;padding-block-end:3px");
+        assertEquals("5px", paddingSides.get("padding-left"));
+        assertEquals("7px", paddingSides.get("padding-right"));
+        assertEquals("1px", paddingSides.get("padding-top"));
+        assertEquals("3px", paddingSides.get("padding-bottom"));
+
+        Map<String, String> margins = parser.parseDeclarations(
+                "margin-inline:auto 10px;margin-block:5px");
+        assertEquals("auto", margins.get("margin-left"));
+        assertEquals("10px", margins.get("margin-right"));
+        assertEquals("5px", margins.get("margin-top"));
+        assertEquals("5px", margins.get("margin-bottom"));
+
+        Map<String, String> inset = parser.parseDeclarations("inset:1px 2px 3px 4px");
+        assertEquals("1px", inset.get("top"));
+        assertEquals("2px", inset.get("right"));
+        assertEquals("3px", inset.get("bottom"));
+        assertEquals("4px", inset.get("left"));
+
+        Map<String, String> insetInline = parser.parseDeclarations("inset-inline:6px");
+        assertEquals("6px", insetInline.get("right"));
+        assertEquals("6px", insetInline.get("left"));
+
+        Map<String, String> insetStart = parser.parseDeclarations(
+                "inset-block-start:9px");
+        assertEquals("9px", insetStart.get("top"));
+
+        Map<String, String> sizes = parser.parseDeclarations(
+                "inline-size:50%;block-size:12em;min-inline-size:10px;max-block-size:200px");
+        assertEquals("50%", sizes.get("width"));
+        assertEquals("12em", sizes.get("height"));
+        assertEquals("10px", sizes.get("min-width"));
+        assertEquals("200px", sizes.get("max-height"));
+
+        Map<String, String> borders = parser.parseDeclarations(
+                "border-inline:1px solid red;border-block-start:2px solid blue");
+        assertEquals("1px", borders.get("border-left-width"));
+        assertEquals("solid", borders.get("border-right-style"));
+        assertEquals("red", borders.get("border-left-color"));
+        assertEquals("2px", borders.get("border-top-width"));
+        assertEquals("blue", borders.get("border-top-color"));
+
+        assertTrue(parser.supportsProperty("padding-inline"));
+        assertTrue(parser.supportsProperty("inset"));
+        assertFalse(parser.supports("padding-inline", "bogus"));
+    }
+
+    @Test
     public void parsesVisibilityPointerEventsAndOutlineOffset() {
         CssParser parser = new CssParser();
         assertEquals("hidden", parser.parseDeclarations("visibility:hidden")
