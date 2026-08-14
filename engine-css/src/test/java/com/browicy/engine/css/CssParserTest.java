@@ -664,6 +664,30 @@ public class CssParserTest {
     }
 
     @Test
+    public void acceptsWebkitAndMozPrefixedAliases() {
+        CssParser parser = new CssParser();
+        Map<String, String> decorations = parser.parseDeclarations("""
+                -webkit-text-decoration:inherit;-webkit-text-decoration-color:red;
+                -webkit-text-fill-color:blue;-webkit-tap-highlight-color:rgba(0,0,0,0)
+                """);
+        assertEquals("inherit", decorations.get("text-decoration-line"));
+        assertEquals("red", decorations.get("text-decoration-color"));
+        assertEquals("blue", decorations.get("-webkit-text-fill-color"));
+
+        Map<String, String> behavior = parser.parseDeclarations("""
+                -webkit-user-select:none;-webkit-font-smoothing:antialiased;
+                -webkit-line-clamp:2;-webkit-box-orient:vertical;
+                -webkit-appearance:none;-moz-osx-font-smoothing:grayscale;
+                -webkit-backdrop-filter:none
+                """);
+        assertEquals("none", behavior.get("-webkit-user-select"));
+        assertEquals("2", behavior.get("-webkit-line-clamp"));
+        assertTrue(parser.supportsProperty("-webkit-user-select"));
+        assertTrue(parser.supports("-webkit-text-decoration", "inherit"));
+        assertFalse(parser.supports("-webkit-bogus-property", "x"));
+    }
+
+    @Test
     public void mapsLogicalPropertiesToPhysicalSides() {
         CssParser parser = new CssParser();
         Map<String, String> padding = parser.parseDeclarations(

@@ -514,6 +514,15 @@ public final class CssParser {
             case "white-space" -> supports(normalized, "normal");
             case "text-decoration", "text-decoration-line" -> supports(normalized, "underline");
             case "text-decoration-color" -> supports(normalized, "black");
+            case "-webkit-text-decoration", "-webkit-text-decoration-color" ->
+                    supports(normalized, "underline");
+            case "-webkit-text-fill-color", "-webkit-tap-highlight-color" ->
+                    supports(normalized, "black");
+            case "-webkit-user-select", "-webkit-font-smoothing", "-moz-osx-font-smoothing",
+                 "-webkit-overflow-scrolling", "-webkit-backdrop-filter", "-webkit-line-clamp",
+                 "-webkit-box-orient", "-webkit-appearance", "-webkit-hyphens",
+                 "-moz-text-size-adjust", "-webkit-text-size-adjust" ->
+                    supports(normalized, "none");
             case "list-style", "list-style-type" -> supports(normalized, "disc");
             case "overflow", "overflow-x", "overflow-y" -> supports(normalized, "visible");
             case "vertical-align" -> supports(normalized, "baseline");
@@ -801,7 +810,14 @@ public final class CssParser {
             case "outline-style" -> {
                 if (value.equals("none") || value.equals("solid")) target.put(property, value);
             }
-            default -> parseLonghand(target, property, value);
+            default -> {
+                if (property.startsWith("-webkit-") || property.startsWith("-moz-")
+                        || property.startsWith("-ms-")) {
+                    putPrefixed(target, property, value);
+                } else {
+                    parseLonghand(target, property, value);
+                }
+            }
         }
     }
 
@@ -819,6 +835,21 @@ public final class CssParser {
                  "inset-block-start" -> List.of("top");
             default -> List.of("bottom"); // *-block-end
         };
+    }
+
+    private static void putPrefixed(Map<String, String> target, String property, String value) {
+        switch (property) {
+            case "-webkit-text-decoration" -> target.put("text-decoration-line", value);
+            case "-webkit-text-decoration-color" ->
+                    putColor(target, "text-decoration-color", value);
+            case "-webkit-text-fill-color", "-webkit-tap-highlight-color",
+                 "-webkit-user-select", "-webkit-font-smoothing", "-moz-osx-font-smoothing",
+                 "-webkit-overflow-scrolling", "-webkit-backdrop-filter", "-webkit-line-clamp",
+                 "-webkit-box-orient", "-webkit-appearance", "-webkit-hyphens",
+                 "-moz-text-size-adjust", "-webkit-text-size-adjust" ->
+                    target.put(property, value);
+            default -> { /* unbekannte Präfix-Property ignorieren */ }
+        }
     }
 
     private static void putLogicalLengths(Map<String, String> target, String property,
