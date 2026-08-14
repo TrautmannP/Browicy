@@ -89,6 +89,17 @@ public class RenderTreeBuilderTest {
     }
 
     @Test
+    public void resolvesWhiteSpaceFromDeclarationsAndInheritsIt() {
+        RenderBox parent = boxChildren(build("""
+                <body><div style="white-space:pre-wrap"><span>text</span></div></body>
+                """).root()).getFirst();
+
+        assertEquals(RenderStyle.WhiteSpace.PRE_WRAP, parent.style().whiteSpace());
+        assertEquals(RenderStyle.WhiteSpace.PRE_WRAP,
+                textRunsRecursively(parent).getFirst().style().whiteSpace());
+    }
+
+    @Test
     public void resolvesPerCornerBorderRadiiAndPercentageAsUnbounded() {
         RenderBox box = boxChildren(build("""
                 <body><div style="border-top-left-radius:10px;

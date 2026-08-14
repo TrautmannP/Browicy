@@ -105,6 +105,7 @@ public final class RenderTreeBuilder {
                 RenderStyle.BorderCollapse.SEPARATE,
                 RenderStyle.TextAlign.LEFT,
                 RenderStyle.TextTransform.NONE,
+                RenderStyle.WhiteSpace.NORMAL,
                 RenderStyle.Overflow.VISIBLE,
                 RenderStyle.VerticalAlign.BASELINE,
                 RenderStyle.FlexDirection.ROW,
@@ -624,6 +625,7 @@ public final class RenderTreeBuilder {
                 inherited.borderCollapse(),
                 inherited.textAlign(),
                 inherited.textTransform(),
+                inherited.whiteSpace(),
                 RenderStyle.Overflow.VISIBLE,
                 RenderStyle.VerticalAlign.BASELINE,
                 RenderStyle.FlexDirection.ROW,
@@ -697,6 +699,7 @@ public final class RenderTreeBuilder {
         RenderStyle.BorderCollapse borderCollapse = RenderStyle.BorderCollapse.SEPARATE;
         RenderStyle.TextAlign textAlign = parent.textAlign();
         RenderStyle.TextTransform textTransform = parent.textTransform();
+        RenderStyle.WhiteSpace whiteSpace = parent.whiteSpace();
         RenderStyle.Overflow overflow = RenderStyle.Overflow.VISIBLE;
         RenderStyle.VerticalAlign verticalAlign = RenderStyle.VerticalAlign.BASELINE;
         RenderStyle.FlexDirection flexDirection = RenderStyle.FlexDirection.ROW;
@@ -928,6 +931,14 @@ public final class RenderTreeBuilder {
                 declarations.get("outline-width"), fontSize, rootFontSizePx, 0));
         outlineColor = colorOrCurrent(declarations.get("outline-color"), color);
         outlineVisible = "solid".equals(declarations.get("outline-style")) && outlineWidth > 0;
+        whiteSpace = switch (declarations.getOrDefault("white-space", "normal")) {
+            case "nowrap" -> RenderStyle.WhiteSpace.NOWRAP;
+            case "pre" -> RenderStyle.WhiteSpace.PRE;
+            case "pre-wrap" -> RenderStyle.WhiteSpace.PRE_WRAP;
+            case "pre-line" -> RenderStyle.WhiteSpace.PRE_LINE;
+            case "break-spaces" -> RenderStyle.WhiteSpace.BREAK_SPACES;
+            default -> parent.whiteSpace();
+        };
 
         return new RenderStyle(display, position, zIndex, floatMode, clear, top, right, bottom, left,
                 fontSize, fontFamily, fontWeight, italic, lineHeight, color, listStyleType,
@@ -939,8 +950,8 @@ public final class RenderTreeBuilder {
                 aspectRatio, objectFit, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,
                 outlineWidth, outlineColor, outlineVisible, borderCollapse, textAlign, textTransform,
-                overflow, verticalAlign, flexDirection, flexWrap, justifyContent, alignItems,
-                rowGapPx, columnGapPx, flexGrow,
+                whiteSpace, overflow, verticalAlign, flexDirection, flexWrap, justifyContent,
+                alignItems, rowGapPx, columnGapPx, flexGrow,
                 flexShrink, flexBasis,
                 opacity);
     }

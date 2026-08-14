@@ -1120,12 +1120,31 @@ public final class RenderLayoutEngine {
                                                float percentageBase,
                                                Graphics2D graphics) {
         if (node instanceof RenderTextRun run) {
+            RenderStyle.WhiteSpace mode = run.style().whiteSpace();
             FontMetrics metrics = graphics.getFontMetrics(fontFor(run.style()));
+            boolean preserve = switch (mode) {
+                case PRE, PRE_WRAP, BREAK_SPACES -> true;
+                default -> false;
+            };
+            if (preserve) {
+                float preferred = metrics.stringWidth(run.text());
+                if (mode == RenderStyle.WhiteSpace.PRE) {
+                    return new IntrinsicWidths(preferred, preferred);
+                }
+                float minimum = 0;
+                for (String word : run.text().split("\\s+")) {
+                    minimum = Math.max(minimum, metrics.stringWidth(word));
+                }
+                return new IntrinsicWidths(preferred, minimum);
+            }
             String collapsed = run.text().trim().replaceAll("\\s+", " ");
             float preferred = metrics.stringWidth(collapsed);
             float minimum = 0;
             for (String word : collapsed.split(" ")) {
                 minimum = Math.max(minimum, metrics.stringWidth(word));
+            }
+            if (mode == RenderStyle.WhiteSpace.NOWRAP) {
+                return new IntrinsicWidths(preferred, preferred);
             }
             return new IntrinsicWidths(preferred, minimum);
         }
@@ -1359,7 +1378,7 @@ public final class RenderLayoutEngine {
     private record WordToken(String text, RenderStyle style) implements InlineToken {
     }
 
-    private record SpaceToken(RenderStyle style) implements InlineToken {
+    private record SpaceToken(String text, RenderStyle style) implements InlineToken {
     }
 
     private record BreakToken(RenderStyle style) implements InlineToken {
@@ -1400,6 +1419,7 @@ public final class RenderLayoutEngine {
         private LineBuilder line;
         private float y;
         private boolean pendingSpace;
+        private String pendingSpaceText = " ";
         private RenderStyle pendingSpaceStyle;
 
         InlineLayouter(float x,
@@ -1428,6 +1448,7 @@ public final class RenderLayoutEngine {
                 InlineToken token = tokens.get(index);
                 if (token instanceof SpaceToken space) {
                     pendingSpace = true;
+                    pendingSpaceText = space.text();
                     if (pendingSpaceStyle == null) {
                         pendingSpaceStyle = space.style();
                     }
@@ -1523,18 +1544,33 @@ public final class RenderLayoutEngine {
         }
 
         private void appendText(String text, RenderStyle style) {
+            RenderStyle.WhiteSpace mode = style.whiteSpace();
+            boolean preserve = switch (mode) {
+                case PRE, PRE_WRAP, BREAK_SPACES -> true;
+                default -> false;
+            };
+            boolean preserveNewlines = preserve || mode == RenderStyle.WhiteSpace.PRE_LINE;
             int offset = 0;
             while (offset < text.length()) {
                 int codePoint = text.codePointAt(offset);
                 if (Character.isWhitespace(codePoint)) {
+                    int start = offset;
+                    boolean newline = codePoint == '\n' || codePoint == '\r';
                     do {
                         offset += Character.charCount(codePoint);
                         if (offset >= text.length()) {
                             break;
                         }
                         codePoint = text.codePointAt(offset);
+                        newline = newline || codePoint == '\n' || codePoint == '\r';
                     } while (Character.isWhitespace(codePoint));
-                    tokens.add(new SpaceToken(style));
+                    if (preserveNewlines && newline) {
+                        tokens.add(new BreakToken(style));
+                    } else if (preserve) {
+                        tokens.add(new SpaceToken(text.substring(start, offset), style));
+                    } else {
+                        tokens.add(new SpaceToken(" ", style));
+                    }
                     continue;
                 }
 
@@ -1584,8 +1620,12 @@ public final class RenderLayoutEngine {
             FontMetrics metrics = graphics.getFontMetrics(font);
             float spaceWidth = pendingSpaceWidth();
             float wordWidth = metrics.stringWidth(word);
+            boolean wrapAllowed = switch (style.whiteSpace()) {
+                case NOWRAP, PRE -> false;
+                default -> true;
+            };
 
-            if (line.hasPlacedContent()
+            if (wrapAllowed && line.hasPlacedContent()
                     && line.width() + spaceWidth + wordWidth + trailingDecorationWidth > width) {
                 pendingSpace = false;
                 pendingSpaceStyle = null;
@@ -1593,6 +1633,10 @@ public final class RenderLayoutEngine {
             }
 
             materializePendingSpace();
+            if (!wrapAllowed) {
+                line.addText(word, font, metrics, style);
+                return;
+            }
             int offset = 0;
             while (offset < word.length()) {
                 float finalWidth = metrics.stringWidth(word.substring(offset));
@@ -1629,14 +1673,14 @@ public final class RenderLayoutEngine {
             if (!pendingSpace || !line.hasPlacedContent() || pendingSpaceStyle == null) {
                 return 0;
             }
-            return graphics.getFontMetrics(fontFor(pendingSpaceStyle)).stringWidth(" ");
+            return graphics.getFontMetrics(fontFor(pendingSpaceStyle)).stringWidth(pendingSpaceText);
         }
 
         private void materializePendingSpace() {
             if (pendingSpace && line.hasPlacedContent() && pendingSpaceStyle != null) {
                 Font font = fontFor(pendingSpaceStyle);
                 FontMetrics metrics = graphics.getFontMetrics(font);
-                line.addText(" ", font, metrics, pendingSpaceStyle);
+                line.addText(pendingSpaceText, font, metrics, pendingSpaceStyle);
             }
             pendingSpace = false;
             pendingSpaceStyle = null;

@@ -183,6 +183,31 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void whiteSpaceModesControlWrappingAndNewlinePreservation() {
+        DomViewPanel nowrap = new DomViewPanel(parse("""
+                <body><div style="white-space:nowrap;width:40px">one two three four</div></body>
+                """));
+        assertEquals(1, nowrap.layoutForTesting(100).lineBoxes().size());
+
+        DomViewPanel normal = new DomViewPanel(parse("""
+                <body><div style="width:40px">one two three four</div></body>
+                """));
+        assertTrue(normal.layoutForTesting(100).lineBoxes().size() > 1);
+
+        DomViewPanel pre = new DomViewPanel(parse("""
+                <body><div style="white-space:pre;width:200px">line one
+                line two</div></body>
+                """));
+        assertEquals(2, pre.layoutForTesting(100).lineBoxes().size());
+
+        DomViewPanel collapsed = new DomViewPanel(parse("""
+                <body><div style="width:200px">line one
+                line two</div></body>
+                """));
+        assertEquals(1, collapsed.layoutForTesting(100).lineBoxes().size());
+    }
+
+    @Test
     public void splitsLongInlineBoxesIntoFirstMiddleAndLastFragments() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body><p><span style="padding: 4px; border: 2px solid blue;

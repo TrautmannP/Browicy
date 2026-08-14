@@ -628,6 +628,22 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesWhiteSpaceValues() {
+        CssParser parser = new CssParser();
+        assertEquals("nowrap", parser.parseDeclarations("white-space:nowrap")
+                .get("white-space"));
+        assertEquals("pre-wrap", parser.parseDeclarations("white-space:pre-wrap")
+                .get("white-space"));
+        assertEquals("pre-line", parser.parseDeclarations("white-space:pre-line")
+                .get("white-space"));
+        assertTrue(parser.parseDeclarations("white-space:break-spaces")
+                .containsKey("white-space"));
+        assertTrue(parser.supportsProperty("white-space"));
+        assertTrue(parser.supports("white-space", "pre"));
+        assertFalse(parser.supports("white-space", "wrap"));
+    }
+
+    @Test
     public void parsesRulesInsideTrueSupportsConditionsAndSkipsFalseOnes() {
         List<CssRule> rules = new CssParser().parse("""
                 .base { color: black }

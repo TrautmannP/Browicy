@@ -52,6 +52,7 @@ public record RenderStyle(
         BorderCollapse borderCollapse,
         TextAlign textAlign,
         TextTransform textTransform,
+        WhiteSpace whiteSpace,
         Overflow overflow,
         VerticalAlign verticalAlign,
         FlexDirection flexDirection,
@@ -89,6 +90,7 @@ public record RenderStyle(
     public enum JustifyContent { FLEX_START, CENTER, FLEX_END, SPACE_BETWEEN, SPACE_AROUND, SPACE_EVENLY }
     public enum AlignItems { STRETCH, FLEX_START, CENTER, FLEX_END, BASELINE }
     public enum ObjectFit { FILL, CONTAIN, COVER, NONE, SCALE_DOWN }
+    public enum WhiteSpace { NORMAL, NOWRAP, PRE, PRE_WRAP, PRE_LINE, BREAK_SPACES }
 
     public RenderStyle {
         if (fontSizePx <= 0) {
@@ -154,7 +156,8 @@ public record RenderStyle(
                 minHeight, maxHeight, aspectRatio, objectFit, boxSizing, margin, autoMargins,
                 padding, borderWidth, borderColor,
                 borderStyle, borderRadius, outlineWidth, outlineColor, outlineVisible,
-                borderCollapse, textAlign, textTransform, overflow, verticalAlign, flexDirection,
+                borderCollapse, textAlign, textTransform, whiteSpace, overflow,
+                verticalAlign, flexDirection,
                 flexWrap, justifyContent, alignItems, rowGapPx, columnGapPx,
                 newFlexGrow, flexShrink, flexBasis, opacity);
     }

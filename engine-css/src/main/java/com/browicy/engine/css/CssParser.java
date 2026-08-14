@@ -508,6 +508,7 @@ public final class CssParser {
             case "box-sizing" -> supports(normalized, "content-box");
             case "text-align" -> supports(normalized, "left");
             case "text-transform" -> supports(normalized, "uppercase");
+            case "white-space" -> supports(normalized, "normal");
             case "text-decoration", "text-decoration-line" -> supports(normalized, "underline");
             case "text-decoration-color" -> supports(normalized, "black");
             case "list-style", "list-style-type" -> supports(normalized, "disc");
@@ -691,6 +692,13 @@ public final class CssParser {
             }
             case "text-align" -> {
                 if (value.equals("left") || value.equals("center") || value.equals("right")) {
+                    target.put(property, value);
+                }
+            }
+            case "white-space" -> {
+                if (value.equals("normal") || value.equals("nowrap") || value.equals("pre")
+                        || value.equals("pre-wrap") || value.equals("pre-line")
+                        || value.equals("break-spaces")) {
                     target.put(property, value);
                 }
             }
