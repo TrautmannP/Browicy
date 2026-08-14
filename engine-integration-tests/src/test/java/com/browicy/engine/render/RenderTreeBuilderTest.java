@@ -401,6 +401,88 @@ public class RenderTreeBuilderTest {
         assertEquals(22f, image.svg().height(), .001f);
     }
 
+    @Test
+    public void expandsRepeatedFrTracksInGridTemplateColumns() {
+        RenderBox grid = boxChildren(build("""
+                <body><div style="display:grid;grid-template-columns:repeat(2, 1fr)">x</div></body>
+                """).root()).getFirst();
+        List<RenderStyle.GridTrack> tracks = grid.style().gridTemplateColumns();
+
+        assertEquals(2, tracks.size());
+        for (RenderStyle.GridTrack track : tracks) {
+            assertEquals(RenderStyle.GridTrack.Type.FRACTION, track.type());
+            assertEquals(1f, track.fraction(), 0.001f);
+        }
+    }
+
+    @Test
+    public void expandsFixedRepeatAndMixedTrackLists() {
+        RenderBox grid = boxChildren(build("""
+                <body><div style="display:grid;grid-template-columns:1fr repeat(3, 200px)">x</div></body>
+                """).root()).getFirst();
+        List<RenderStyle.GridTrack> tracks = grid.style().gridTemplateColumns();
+
+        assertEquals(4, tracks.size());
+        assertEquals(RenderStyle.GridTrack.Type.FRACTION, tracks.get(0).type());
+        assertEquals(1f, tracks.get(0).fraction(), 0.001f);
+        for (int index = 1; index < 4; index++) {
+            assertEquals(RenderStyle.GridTrack.Type.FIXED, tracks.get(index).type());
+            assertEquals(200f, tracks.get(index).fixed(), 0.001f);
+        }
+    }
+
+    @Test
+    public void expandsAutoFitMinmaxRepeatIntoMinmaxTrack() {
+        RenderBox grid = boxChildren(build("""
+                <body><div style="display:grid;
+                  grid-template-columns:repeat(auto-fit, minmax(300px, 1fr))">x</div></body>
+                """).root()).getFirst();
+        List<RenderStyle.GridTrack> tracks = grid.style().gridTemplateColumns();
+
+        assertEquals(1, tracks.size());
+        assertEquals(RenderStyle.GridTrack.Type.MINMAX, tracks.get(0).type());
+        assertEquals(300f, tracks.get(0).minFixed(), 0.001f);
+        assertEquals(-1f, tracks.get(0).maxFixed(), 0.001f);
+    }
+
+    @Test
+    public void blockifiesInlineElementsContainingBlockChildren() {
+        RenderTree tree = build("""
+                <body><a href="#"><div><h3>Headline</h3><p>Text</p></div></a></body>
+                """);
+        RenderBox anchor = boxChildren(tree.root()).getFirst();
+
+        assertEquals("a", anchor.tagName());
+        assertEquals(RenderStyle.Display.BLOCK, anchor.style().display());
+        assertEquals(1, boxChildren(anchor).size());
+        assertEquals("div", boxChildren(anchor).getFirst().tagName());
+    }
+
+    @Test
+    public void blockificationPropagatesThroughNestedInlineAncestors() {
+        RenderTree tree = build("""
+                <body><a href="#"><span><h3>Title</h3></span></a></body>
+                """);
+        RenderBox anchor = boxChildren(tree.root()).getFirst();
+        RenderBox span = boxChildren(anchor).getFirst();
+
+        assertEquals(RenderStyle.Display.BLOCK, anchor.style().display());
+        assertEquals(RenderStyle.Display.BLOCK, span.style().display());
+        assertEquals("h3", boxChildren(span).getFirst().tagName());
+    }
+
+    @Test
+    public void textOnlyInlineElementsRemainInline() {
+        RenderTree tree = build("""
+                <body><a href="#">Plain <strong>link</strong> text</a></body>
+                """);
+        RenderInlineBox anchor = inlineChildren(tree.root()).getFirst();
+
+        assertEquals("a", anchor.tagName());
+        assertEquals(RenderStyle.Display.INLINE, anchor.style().display());
+        assertEquals(3, anchor.children().size());
+    }
+
     private static RenderTree build(String html) {
         Document document = new HtmlParser().parse(html);
         return new RenderTreeBuilder().build(document);

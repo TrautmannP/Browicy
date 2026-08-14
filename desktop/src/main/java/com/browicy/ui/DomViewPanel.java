@@ -1175,7 +1175,11 @@ public final class DomViewPanel extends JPanel implements Scrollable {
     }
 
     private float resolveBackgroundLength(RenderLength length, float percentageBase) {
-        if (length.isAuto()) return 0;
+        if (length.isAuto()
+                || length.unit() == RenderLength.Unit.MAX_CONTENT
+                || length.unit() == RenderLength.Unit.MIN_CONTENT) {
+            return 0;
+        }
         return length.resolve(percentageBase, 16,
                 Math.max(1, currentLayoutWidth()), Math.max(1, currentViewportHeight()));
     }
@@ -1281,16 +1285,24 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         Graphics2D graphics = image.createGraphics();
         try {
             configureGraphics(graphics);
-            StyleApplicator applicator = new StyleApplicator();
-            if (styleSheets == null) applicator.apply(document, width, viewportHeight);
-            else applicator.apply(document, styleSheets, width, viewportHeight);
-            RenderTree testingTree = new RenderTreeBuilder(element -> images.find(element)
-                    .map(com.browicy.engine.net.BinaryResource::content)
-                    .orElse(null)).build(document, width, viewportHeight);
-            return layoutEngine.layout(testingTree, width, getInsets(), graphics);
+            // Gleiche Synchronisation wie renderPass: der asynchrone Render-Thread
+            // wendet Styles an und baut Bäume unter dem Dokument-Lock.
+            synchronized (document) {
+                StyleApplicator applicator = new StyleApplicator();
+                if (styleSheets == null) applicator.apply(document, width, viewportHeight);
+                else applicator.apply(document, styleSheets, width, viewportHeight);
+                RenderTree testingTree = new RenderTreeBuilder(element -> images.find(element)
+                        .map(com.browicy.engine.net.BinaryResource::content)
+                        .orElse(null)).build(document, width, viewportHeight);
+                return layoutEngine.layout(testingTree, width, getInsets(), graphics);
+            }
         } finally {
             graphics.dispose();
         }
+    }
+
+    void renderPassForTesting() {
+        renderPass(InvalidationType.STYLE);
     }
 
     private static void configureGraphics(Graphics2D graphics) {

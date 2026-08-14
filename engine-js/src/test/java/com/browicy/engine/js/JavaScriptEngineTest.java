@@ -1069,8 +1069,10 @@ public class JavaScriptEngineTest {
         JsExecutionResult result = engine.runScripts(document);
 
         assertFalse(String.valueOf(result.errors()), result.hasErrors());
-        assertEquals("color:red;", document.getElementById("target").getAttribute("style"));
-        assertEquals("true:false:true", document.getElementById("target").getAttribute("data-css"));
+        assertEquals("color:red;display:grid;",
+                document.getElementById("target").getAttribute("style"));
+        assertEquals("true:true:true",
+                document.getElementById("target").getAttribute("data-css"));
         assertEquals("world", document.getElementById("target").getTextContent());
     }
 

@@ -898,8 +898,10 @@ public class DomViewPanelTest {
                 .orElseThrow();
         assertEquals(CssColor.parse("red"), before.color());
 
-        document.getElementById("message").setAttribute("style", "color: blue");
-        new StyleApplicator().apply(document);
+        synchronized (document) {
+            document.getElementById("message").setAttribute("style", "color: blue");
+            new StyleApplicator().apply(document);
+        }
         panel.refreshFromDocument();
 
         TextFragment after = panel.layoutForTesting(300).fragments().stream()
@@ -1192,6 +1194,86 @@ public class DomViewPanelTest {
         assertEquals(floated.y(), beside.y(), 0.001f);
         assertEquals(floated.y() + floated.height(), clear.y(), 0.001f);
         assertEquals(368f, clear.width(), 0.001f);
+    }
+
+    @Test
+    public void maxWidthFitContentSizesToContentInsteadOfCollapsing() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="box" style="max-width:fit-content">Ein Absatz mit etwas Text.</div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment box = boxById(layout, "box");
+        LineBox line = layout.lineBoxes().getFirst();
+
+        assertTrue("fit-content darf die Box nicht auf 0px/1px zusammenstauchen",
+                box.width() > 100);
+        assertEquals(1, layout.lineBoxes().size());
+        assertTrue("Text darf nicht vertikal pro Zeichen umbrechen",
+                line.width() > 100);
+    }
+
+    @Test
+    public void widthMaxContentReportsIntrinsicWidthToFlexContainer() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="flex" style="display:flex;width:300px">
+                  <div id="box" style="width:max-content">short text</div>
+                  <div id="other">x</div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment box = boxById(layout, "box");
+
+        assertTrue("max-content muss die intrinsische Inhaltsbreite liefern statt 0px",
+                box.width() > 50);
+        assertEquals(1, layout.lineBoxes().stream()
+                .filter(line -> line.fragments().stream().anyMatch(fragment ->
+                        fragment instanceof TextFragment
+                                && ((TextFragment) fragment).text().contains("short")))
+                .count());
+    }
+
+    @Test
+    public void textAfterFullWidthFloatDropsBelowTheFloat() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body>
+                  <div id="float" style="float:left;width:100%;height:40px">FLOAT</div>
+                  <p id="text">Dieser Text steht nach dem Float und darf nicht in einen
+                     1px breiten Streifen neben dem Float gequetscht werden.</p>
+                </body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment floated = boxById(layout, "float");
+        BoxFragment text = boxById(layout, "text");
+
+        assertTrue("Text muss unter den Float verschoben werden",
+                text.y() >= floated.y() + floated.height() - 0.001f);
+        assertEquals(1, layout.lineBoxes().stream()
+                .filter(line -> line.fragments().stream().anyMatch(fragment ->
+                        fragment instanceof TextFragment
+                                && ((TextFragment) fragment).text().contains("Dieser")))
+                .count());
+    }
+
+    @Test
+    public void blockElementsInsideAnchorRenderAsHorizontalBlocks() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><a id="link" href="#"><h3 id="head">Headline text</h3>
+                  <p id="body">Body paragraph with a couple of words.</p></a></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment headline = boxById(layout, "head");
+
+        assertTrue("Block-Kinder eines Inline-Tags dürfen nicht ignoriert werden",
+                headline.width() > 50);
+        assertEquals(1, layout.lineBoxes().stream()
+                .filter(line -> line.fragments().stream().anyMatch(fragment ->
+                        fragment instanceof TextFragment
+                                && ((TextFragment) fragment).text().contains("Headline")))
+                .count());
     }
 
     @Test
@@ -1748,6 +1830,7 @@ public class DomViewPanelTest {
     }
 
     private static BufferedImage paint(DomViewPanel panel) {
+        panel.renderPassForTesting();
         int height = panel.getPreferredSize().height;
         panel.setSize(panel.getWidth(), height);
         BufferedImage image = new BufferedImage(

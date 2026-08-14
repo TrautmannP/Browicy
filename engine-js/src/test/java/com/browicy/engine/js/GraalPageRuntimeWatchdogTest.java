@@ -90,7 +90,8 @@ public class GraalPageRuntimeWatchdogTest {
             assertTrue("Busy-Loop im DOM-Event wurde nicht abgebrochen: "
                             + afterwards.errors(),
                     afterwards.errors().stream().anyMatch(error -> {
-                        return error.contains("Zeitbudget") && error.contains("listener.js");
+                        return error.contains("Zeitbudget")
+                                && error.contains("DOM-Event-Task 'click'");
                     }));
         }
     }

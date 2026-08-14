@@ -63,6 +63,8 @@ final class JsDocument implements ProxyObject, JsNodeLike {
     @Setter(AccessLevel.PACKAGE)
     private java.util.function.LongSupplier taskBudgetMillis = () -> 0L;
     @Setter(AccessLevel.PACKAGE)
+    private java.util.function.Supplier<String> taskDescriptionSupplier = () -> null;
+    @Setter(AccessLevel.PACKAGE)
     private JsCookieStore cookieStore;
     private JsCustomElementRegistry customElements;
     private JsDomImplementation implementation;
@@ -229,7 +231,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
                 throw exception;
             }
             errorSink.accept(GraalPageRuntime.describePolyglotFailure(
-                    exception, taskBudgetMillis.getAsLong()));
+                    exception, taskBudgetMillis.getAsLong(), taskDescriptionSupplier.get()));
         }
     }
 

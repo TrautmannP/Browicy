@@ -261,6 +261,7 @@ final class GraalPageRuntime implements PageRuntime {
         jsDocument = new JsDocument(
                 document, errors::add, styleSheets, styleSheetMutationCallback);
         jsDocument.setTaskBudgetMillis(() -> currentTaskBudgetMillis);
+        jsDocument.setTaskDescriptionSupplier(() -> currentTaskDescription);
         jsDocument.setCookieStore(cookieStore);
         Value bindings = context.getBindings("js");
         bindings.putMember("document", jsDocument);
@@ -889,13 +890,16 @@ final class GraalPageRuntime implements PageRuntime {
     }
 
     private void recordPolyglotFailure(PolyglotException exception) {
-        errors.add(describePolyglotFailure(exception, currentTaskBudgetMillis));
+        errors.add(describePolyglotFailure(
+                exception, currentTaskBudgetMillis, currentTaskDescription));
         if (exception.isCancelled() || exception.isResourceExhausted()) {
             contextUsable = false;
         }
     }
 
-    static String describePolyglotFailure(PolyglotException exception, long budgetMillis) {
+    static String describePolyglotFailure(PolyglotException exception,
+                                          long budgetMillis,
+                                          String taskDescription) {
         String detail = message(exception);
         if (exception.getSourceLocation() != null) {
             var location = exception.getSourceLocation();
@@ -904,8 +908,10 @@ final class GraalPageRuntime implements PageRuntime {
         }
         if (exception.isInterrupted()) {
             detail = "Skript wurde nach Überschreitung des Zeitbudgets von "
-                    + budgetMillis + " ms unterbrochen (mögliche Endlosschleife): "
-                    + detail;
+                    + budgetMillis + " ms unterbrochen (mögliche Endlosschleife)"
+                    + (taskDescription == null || taskDescription.isBlank() ? ""
+                            : " bei " + taskDescription)
+                    + ": " + detail;
         }
         return detail;
     }

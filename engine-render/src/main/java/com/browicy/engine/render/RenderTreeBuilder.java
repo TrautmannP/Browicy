@@ -248,6 +248,11 @@ public final class RenderTreeBuilder {
                     || style.display() == RenderStyle.Display.INLINE_FLEX
                     || style.display() == RenderStyle.Display.INLINE_GRID) {
                 output.add(buildInlineBlock(element, style));
+            } else if (containsBlockLevelDescendant(element, style)) {
+                // HTML5 erlaubt Block-Elemente in Inline-Elementen (z. B. <a><div>):
+                // gemäß CSS-Blockifizierung wird das Inline-Element dann als Block behandelt.
+                style = copyWithDisplay(style, RenderStyle.Display.BLOCK);
+                output.add(buildBox(element, style));
             } else {
                 output.add(buildInlineBox(element, style));
             }
@@ -330,6 +335,32 @@ public final class RenderTreeBuilder {
                  TABLE_ROW, TABLE_CELL, TABLE_COLUMN_GROUP, TABLE_COLUMN, TABLE_CAPTION -> true;
             default -> false;
         };
+    }
+
+    private boolean containsBlockLevelDescendant(Element element, RenderStyle parentStyle) {
+        for (Node child : element.getChildren()) {
+            if (!(child instanceof Element childElement)
+                    || HIDDEN_TAGS.contains(childElement.getTagName())) {
+                continue;
+            }
+            String tag = childElement.getTagName();
+            if ("br".equals(tag)) {
+                continue;
+            }
+            RenderStyle childStyle = resolveStyle(childElement, parentStyle);
+            if (childStyle.display() == RenderStyle.Display.NONE) {
+                continue;
+            }
+            boolean blockified = childStyle.position() != RenderStyle.Position.STATIC
+                    && !"img".equals(tag);
+            if (blockified || isBlockContainer(childStyle.display())) {
+                return true;
+            }
+            if (containsBlockLevelDescendant(childElement, childStyle)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isGridContainer(RenderStyle.Display display) {
@@ -1243,7 +1274,7 @@ public final class RenderTreeBuilder {
                 return false;
             }
             java.util.List<RenderStyle.GridTrack> innerTracks = new ArrayList<>();
-            for (String partList : innerParts.subList(1, innerParts.size())) {
+            for (String partList : innerParts) {
                 for (String rawPart : splitTopLevelWhitespace(partList)) {
                     String part = rawPart.replaceAll("^,|,$", "").strip();
                     if (part.isEmpty()) {

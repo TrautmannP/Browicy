@@ -24,6 +24,9 @@ public record RenderLength(float value, Unit unit, float offsetPx) {
         if (unit == Unit.REM || unit == Unit.VW || unit == Unit.VH) {
             throw new IllegalStateException("A root-font and viewport context is required for " + unit);
         }
+        if (unit == Unit.MAX_CONTENT || unit == Unit.MIN_CONTENT) {
+            throw new IllegalStateException("An intrinsic sizing context is required for " + unit);
+        }
         return unit == Unit.PERCENT ? percentageBase * value / 100f + offsetPx : value + offsetPx;
     }
 
@@ -36,7 +39,8 @@ public record RenderLength(float value, Unit unit, float offsetPx) {
             case REM -> rootFontSizePx * value + offsetPx;
             case VW -> viewportWidth * value / 100f + offsetPx;
             case VH -> viewportHeight * value / 100f + offsetPx;
-            case MAX_CONTENT, MIN_CONTENT -> 0;
+            case MAX_CONTENT, MIN_CONTENT -> throw new IllegalStateException(
+                    "An intrinsic sizing context is required for " + unit);
             case AUTO, PX -> value + offsetPx;
         };
     }

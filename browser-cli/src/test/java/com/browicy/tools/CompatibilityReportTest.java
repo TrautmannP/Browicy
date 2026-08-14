@@ -17,12 +17,12 @@ public class CompatibilityReportTest {
     @Test
     public void reportsAndDeduplicatesUnsupportedFeatures() {
         Document document = new HtmlParser().parse("""
-                <html><head><style>.card { filter: blur(5px); display: grid; color: red }</style></head>
-                <body><div id='app' style='filter: grayscale(1)'><canvas></canvas><my-widget></my-widget></div></body></html>
+                <html><head><style>.card { text-emphasis: filled red; display: ruby; color: red }</style></head>
+                <body><div id='app' style='text-emphasis: filled red'><canvas></canvas><my-widget></my-widget></div></body></html>
                 """, "https://example.test/");
         StyleSheetRegistry styles = new StyleSheetRegistry();
         styles.register(0, document.getElementsByTagName("style").getFirst(),
-                ".card { filter: blur(5px); display: grid; color: red }");
+                ".card { text-emphasis: filled red; display: ruby; color: red }");
         JsExecutionResult javascript = new JsExecutionResult(List.of(), List.of(
                 "ReferenceError: ResizeObserver is not defined (app.js:3:2)"));
 
@@ -31,7 +31,7 @@ public class CompatibilityReportTest {
         assertEquals(5, report.get("unsupportedFeatures"));
         assertEquals(6, report.get("occurrences"));
         String issues = report.get("issues").toString();
-        assertTrue(issues.contains("property:filter"));
+        assertTrue(issues.contains("property:text-emphasis"));
         assertTrue(issues.contains("value:display"));
         assertTrue(issues.contains("global:ResizeObserver"));
         assertTrue(issues.contains("element:canvas"));
