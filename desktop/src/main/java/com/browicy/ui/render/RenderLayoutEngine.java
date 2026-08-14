@@ -107,6 +107,11 @@ public final class RenderLayoutEngine {
             contentBoxWidth = shrinkToFitAuto
                     ? shrinkToFitWidth(box, availableContentWidth, graphics)
                     : availableContentWidth;
+        } else if (style.width().unit() == RenderLength.Unit.MAX_CONTENT) {
+            contentBoxWidth = shrinkToFitWidth(box, availableContentWidth, graphics);
+        } else if (style.width().unit() == RenderLength.Unit.MIN_CONTENT) {
+            contentBoxWidth = Math.max(1,
+                    intrinsicWidths(box.children(), availableContentWidth, graphics).minimum());
         } else {
             contentBoxWidth = contentBoxDimension(
                     style, resolve(style.width(), availableWidth), horizontalDecoration);
@@ -654,6 +659,11 @@ public final class RenderLayoutEngine {
                 : itemStyle.alignSelf();
     }
 
+    private static float textWidth(String text, FontMetrics metrics, float letterSpacingPx) {
+        float base = metrics.stringWidth(text);
+        return letterSpacingPx == 0 ? base : base + letterSpacingPx * Math.max(0, text.length() - 1);
+    }
+
     private static float crossOffset(RenderStyle.AlignSelf align, float available, float used) {
         float free = Math.max(0, available - used);
         return switch (align) {
@@ -973,7 +983,8 @@ public final class RenderLayoutEngine {
         return new TextFragment(text.text(), text.x() + dx, text.width(),
                 text.baseline() + dy, text.top() + dy, text.height(), text.font(),
                 text.color(), text.underline(), text.lineThrough(),
-                text.decorationColor(), text.opacity(),
+                text.decorationColor(), text.opacity(), text.letterSpacingPx(),
+                text.ellipsis(),
                 translate(text.clip(), dx, dy), text.transform());
     }
 
@@ -996,7 +1007,8 @@ public final class RenderLayoutEngine {
         TextFragment text = (TextFragment) fragment;
         return new TextFragment(text.text(), text.x(), text.width(), text.baseline(),
                 text.top(), text.height(), text.font(), text.color(), text.underline(),
-                text.lineThrough(), text.decorationColor(), text.opacity(), text.clip(),
+                text.lineThrough(), text.decorationColor(), text.opacity(),
+                text.letterSpacingPx(), text.ellipsis(), text.clip(),
                 compose(text.transform(), transform));
     }
 
@@ -1237,22 +1249,23 @@ public final class RenderLayoutEngine {
                 case PRE, PRE_WRAP, BREAK_SPACES -> true;
                 default -> false;
             };
+            float spacing = run.style().letterSpacingPx();
             if (preserve) {
-                float preferred = metrics.stringWidth(run.text());
+                float preferred = textWidth(run.text(), metrics, spacing);
                 if (mode == RenderStyle.WhiteSpace.PRE) {
                     return new IntrinsicWidths(preferred, preferred);
                 }
                 float minimum = 0;
                 for (String word : run.text().split("\\s+")) {
-                    minimum = Math.max(minimum, metrics.stringWidth(word));
+                    minimum = Math.max(minimum, textWidth(word, metrics, spacing));
                 }
                 return new IntrinsicWidths(preferred, minimum);
             }
             String collapsed = run.text().trim().replaceAll("\\s+", " ");
-            float preferred = metrics.stringWidth(collapsed);
+            float preferred = textWidth(collapsed, metrics, spacing);
             float minimum = 0;
             for (String word : collapsed.split(" ")) {
-                minimum = Math.max(minimum, metrics.stringWidth(word));
+                minimum = Math.max(minimum, textWidth(word, metrics, spacing));
             }
             if (mode == RenderStyle.WhiteSpace.NOWRAP) {
                 return new IntrinsicWidths(preferred, preferred);
@@ -1294,7 +1307,8 @@ public final class RenderLayoutEngine {
         TextFragment text = (TextFragment) fragment;
         return new TextFragment(text.text(), text.x(), text.width(), text.baseline(), text.top(),
                 text.height(), text.font(), text.color(), text.underline(), text.lineThrough(),
-                text.decorationColor(), text.opacity(), effective, text.transform());
+                text.decorationColor(), text.opacity(), text.letterSpacingPx(),
+                text.ellipsis(), effective, text.transform());
     }
 
     private static ClipRect intersect(ClipRect first, ClipRect second) {
@@ -1393,13 +1407,22 @@ public final class RenderLayoutEngine {
                                boolean lineThrough,
                                CssColor decorationColor,
                                float opacity,
+                               float letterSpacingPx,
+                               boolean ellipsis,
                                ClipRect clip,
                                java.awt.geom.AffineTransform transform) implements InlineFragment {
         public TextFragment(String text, float x, float width, float baseline, float top,
                             float height, Font font, CssColor color, boolean underline,
                             boolean lineThrough, CssColor decorationColor, float opacity) {
             this(text, x, width, baseline, top, height, font, color, underline, lineThrough,
-                    decorationColor, opacity, null, null);
+                    decorationColor, opacity, 0, false, null, null);
+        }
+        public TextFragment(String text, float x, float width, float baseline, float top,
+                            float height, Font font, CssColor color, boolean underline,
+                            boolean lineThrough, CssColor decorationColor, float opacity,
+                            float letterSpacingPx, boolean ellipsis) {
+            this(text, x, width, baseline, top, height, font, color, underline, lineThrough,
+                    decorationColor, opacity, letterSpacingPx, ellipsis, null, null);
         }
         @Override public float bottom() { return top + height; }
     }
@@ -1737,7 +1760,7 @@ public final class RenderLayoutEngine {
             Font font = fontFor(style);
             FontMetrics metrics = graphics.getFontMetrics(font);
             float spaceWidth = pendingSpaceWidth();
-            float wordWidth = metrics.stringWidth(word);
+            float wordWidth = textWidth(word, metrics, style.letterSpacingPx());
             boolean wrapAllowed = switch (style.whiteSpace()) {
                 case NOWRAP, PRE -> false;
                 default -> true;
@@ -1757,14 +1780,16 @@ public final class RenderLayoutEngine {
             }
             int offset = 0;
             while (offset < word.length()) {
-                float finalWidth = metrics.stringWidth(word.substring(offset));
+                float finalWidth = textWidth(word.substring(offset), metrics,
+                        style.letterSpacingPx());
                 if (finalWidth + trailingDecorationWidth <= width - line.width()) {
                     line.addText(word.substring(offset), font, metrics, style);
                     return;
                 }
 
                 float remaining = Math.max(1, width - line.width());
-                int end = longestFittingEnd(word, offset, metrics, remaining);
+                int end = longestFittingEnd(word, offset, metrics, remaining,
+                        style.letterSpacingPx());
                 line.addText(word.substring(offset, end), font, metrics, style);
                 offset = end;
                 if (offset < word.length()) {
@@ -1791,7 +1816,8 @@ public final class RenderLayoutEngine {
             if (!pendingSpace || !line.hasPlacedContent() || pendingSpaceStyle == null) {
                 return 0;
             }
-            return graphics.getFontMetrics(fontFor(pendingSpaceStyle)).stringWidth(pendingSpaceText);
+            FontMetrics metrics = graphics.getFontMetrics(fontFor(pendingSpaceStyle));
+            return textWidth(pendingSpaceText, metrics, pendingSpaceStyle.letterSpacingPx());
         }
 
         private void materializePendingSpace() {
@@ -1832,7 +1858,8 @@ public final class RenderLayoutEngine {
         private static int longestFittingEnd(String text,
                                              int start,
                                              FontMetrics metrics,
-                                             float availableWidth) {
+                                             float availableWidth,
+                                             float letterSpacingPx) {
             int codePointCount = text.codePointCount(start, text.length());
             int low = 1;
             int high = codePointCount;
@@ -1840,7 +1867,8 @@ public final class RenderLayoutEngine {
             while (low <= high) {
                 int middle = (low + high) >>> 1;
                 int end = text.offsetByCodePoints(start, middle);
-                if (metrics.stringWidth(text.substring(start, end)) <= availableWidth) {
+                if (textWidth(text.substring(start, end), metrics, letterSpacingPx)
+                        <= availableWidth) {
                     bestCodePoints = middle;
                     low = middle + 1;
                 } else {
@@ -1893,7 +1921,9 @@ public final class RenderLayoutEngine {
                             boolean lineThrough,
                             CssColor decorationColor,
                             float opacity,
-                            float usedLineHeight) implements LineItem {
+                            float usedLineHeight,
+                            float letterSpacingPx,
+                            RenderStyle.TextOverflow textOverflow) implements LineItem {
         private float adjustment() {
             return usedLineHeight <= 0 ? 0 : (usedLineHeight - metrics.getHeight()) / 2f;
         }
@@ -2053,10 +2083,11 @@ public final class RenderLayoutEngine {
                      Font font,
                      FontMetrics metrics,
                      RenderStyle style) {
-            float itemWidth = metrics.stringWidth(text);
+            float itemWidth = textWidth(text, metrics, style.letterSpacingPx());
             addItem(new TextItem(text, width, itemWidth, font, metrics, style.color(),
                     style.underline(), style.lineThrough(), style.textDecorationColor(),
-                    style.opacity(), style.usedLineHeightPx()));
+                    style.opacity(), style.usedLineHeightPx(), style.letterSpacingPx(),
+                    style.textOverflow()));
             width += itemWidth;
             placedContent = true;
         }
@@ -2171,7 +2202,9 @@ public final class RenderLayoutEngine {
                             text.underline,
                             text.lineThrough,
                             text.decorationColor,
-                            text.opacity));
+                            text.opacity,
+                            text.letterSpacingPx,
+                            text.textOverflow == RenderStyle.TextOverflow.ELLIPSIS));
                 } else if (item instanceof BoxItem box) {
                     float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
                     float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
@@ -2269,7 +2302,8 @@ public final class RenderLayoutEngine {
             return new TextFragment(text.text(), text.x() + dx, text.width(),
                     text.baseline() + dy, text.top() + dy, text.height(), text.font(),
                     text.color(), text.underline(), text.lineThrough(),
-                    text.decorationColor(), text.opacity(),
+                    text.decorationColor(), text.opacity(), text.letterSpacingPx(),
+                    text.ellipsis(),
                     translate(text.clip(), dx, dy), text.transform());
         }
 

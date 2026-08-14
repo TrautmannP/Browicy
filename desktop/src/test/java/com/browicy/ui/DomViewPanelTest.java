@@ -1520,6 +1520,94 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void maxContentWidthResolvesToIntrinsicPreferredWidth() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="auto" style="width:100px">short</div>
+                  <div id="content" style="width:max-content">a much longer unbreakable title here</div>
+                </body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment auto = boxById(layout, "auto");
+        BoxFragment content = boxById(layout, "content");
+
+        assertEquals(100f, auto.width(), 0.001f);
+        assertTrue("max-content muss die intrinsische Breite nutzen",
+                content.width() > auto.width());
+    }
+
+    @Test
+    public void letterSpacingExtendsTextWidthAndPaintsSpacedGlyphs() {
+        DomViewPanel spacedPanel = new DomViewPanel(parse("""
+                <body><div style="letter-spacing:5px">AB</div></body>
+                """));
+        DomViewPanel plainPanel = new DomViewPanel(parse("""
+                <body><div>AB</div></body>
+                """));
+        try {
+            TextFragment spaced = textFragments(spacedPanel.layoutForTesting(300)).getFirst();
+            TextFragment plain = textFragments(plainPanel.layoutForTesting(300)).getFirst();
+            assertEquals(5f, spaced.letterSpacingPx(), 0.001f);
+            assertEquals(0f, plain.letterSpacingPx(), 0.001f);
+            assertEquals(plain.width() + 5f, spaced.width(), 0.001f);
+        } finally {
+            spacedPanel.dispose();
+            plainPanel.dispose();
+        }
+    }
+
+    private static List<TextFragment> textFragments(LayoutResult layout) {
+        return layout.fragments().stream()
+                .filter(TextFragment.class::isInstance)
+                .map(TextFragment.class::cast)
+                .toList();
+    }
+
+    @Test
+    public void textOverflowEllipsisTruncatesClippedTextAtPaintTime() {
+        DomViewPanel ellipsis = new DomViewPanel(parse("""
+                <body style="background:white"><div style="width:30px;overflow:hidden;
+                  white-space:nowrap;text-overflow:ellipsis">a very long label</div></body>
+                """));
+        DomViewPanel clipped = new DomViewPanel(parse("""
+                <body style="background:white"><div style="width:30px;overflow:hidden;
+                  white-space:nowrap;text-overflow:clip">a very long label</div></body>
+                """));
+        try {
+            ellipsis.setSize(100, 1);
+            clipped.setSize(100, 1);
+            BufferedImage ellipsisImage = paint(ellipsis);
+            BufferedImage clippedImage = paint(clipped);
+
+            int ellipsisPixels = countDarkPixels(ellipsisImage);
+            int clippedPixels = countDarkPixels(clippedImage);
+            assertTrue("Ellipsis muss den Text früher kappen als Clip",
+                    ellipsisPixels < clippedPixels);
+            assertTrue(ellipsisPixels > 0);
+        } finally {
+            ellipsis.dispose();
+            clipped.dispose();
+        }
+    }
+
+    private static int countDarkPixels(BufferedImage image) {
+        int count = 0;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int rgb = image.getRGB(x, y);
+                int alpha = rgb >>> 24;
+                int red = rgb >>> 16 & 0xff;
+                int green = rgb >>> 8 & 0xff;
+                int blue = rgb & 0xff;
+                if (alpha > 0 && red < 120 && green < 120 && blue < 120) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    @Test
     public void wrapsTextWithinShrunkFlexItems() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body><div style="display:flex;width:180px">

@@ -664,6 +664,31 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesLetterSpacingTextOverflowOverflowWrapAndMaxContent() {
+        CssParser parser = new CssParser();
+        Map<String, String> text = parser.parseDeclarations("""
+                letter-spacing:-.5px;text-overflow:ellipsis;overflow-wrap:break-word;
+                width:max-content
+                """);
+        assertEquals("-.5px", text.get("letter-spacing"));
+        assertEquals("ellipsis", text.get("text-overflow"));
+        assertEquals("break-word", text.get("overflow-wrap"));
+        assertEquals("max-content", text.get("width"));
+
+        assertEquals("normal", parser.parseDeclarations("letter-spacing:normal")
+                .get("letter-spacing"));
+        assertFalse(parser.parseDeclarations("letter-spacing:2px solid")
+                .containsKey("letter-spacing"));
+        assertFalse(parser.parseDeclarations("text-overflow:fade")
+                .containsKey("text-overflow"));
+        assertFalse(parser.parseDeclarations("width:bogus").containsKey("width"));
+        assertTrue(parser.supportsProperty("letter-spacing"));
+        assertTrue(parser.supportsProperty("text-overflow"));
+        assertTrue(parser.supports("overflow-wrap", "break-word"));
+        assertTrue(parser.supports("width", "max-content"));
+    }
+
+    @Test
     public void parsesAlignSelfAlignContentAndOrder() {
         CssParser parser = new CssParser();
         Map<String, String> alignment = parser.parseDeclarations("""

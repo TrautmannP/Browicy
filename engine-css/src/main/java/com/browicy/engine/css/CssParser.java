@@ -49,6 +49,8 @@ public final class CssParser {
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_WEIGHT = Pattern.compile("[1-9]00");
     private static final Pattern INTEGER = Pattern.compile("-?\\d+");
+    private static final Pattern LETTER_SPACING = Pattern.compile(
+            "[-+]?[0-9]*\\.?[0-9]+(px|em|rem)?");
     private static final Pattern NON_NEGATIVE_NUMBER = Pattern.compile(
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)");
     private static final Pattern ASPECT_RATIO = Pattern.compile(
@@ -540,6 +542,9 @@ public final class CssParser {
             case "outline" -> supports(normalized, "2px solid black");
             case "outline-width" -> supports(normalized, "2px");
             case "outline-offset" -> supports(normalized, "2px");
+            case "letter-spacing" -> supports(normalized, "0");
+            case "text-overflow" -> supports(normalized, "ellipsis");
+            case "overflow-wrap", "word-wrap" -> supports(normalized, "break-word");
             case "transform" -> supports(normalized, "none");
             case "transform-origin" -> supports(normalized, "50% 50%");
             case "visibility" -> supports(normalized, "visible");
@@ -730,10 +735,20 @@ public final class CssParser {
             }
             case "top", "right", "bottom", "left" ->
                     putIfMatches(target, property, value, POSITION_OFFSET);
-            case "width", "height", "min-width", "min-height" ->
+            case "width", "height", "min-width", "min-height" -> {
+                if (value.equals("max-content") || value.equals("min-content")) {
+                    target.put(property, value);
+                } else {
                     putIfMatches(target, property, value, DIMENSION);
-            case "max-width", "max-height" ->
+                }
+            }
+            case "max-width", "max-height" -> {
+                if (value.equals("max-content") || value.equals("min-content")) {
+                    target.put(property, value);
+                } else {
                     putIfMatches(target, property, value, MAX_DIMENSION);
+                }
+            }
             case "box-sizing" -> {
                 if (value.equals("content-box") || value.equals("border-box")) {
                     target.put(property, value);
@@ -775,6 +790,24 @@ public final class CssParser {
                 if (value.equals("normal") || value.equals("nowrap") || value.equals("pre")
                         || value.equals("pre-wrap") || value.equals("pre-line")
                         || value.equals("break-spaces")) {
+                    target.put(property, value);
+                }
+            }
+            case "letter-spacing" -> {
+                if (value.equals("normal")) {
+                    target.put(property, value);
+                } else if (LETTER_SPACING.matcher(value).matches()) {
+                    target.put(property, value);
+                }
+            }
+            case "text-overflow" -> {
+                if (value.equals("clip") || value.equals("ellipsis")) {
+                    target.put(property, value);
+                }
+            }
+            case "overflow-wrap", "word-wrap" -> {
+                if (value.equals("normal") || value.equals("break-word")
+                        || value.equals("anywhere")) {
                     target.put(property, value);
                 }
             }

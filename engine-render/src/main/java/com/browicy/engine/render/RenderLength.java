@@ -8,7 +8,7 @@ public record RenderLength(float value, Unit unit, float offsetPx) {
         this(value, unit, 0);
     }
 
-    public enum Unit { AUTO, PX, PERCENT, REM, VW, VH }
+    public enum Unit { AUTO, PX, PERCENT, REM, VW, VH, MAX_CONTENT, MIN_CONTENT }
 
     public RenderLength {
         if (value < 0) {
@@ -36,6 +36,7 @@ public record RenderLength(float value, Unit unit, float offsetPx) {
             case REM -> rootFontSizePx * value + offsetPx;
             case VW -> viewportWidth * value / 100f + offsetPx;
             case VH -> viewportHeight * value / 100f + offsetPx;
+            case MAX_CONTENT, MIN_CONTENT -> 0;
             case AUTO, PX -> value + offsetPx;
         };
     }

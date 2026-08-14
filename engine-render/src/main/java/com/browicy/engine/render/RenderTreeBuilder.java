@@ -111,6 +111,8 @@ public final class RenderTreeBuilder {
                 RenderStyle.TextAlign.LEFT,
                 RenderStyle.TextTransform.NONE,
                 RenderStyle.WhiteSpace.NORMAL,
+                0,
+                RenderStyle.TextOverflow.CLIP,
                 RenderStyle.Overflow.VISIBLE,
                 RenderStyle.VerticalAlign.BASELINE,
                 RenderStyle.FlexDirection.ROW,
@@ -639,6 +641,8 @@ public final class RenderTreeBuilder {
                 inherited.textAlign(),
                 inherited.textTransform(),
                 inherited.whiteSpace(),
+                inherited.letterSpacingPx(),
+                RenderStyle.TextOverflow.CLIP,
                 RenderStyle.Overflow.VISIBLE,
                 RenderStyle.VerticalAlign.BASELINE,
                 RenderStyle.FlexDirection.ROW,
@@ -720,6 +724,8 @@ public final class RenderTreeBuilder {
         RenderStyle.TextAlign textAlign = parent.textAlign();
         RenderStyle.TextTransform textTransform = parent.textTransform();
         RenderStyle.WhiteSpace whiteSpace = parent.whiteSpace();
+        float letterSpacingPx = parent.letterSpacingPx();
+        RenderStyle.TextOverflow textOverflow = RenderStyle.TextOverflow.CLIP;
         RenderStyle.Overflow overflow = RenderStyle.Overflow.VISIBLE;
         RenderStyle.VerticalAlign verticalAlign = RenderStyle.VerticalAlign.BASELINE;
         RenderStyle.FlexDirection flexDirection = RenderStyle.FlexDirection.ROW;
@@ -1013,6 +1019,11 @@ public final class RenderTreeBuilder {
             case "break-spaces" -> RenderStyle.WhiteSpace.BREAK_SPACES;
             default -> parent.whiteSpace();
         };
+        letterSpacingPx = "normal".equals(declarations.getOrDefault("letter-spacing", "normal"))
+                ? 0 : resolveLength(declarations.get("letter-spacing"), fontSize,
+                        rootFontSizePx, 0);
+        textOverflow = "ellipsis".equals(declarations.get("text-overflow"))
+                ? RenderStyle.TextOverflow.ELLIPSIS : RenderStyle.TextOverflow.CLIP;
 
         return new RenderStyle(display, position, zIndex, floatMode, clear, top, right, bottom, left,
                 fontSize, fontFamily, fontWeight, italic, lineHeight, color, listStyleType,
@@ -1026,7 +1037,8 @@ public final class RenderTreeBuilder {
                 boxShadows, transform, outlineWidth, outlineColor, outlineVisible,
                 outlineOffset, visible, pointerEvents,
                 borderCollapse, textAlign, textTransform,
-                whiteSpace, overflow, verticalAlign, flexDirection, flexWrap, justifyContent,
+                whiteSpace, letterSpacingPx, textOverflow,
+                overflow, verticalAlign, flexDirection, flexWrap, justifyContent,
                 alignItems, alignSelf, alignContent, order,
                 rowGapPx, columnGapPx, flexGrow,
                 flexShrink, flexBasis,
@@ -1367,6 +1379,12 @@ public final class RenderTreeBuilder {
     private RenderLength resolveDimension(String value, float emBase) {
         if (value == null || "auto".equals(value)) {
             return RenderLength.AUTO;
+        }
+        if ("max-content".equals(value)) {
+            return new RenderLength(0, RenderLength.Unit.MAX_CONTENT);
+        }
+        if ("min-content".equals(value)) {
+            return new RenderLength(0, RenderLength.Unit.MIN_CONTENT);
         }
         if ("0".equals(value)) {
             return new RenderLength(0, RenderLength.Unit.PX);

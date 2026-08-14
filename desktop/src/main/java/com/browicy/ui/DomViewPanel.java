@@ -40,6 +40,7 @@ import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
@@ -594,7 +595,7 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                     } else if (fragment instanceof TextFragment text) {
                         fragmentGraphics.setFont(text.font());
                         fragmentGraphics.setColor(toAwtColor(text.color()));
-                        fragmentGraphics.drawString(text.text(), text.x(), text.baseline());
+                        paintText(fragmentGraphics, text);
                         if (text.underline()) {
                             fragmentGraphics.setColor(toAwtColor(text.decorationColor()));
                             float underlineY = text.baseline() + Math.max(1f, text.font().getSize2D() / 12f);
@@ -616,6 +617,39 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             }
         } finally {
             g2d.dispose();
+        }
+    }
+
+    private static void paintText(Graphics2D graphics, TextFragment text) {
+        String content = text.text();
+        float x = text.x();
+        if (text.ellipsis() && text.clip() != null
+                && x + text.width() > text.clip().x() + text.clip().width()) {
+            float available = Math.max(0, text.clip().x() + text.clip().width() - x);
+            FontMetrics metrics = graphics.getFontMetrics(text.font());
+            String ellipsis = "\u2026";
+            float ellipsisWidth = metrics.stringWidth(ellipsis);
+            String visible = "";
+            for (int index = 0; index < content.length(); index++) {
+                String candidate = visible + content.charAt(index);
+                if (metrics.stringWidth(candidate) + ellipsisWidth > available) {
+                    break;
+                }
+                visible = candidate;
+            }
+            content = visible + ellipsis;
+        }
+        if (text.letterSpacingPx() == 0 || content.length() <= 1) {
+            graphics.drawString(content, x, text.baseline());
+            return;
+        }
+        float spacing = text.letterSpacingPx();
+        FontMetrics metrics = graphics.getFontMetrics(text.font());
+        float cursor = x;
+        for (int index = 0; index < content.length(); index++) {
+            String character = content.substring(index, index + 1);
+            graphics.drawString(character, cursor, text.baseline());
+            cursor += metrics.stringWidth(character) + spacing;
         }
     }
 
