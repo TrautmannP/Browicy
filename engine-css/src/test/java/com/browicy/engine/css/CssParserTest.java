@@ -698,6 +698,38 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesAnimationFillModeAndSmallProperties() {
+        CssParser parser = new CssParser();
+        Map<String, String> animation = parser.parseDeclarations(
+                "animation:.12s cubic-bezier(0,.1,.1,1) backwards SelectMenu-modal-animation");
+        assertEquals("SelectMenu-modal-animation", animation.get("animation-name"));
+        assertEquals("backwards", animation.get("animation-fill-mode"));
+        assertEquals("cubic-bezier(0,.1,.1,1)", animation.get("animation-timing-function"));
+
+        Map<String, String> batch = parser.parseDeclarations("""
+                text-wrap:balance;tab-size:4;direction:rtl;
+                list-style-type:lower-alpha;overflow:hidden auto;
+                background-clip:padding-box;object-position:left top;
+                padding:unset
+                """);
+        assertEquals("balance", batch.get("text-wrap"));
+        assertEquals("4", batch.get("tab-size"));
+        assertEquals("rtl", batch.get("direction"));
+        assertEquals("lower-alpha", batch.get("list-style-type"));
+        assertEquals("hidden auto", batch.get("overflow"));
+        assertEquals("padding-box", batch.get("background-clip"));
+        assertEquals("left top", batch.get("object-position"));
+        assertEquals("0", batch.get("padding"));
+
+        assertFalse(parser.parseDeclarations("text-wrap:sideways").containsKey("text-wrap"));
+        assertFalse(parser.parseDeclarations("overflow:hidden auto scroll")
+                .containsKey("overflow"));
+        assertTrue(parser.supportsProperty("text-wrap"));
+        assertTrue(parser.supports("overflow", "hidden auto"));
+        assertTrue(parser.supports("animation", ".2s linear infinite rotate"));
+    }
+
+    @Test
     public void parsesKeyframesIntoRegistry() {
         StyleSheetRegistry registry = new StyleSheetRegistry();
         CssStyleSheet sheet = registry.register(0, """

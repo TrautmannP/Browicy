@@ -650,6 +650,11 @@ public final class CssParser {
             case "transition-timing-function" -> supports(normalized, "ease-out");
             case "transition-delay" -> supports(normalized, "0s");
             case "clip-path" -> supports(normalized, "none");
+            case "text-wrap" -> supports(normalized, "balance");
+            case "tab-size" -> supports(normalized, "8");
+            case "direction" -> supports(normalized, "ltr");
+            case "background-clip" -> supports(normalized, "padding-box");
+            case "object-position" -> supports(normalized, "center");
             case "flex-flow" -> supports(normalized, "row wrap");
             case "transform" -> supports(normalized, "none");
             case "transform-origin" -> supports(normalized, "50% 50%");
@@ -852,6 +857,33 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
+            case "text-wrap" -> {
+                if (value.equals("wrap") || value.equals("nowrap") || value.equals("balance")
+                        || value.equals("pretty")) {
+                    target.put(property, value);
+                }
+            }
+            case "tab-size" -> {
+                if (INTEGER.matcher(value).matches() || DIMENSION.matcher(value).matches()) {
+                    target.put(property, value);
+                }
+            }
+            case "direction" -> {
+                if (value.equals("ltr") || value.equals("rtl")) {
+                    target.put(property, value);
+                }
+            }
+            case "background-clip" -> {
+                if (value.equals("border-box") || value.equals("padding-box")
+                        || value.equals("content-box") || value.equals("text")) {
+                    target.put(property, value);
+                }
+            }
+            case "object-position" -> {
+                if (isObjectPosition(value)) {
+                    target.put(property, value);
+                }
+            }
             case "user-select" -> {
                 if (value.equals("none") || value.equals("all") || value.equals("text")
                         || value.equals("auto")) {
@@ -941,8 +973,7 @@ public final class CssParser {
                 }
             }
             case "overflow", "overflow-x", "overflow-y" -> {
-                if (value.equals("visible") || value.equals("hidden") || value.equals("auto")
-                        || value.equals("scroll") || value.equals("clip")) {
+                if (isOverflowValue(value)) {
                     target.put(property, value);
                 }
             }
@@ -1016,8 +1047,14 @@ public final class CssParser {
                 String type = listStyleType(value);
                 if (type != null) target.put("list-style-type", type);
             }
-            case "margin", "padding" -> expandLengths(target, property, value,
-                    property.equals("margin") ? MARGIN_LENGTH : POSITIVE_LENGTH, "");
+            case "margin", "padding" -> {
+                if (value.equals("unset")) {
+                    target.put(property, "0");
+                } else {
+                    expandLengths(target, property, value,
+                            property.equals("margin") ? MARGIN_LENGTH : POSITIVE_LENGTH, "");
+                }
+            }
             case "margin-inline", "margin-inline-start", "margin-inline-end",
                  "margin-block", "margin-block-start", "margin-block-end" ->
                     putLogicalLengths(target, property, value, "margin", MARGIN_LENGTH);
@@ -1665,12 +1702,16 @@ public final class CssParser {
         List<String> timings = new ArrayList<>();
         List<String> delays = new ArrayList<>();
         List<String> iterations = new ArrayList<>();
+        List<String> directions = new ArrayList<>();
+        List<String> fillModes = new ArrayList<>();
         for (String layer : splitTopLevel(value, ',')) {
             String currentName = null;
             String duration = null;
             String timing = "ease";
             String delay = null;
             String iteration = null;
+            String direction = null;
+            String fillMode = null;
             for (String token : layer.strip().split("\\s+")) {
                 if (token.isBlank()) {
                     continue;
@@ -1705,6 +1746,20 @@ public final class CssParser {
                     } else {
                         return;
                     }
+                } else if (normalized.equals("forwards") || normalized.equals("backwards")
+                        || normalized.equals("both")) {
+                    if (fillMode == null) {
+                        fillMode = token;
+                    } else {
+                        return;
+                    }
+                } else if (normalized.equals("reverse") || normalized.equals("alternate")
+                        || normalized.equals("alternate-reverse")) {
+                    if (direction == null) {
+                        direction = token;
+                    } else {
+                        return;
+                    }
                 } else if (normalized.equals("none")) {
                     if (currentName == null) {
                         currentName = "none";
@@ -1729,12 +1784,16 @@ public final class CssParser {
             timings.add(timing);
             delays.add(delay == null ? "0s" : delay);
             iterations.add(iteration == null ? "1" : iteration);
+            directions.add(direction == null ? "normal" : direction);
+            fillModes.add(fillMode == null ? "none" : fillMode);
         }
         target.put("animation-name", String.join(",", names));
         target.put("animation-duration", String.join(",", durations));
         target.put("animation-timing-function", String.join(",", timings));
         target.put("animation-delay", String.join(",", delays));
         target.put("animation-iteration-count", String.join(",", iterations));
+        target.put("animation-direction", String.join(",", directions));
+        target.put("animation-fill-mode", String.join(",", fillModes));
     }
 
     private static void putAnimationLonghand(Map<String, String> target,
@@ -1852,6 +1911,53 @@ public final class CssParser {
         } else {
             target.put(property, value);
         }
+    }
+
+    private static boolean isListStyleType(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "disc", "circle", "square", "decimal", "decimal-leading-zero",
+                 "lower-alpha", "upper-alpha", "lower-roman", "upper-roman", "none" -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean isOverflowValue(String value) {
+        String[] tokens = value.split("\\s+");
+        if (tokens.length > 2) {
+            return false;
+        }
+        for (String token : tokens) {
+            if (token.isBlank()) {
+                continue;
+            }
+            if (!token.equals("visible") && !token.equals("hidden") && !token.equals("scroll")
+                    && !token.equals("auto") && !token.equals("clip")) {
+                return false;
+            }
+        }
+        return !value.isBlank();
+    }
+
+    private static boolean isObjectPosition(String value) {
+        String[] tokens = value.split("\\s+");
+        if (tokens.length < 1 || tokens.length > 4) {
+            return false;
+        }
+        int keywords = 0;
+        for (String token : tokens) {
+            String normalized = token.toLowerCase(Locale.ROOT);
+            if (normalized.equals("left") || normalized.equals("right")
+                    || normalized.equals("top") || normalized.equals("bottom")
+                    || normalized.equals("center")) {
+                keywords++;
+            } else if (!BACKGROUND_LENGTH.matcher(token).matches()) {
+                return false;
+            }
+        }
+        return keywords > 0 || tokens.length >= 1 && BACKGROUND_LENGTH.matcher(
+                tokens[tokens.length - 1]).matches() && BACKGROUND_LENGTH.matcher(
+                        tokens[0]).matches();
     }
 
     private static boolean isClipPathFunction(String value) {
@@ -2122,8 +2228,7 @@ public final class CssParser {
 
     private static String listStyleType(String value) {
         for (String token : value.split("\\s+")) {
-            if (token.equals("none") || token.equals("disc")
-                    || token.equals("circle") || token.equals("square")) return token;
+            if (isListStyleType(token)) return token;
         }
         return null;
     }
