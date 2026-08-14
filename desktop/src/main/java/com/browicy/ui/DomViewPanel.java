@@ -578,6 +578,9 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                     fragmentGraphics.clip(new Rectangle2D.Float(fragmentClip.x(), fragmentClip.y(),
                             fragmentClip.width(), fragmentClip.height()));
                 }
+                if (fragment.transform() != null) {
+                    fragmentGraphics.transform(fragment.transform());
+                }
                 try {
                     float opacity = fragmentOpacity(fragment);
                     if (opacity < 1) {

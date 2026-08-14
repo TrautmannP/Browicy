@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.regex.Pattern;
 
 public final class CssParser {
@@ -535,6 +537,8 @@ public final class CssParser {
             case "outline" -> supports(normalized, "2px solid black");
             case "outline-width" -> supports(normalized, "2px");
             case "outline-offset" -> supports(normalized, "2px");
+            case "transform" -> supports(normalized, "none");
+            case "transform-origin" -> supports(normalized, "50% 50%");
             case "visibility" -> supports(normalized, "visible");
             case "pointer-events" -> supports(normalized, "auto");
             case "outline-color" -> supports(normalized, "black");
@@ -810,6 +814,17 @@ public final class CssParser {
             case "outline-style" -> {
                 if (value.equals("none") || value.equals("solid")) target.put(property, value);
             }
+            case "transform" -> {
+                String normalized = normalizeTransform(value);
+                if (normalized != null) {
+                    target.put(property, normalized);
+                }
+            }
+            case "transform-origin" -> {
+                if (isTransformOriginValue(value)) {
+                    target.put(property, value.trim());
+                }
+            }
             default -> {
                 if (property.startsWith("-webkit-") || property.startsWith("-moz-")
                         || property.startsWith("-ms-")) {
@@ -819,6 +834,98 @@ public final class CssParser {
                 }
             }
         }
+    }
+
+    private static final Pattern TRANSFORM_FUNCTION =
+            Pattern.compile("([a-zA-Z]+)\\(([^)]*)\\)");
+    private static final Pattern TRANSFORM_OFFSET =
+            Pattern.compile("[-+]?[0-9]*\\.?[0-9]+(px|rem|vw|vh|%)?");
+    private static final Pattern TRANSFORM_NUMBER =
+            Pattern.compile("[-+]?[0-9]*\\.?[0-9]+");
+    private static final Pattern TRANSFORM_ANGLE =
+            Pattern.compile("[-+]?[0-9]*\\.?[0-9]+(deg|rad|turn|grad)?");
+
+    private static String normalizeTransform(String value) {
+        String trimmed = value.trim();
+        if (trimmed.equals("none")) {
+            return "none";
+        }
+        Matcher matcher = TRANSFORM_FUNCTION.matcher(trimmed);
+        StringBuilder normalized = new StringBuilder();
+        int lastEnd = 0;
+        while (matcher.find()) {
+            if (matcher.start() != lastEnd
+                    && !trimmed.substring(lastEnd, matcher.start()).isBlank()) {
+                return null;
+            }
+            String name = matcher.group(1);
+            String args = matcher.group(2).trim();
+            if (!isKnownTransformFunction(name, args)) {
+                return null;
+            }
+            if (!normalized.isEmpty()) {
+                normalized.append(' ');
+            }
+            normalized.append(name.toLowerCase(Locale.ROOT)).append('(').append(args).append(')');
+            lastEnd = matcher.end();
+        }
+        return normalized.isEmpty() ? null : normalized.toString();
+    }
+
+    private static boolean isKnownTransformFunction(String name, String args) {
+        List<String> parts = new ArrayList<>();
+        for (String part : args.split(",", -1)) {
+            parts.add(part.trim());
+        }
+        String lowerName = name.toLowerCase(Locale.ROOT);
+        return switch (lowerName) {
+            case "translate" -> parts.size() >= 1 && parts.size() <= 2
+                    && parts.stream().allMatch(CssParser::isTransformOffset);
+            case "translatex", "translatey" -> parts.size() == 1
+                    && isTransformOffset(parts.get(0));
+            case "rotate" -> parts.size() == 1 && TRANSFORM_ANGLE.matcher(parts.get(0)).matches();
+            case "scale" -> parts.size() >= 1 && parts.size() <= 2
+                    && parts.stream().allMatch(CssParser::isTransformNumber);
+            case "scalex", "scaley" -> parts.size() == 1 && isTransformNumber(parts.get(0));
+            case "matrix" -> parts.size() == 6
+                    && parts.stream().allMatch(CssParser::isTransformNumber);
+            default -> false;
+        };
+    }
+
+    private static boolean isTransformOffset(String value) {
+        if (!TRANSFORM_OFFSET.matcher(value).matches()) {
+            return false;
+        }
+        if (value.endsWith("%") || value.endsWith("px") || value.endsWith("rem")
+                || value.endsWith("vw") || value.endsWith("vh")) {
+            return true;
+        }
+        try {
+            return Float.parseFloat(value) == 0;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isTransformNumber(String value) {
+        return TRANSFORM_NUMBER.matcher(value).matches();
+    }
+
+    private static boolean isTransformOriginValue(String value) {
+        String[] parts = value.trim().split("\\s+");
+        if (parts.length < 1 || parts.length > 2) {
+            return false;
+        }
+        for (String part : parts) {
+            boolean keyword = part.equals("left") || part.equals("right")
+                    || part.equals("top") || part.equals("bottom")
+                    || part.equals("center");
+            if (!keyword && !isTransformOffset(part)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static List<String> logicalSides(String property) {

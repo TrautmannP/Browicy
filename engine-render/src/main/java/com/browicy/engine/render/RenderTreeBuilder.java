@@ -100,6 +100,7 @@ public final class RenderTreeBuilder {
                 BoxBorders.NONE,
                 CornerRadii.ZERO,
                 java.util.List.of(),
+                Transform.NONE,
                 0,
                 DEFAULT_COLOR,
                 false,
@@ -624,6 +625,7 @@ public final class RenderTreeBuilder {
                 BoxBorders.NONE,
                 CornerRadii.ZERO,
                 java.util.List.of(),
+                Transform.NONE,
                 0,
                 inherited.color(),
                 false,
@@ -954,6 +956,17 @@ public final class RenderTreeBuilder {
         outlineVisible = "solid".equals(declarations.get("outline-style")) && outlineWidth > 0;
         outlineOffset = resolveLength(declarations.get("outline-offset"),
                 fontSize, rootFontSizePx, 0);
+        Transform transform = Transform.parse(declarations.get("transform"), rootFontSizePx);
+        if (transform == null) {
+            transform = Transform.NONE;
+        }
+        if (declarations.get("transform-origin") != null) {
+            RenderOffset[] origin = parseTransformOrigin(
+                    declarations.get("transform-origin"), fontSize, rootFontSizePx);
+            if (origin != null) {
+                transform = transform.withOrigin(origin[0], origin[1]);
+            }
+        }
         visible = !"hidden".equals(declarations.get("visibility"))
                 && !"collapse".equals(declarations.get("visibility"));
         pointerEvents = !"none".equals(declarations.get("pointer-events"));
@@ -975,13 +988,77 @@ public final class RenderTreeBuilder {
                 width, height, minWidth, maxWidth, minHeight, maxHeight,
                 aspectRatio, objectFit, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,
-                boxShadows, outlineWidth, outlineColor, outlineVisible,
+                boxShadows, transform, outlineWidth, outlineColor, outlineVisible,
                 outlineOffset, visible, pointerEvents,
                 borderCollapse, textAlign, textTransform,
                 whiteSpace, overflow, verticalAlign, flexDirection, flexWrap, justifyContent,
                 alignItems, rowGapPx, columnGapPx, flexGrow,
                 flexShrink, flexBasis,
                 opacity);
+    }
+
+    private static RenderOffset[] parseTransformOrigin(String value,
+                                                       float fontSize, float rootFontSizePx) {
+        List<String> tokens = new java.util.ArrayList<>(java.util.List.of(value.trim().split("\\s+")));
+        if (tokens.size() < 1 || tokens.size() > 2) {
+            return null;
+        }
+        String xToken = tokens.get(0);
+        String yToken = tokens.size() == 2 ? tokens.get(1) : null;
+        if (yToken == null) {
+            yToken = switch (xToken) {
+                case "left", "right", "top", "bottom" -> xToken.equals("top")
+                        || xToken.equals("bottom") ? "center" : xToken;
+                default -> "center";
+            };
+            xToken = switch (xToken) {
+                case "top", "bottom" -> "center";
+                case "left", "right", "center" -> xToken;
+                default -> xToken;
+            };
+        }
+        RenderOffset x = parseOriginAxis(xToken, fontSize, rootFontSizePx);
+        RenderOffset y = parseOriginAxis(yToken, fontSize, rootFontSizePx);
+        if (x == null || y == null) {
+            return null;
+        }
+        return new RenderOffset[] {x, y};
+    }
+
+    private static RenderOffset parseOriginAxis(String token,
+                                                float fontSize, float rootFontSizePx) {
+        return switch (token) {
+            case "left", "top" -> new RenderOffset(0, RenderOffset.Unit.PERCENT);
+            case "right", "bottom" -> new RenderOffset(100, RenderOffset.Unit.PERCENT);
+            case "center" -> new RenderOffset(50, RenderOffset.Unit.PERCENT);
+            default -> {
+                RenderOffset parsed = resolveRenderOffset(token, fontSize, rootFontSizePx);
+                yield parsed;
+            }
+        };
+    }
+
+    private static RenderOffset resolveRenderOffset(String value,
+                                                    float fontSize, float rootFontSizePx) {
+        if (value == null) {
+            return null;
+        }
+        if (value.equals("0")) {
+            return new RenderOffset(0, RenderOffset.Unit.PX);
+        }
+        try {
+            ParsedLength parsed = parseLength(value);
+            return switch (parsed.unit()) {
+                case "%" -> new RenderOffset(parsed.value(), RenderOffset.Unit.PERCENT);
+                case "rem" -> new RenderOffset(parsed.value(), RenderOffset.Unit.REM);
+                case "vw" -> new RenderOffset(parsed.value(), RenderOffset.Unit.VW);
+                case "vh" -> new RenderOffset(parsed.value(), RenderOffset.Unit.VH);
+                case "em" -> new RenderOffset(parsed.value() * fontSize, RenderOffset.Unit.PX);
+                default -> new RenderOffset(parsed.value(), RenderOffset.Unit.PX);
+            };
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private static String transformText(String text, RenderStyle.TextTransform transform) {

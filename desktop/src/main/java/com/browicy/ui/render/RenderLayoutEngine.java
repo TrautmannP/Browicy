@@ -12,6 +12,7 @@ import com.browicy.engine.render.RenderNode;
 import com.browicy.engine.render.RenderStyle;
 import com.browicy.engine.render.RenderTextRun;
 import com.browicy.engine.render.RenderTree;
+import com.browicy.engine.render.Transform;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
@@ -194,6 +195,13 @@ public final class RenderLayoutEngine {
             float dy = relativeVerticalOffset(style, containingHeight);
             fragments.replaceAll(fragment -> translate(fragment, dx, dy));
             translateLines(lineBoxes, firstLine, dx, dy);
+        }
+        Transform transform = style.transform();
+        if (transform != null && !transform.isIdentity()) {
+            java.awt.geom.AffineTransform matrix = transform.matrix(
+                    borderX, borderY, borderBoxWidth, borderBoxHeight,
+                    rootFontSizePx, viewportWidth, viewportHeight);
+            fragments.replaceAll(fragment -> withTransform(fragment, matrix));
         }
         return new BlockLayout(outerHeight, List.copyOf(fragments));
     }
@@ -731,7 +739,8 @@ public final class RenderLayoutEngine {
                 List<PaintFragment> fragments = cellFragments.get(column);
                 BoxFragment cellRoot = (BoxFragment) fragments.getFirst();
                 fragments.set(0, new BoxFragment(cellRoot.box(), cellRoot.x(), cellRoot.y(),
-                        columnWidths[column], Math.max(cellRoot.height(), rowHeight), cellRoot.clip()));
+                        columnWidths[column], Math.max(cellRoot.height(), rowHeight),
+                        cellRoot.clip(), cellRoot.transform()));
                 children.addAll(fragments);
             }
             currentY += rowHeight;
@@ -889,24 +898,61 @@ public final class RenderLayoutEngine {
     private static PaintFragment translate(PaintFragment fragment, float dx, float dy) {
         if (fragment instanceof BoxFragment box) {
             return new BoxFragment(box.box(), box.x() + dx, box.y() + dy,
-                    box.width(), box.height(), translate(box.clip(), dx, dy));
+                    box.width(), box.height(), translate(box.clip(), dx, dy),
+                    box.transform());
         }
         if (fragment instanceof InlineBoxFragment box) {
             return new InlineBoxFragment(box.box(), box.x() + dx, box.y() + dy,
                     box.width(), box.height(), box.firstFragment(), box.lastFragment(),
-                    translate(box.clip(), dx, dy));
+                    translate(box.clip(), dx, dy), box.transform());
         }
         if (fragment instanceof ImageFragment image) {
             return new ImageFragment(image.image(), image.bitmap(), image.x() + dx,
                     image.y() + dy, image.width(), image.height(),
-                    translate(image.clip(), dx, dy));
+                    translate(image.clip(), dx, dy), image.transform());
         }
         TextFragment text = (TextFragment) fragment;
         return new TextFragment(text.text(), text.x() + dx, text.width(),
                 text.baseline() + dy, text.top() + dy, text.height(), text.font(),
                 text.color(), text.underline(), text.lineThrough(),
                 text.decorationColor(), text.opacity(),
-                translate(text.clip(), dx, dy));
+                translate(text.clip(), dx, dy), text.transform());
+    }
+
+    private static PaintFragment withTransform(PaintFragment fragment,
+                                               java.awt.geom.AffineTransform transform) {
+        if (fragment instanceof BoxFragment box) {
+            return new BoxFragment(box.box(), box.x(), box.y(), box.width(), box.height(),
+                    box.clip(), compose(box.transform(), transform));
+        }
+        if (fragment instanceof InlineBoxFragment box) {
+            return new InlineBoxFragment(box.box(), box.x(), box.y(), box.width(),
+                    box.height(), box.firstFragment(), box.lastFragment(), box.clip(),
+                    compose(box.transform(), transform));
+        }
+        if (fragment instanceof ImageFragment image) {
+            return new ImageFragment(image.image(), image.bitmap(), image.x(), image.y(),
+                    image.width(), image.height(), image.clip(),
+                    compose(image.transform(), transform));
+        }
+        TextFragment text = (TextFragment) fragment;
+        return new TextFragment(text.text(), text.x(), text.width(), text.baseline(),
+                text.top(), text.height(), text.font(), text.color(), text.underline(),
+                text.lineThrough(), text.decorationColor(), text.opacity(), text.clip(),
+                compose(text.transform(), transform));
+    }
+
+    private static java.awt.geom.AffineTransform compose(
+            java.awt.geom.AffineTransform inner, java.awt.geom.AffineTransform outer) {
+        if (inner == null) {
+            return outer;
+        }
+        if (outer == null) {
+            return inner;
+        }
+        java.awt.geom.AffineTransform composed = new java.awt.geom.AffineTransform(outer);
+        composed.concatenate(inner);
+        return composed;
     }
 
     private static ClipRect translate(ClipRect clip, float dx, float dy) {
@@ -1176,20 +1222,21 @@ public final class RenderLayoutEngine {
     private static PaintFragment withClip(PaintFragment fragment, ClipRect clip) {
         ClipRect effective = intersect(fragment.clip(), clip);
         if (fragment instanceof BoxFragment box) {
-            return new BoxFragment(box.box(), box.x(), box.y(), box.width(), box.height(), effective);
+            return new BoxFragment(box.box(), box.x(), box.y(), box.width(), box.height(),
+                    effective, box.transform());
         }
         if (fragment instanceof InlineBoxFragment box) {
             return new InlineBoxFragment(box.box(), box.x(), box.y(), box.width(), box.height(),
-                    box.firstFragment(), box.lastFragment(), effective);
+                    box.firstFragment(), box.lastFragment(), effective, box.transform());
         }
         if (fragment instanceof ImageFragment image) {
             return new ImageFragment(image.image(), image.bitmap(), image.x(), image.y(),
-                    image.width(), image.height(), effective);
+                    image.width(), image.height(), effective, image.transform());
         }
         TextFragment text = (TextFragment) fragment;
         return new TextFragment(text.text(), text.x(), text.width(), text.baseline(), text.top(),
                 text.height(), text.font(), text.color(), text.underline(), text.lineThrough(),
-                text.decorationColor(), text.opacity(), effective);
+                text.decorationColor(), text.opacity(), effective, text.transform());
     }
 
     private static ClipRect intersect(ClipRect first, ClipRect second) {
@@ -1236,6 +1283,9 @@ public final class RenderLayoutEngine {
         float top();
         float bottom();
         ClipRect clip();
+        default java.awt.geom.AffineTransform transform() {
+            return null;
+        }
     }
 
     public record ClipRect(float x, float y, float width, float height) {
@@ -1247,10 +1297,10 @@ public final class RenderLayoutEngine {
     }
 
     public record BoxFragment(RenderBox box, float x, float y, float width, float height,
-                              ClipRect clip)
+                              ClipRect clip, java.awt.geom.AffineTransform transform)
             implements PaintFragment {
         public BoxFragment(RenderBox box, float x, float y, float width, float height) {
-            this(box, x, y, width, height, null);
+            this(box, x, y, width, height, null, null);
         }
         @Override public float top() { return y; }
         @Override public float bottom() { return y + height; }
@@ -1263,10 +1313,11 @@ public final class RenderLayoutEngine {
                                     float height,
                                     boolean firstFragment,
                                     boolean lastFragment,
-                                    ClipRect clip) implements InlineFragment {
+                                    ClipRect clip,
+                                    java.awt.geom.AffineTransform transform) implements InlineFragment {
         public InlineBoxFragment(RenderInlineBox box, float x, float y, float width,
                                  float height, boolean firstFragment, boolean lastFragment) {
-            this(box, x, y, width, height, firstFragment, lastFragment, null);
+            this(box, x, y, width, height, firstFragment, lastFragment, null, null);
         }
         @Override public float top() { return y; }
         @Override public float bottom() { return y + height; }
@@ -1284,12 +1335,13 @@ public final class RenderLayoutEngine {
                                boolean lineThrough,
                                CssColor decorationColor,
                                float opacity,
-                               ClipRect clip) implements InlineFragment {
+                               ClipRect clip,
+                               java.awt.geom.AffineTransform transform) implements InlineFragment {
         public TextFragment(String text, float x, float width, float baseline, float top,
                             float height, Font font, CssColor color, boolean underline,
                             boolean lineThrough, CssColor decorationColor, float opacity) {
             this(text, x, width, baseline, top, height, font, color, underline, lineThrough,
-                    decorationColor, opacity, null);
+                    decorationColor, opacity, null, null);
         }
         @Override public float bottom() { return top + height; }
     }
@@ -1300,10 +1352,11 @@ public final class RenderLayoutEngine {
                                 float y,
                                 float width,
                                 float height,
-                                ClipRect clip) implements InlineFragment {
+                                ClipRect clip,
+                                java.awt.geom.AffineTransform transform) implements InlineFragment {
         public ImageFragment(RenderImage image, BufferedImage bitmap, float x, float y,
                              float width, float height) {
-            this(image, bitmap, x, y, width, height, null);
+            this(image, bitmap, x, y, width, height, null, null);
         }
         @Override public float top() { return y; }
         @Override public float bottom() { return y + height; }
@@ -2142,24 +2195,24 @@ public final class RenderLayoutEngine {
             if (fragment instanceof BoxFragment box) {
                 return new BoxFragment(
                         box.box(), box.x() + dx, box.y() + dy, box.width(), box.height(),
-                        translate(box.clip(), dx, dy));
+                        translate(box.clip(), dx, dy), box.transform());
             }
             if (fragment instanceof InlineBoxFragment box) {
                 return new InlineBoxFragment(box.box(), box.x() + dx, box.y() + dy,
                         box.width(), box.height(), box.firstFragment(), box.lastFragment(),
-                        translate(box.clip(), dx, dy));
+                        translate(box.clip(), dx, dy), box.transform());
             }
             if (fragment instanceof ImageFragment image) {
                 return new ImageFragment(image.image(), image.bitmap(), image.x() + dx,
                         image.y() + dy, image.width(), image.height(),
-                        translate(image.clip(), dx, dy));
+                        translate(image.clip(), dx, dy), image.transform());
             }
             TextFragment text = (TextFragment) fragment;
             return new TextFragment(text.text(), text.x() + dx, text.width(),
                     text.baseline() + dy, text.top() + dy, text.height(), text.font(),
                     text.color(), text.underline(), text.lineThrough(),
                     text.decorationColor(), text.opacity(),
-                    translate(text.clip(), dx, dy));
+                    translate(text.clip(), dx, dy), text.transform());
         }
 
         private static ClipRect translate(ClipRect clip, float dx, float dy) {

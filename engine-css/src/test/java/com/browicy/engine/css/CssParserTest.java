@@ -664,6 +664,31 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesTransformAndTransformOriginValues() {
+        CssParser parser = new CssParser();
+        Map<String, String> transforms = parser.parseDeclarations("""
+                transform:translate(-50%) translateY(-50%);
+                transform-origin:100% 100%
+                """);
+        assertEquals("translate(-50%) translatey(-50%)", transforms.get("transform"));
+        assertEquals("100% 100%", transforms.get("transform-origin"));
+
+        assertEquals("none", parser.parseDeclarations("transform:none").get("transform"));
+        assertTrue(parser.parseDeclarations("transform-origin:top")
+                .containsKey("transform-origin"));
+        assertTrue(parser.parseDeclarations("transform:rotate(180deg) scale(2)")
+                .containsKey("transform"));
+        assertFalse(parser.parseDeclarations("transform:skew(10deg)").containsKey("transform"));
+        assertFalse(parser.parseDeclarations("transform:translate(50%,)")
+                .containsKey("transform"));
+        assertFalse(parser.parseDeclarations("transform-origin:3")
+                .containsKey("transform-origin"));
+        assertTrue(parser.supportsProperty("transform"));
+        assertTrue(parser.supports("transform", "translate(10px) rotate(45deg)"));
+        assertFalse(parser.supports("transform", "skew(10deg)"));
+    }
+
+    @Test
     public void acceptsWebkitAndMozPrefixedAliases() {
         CssParser parser = new CssParser();
         Map<String, String> decorations = parser.parseDeclarations("""

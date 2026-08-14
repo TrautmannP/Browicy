@@ -77,3 +77,19 @@ for 159/194 cases overall (vorher: 46/94, 65/100, 111/194). Reports are written 
 `target/compatibility-reports`: `latest.html` is intended for human review, while
 `latest.json` is intended for CI and automated analysis. Timestamped copies are retained
 for trend tracking.
+
+## CSS transform support (2026-08-14)
+
+`transform` and `transform-origin` are parsed by CssParser (validated function lists:
+translate/translateX/translateY/rotate/scale/scaleX/scaleY/matrix), resolved into a
+`Transform` record (engine-render) and painted as an AffineTransform about the box
+origin by the layout engine. Percentages resolve against the box's own width/height;
+transform-origin supports keywords, lengths and percentages. Function names are
+case-insensitive; unitless lengths are only valid as 0.
+
+Known approximation: the transform is applied at paint time only; layout coordinates
+and hit-testing are unaffected, and absolutely positioned descendants of a transformed
+box are not transformed (they are painted after their containing block's fragment range).
+
+Known flaky test (snapshot-race family, passes isolated and on retry):
+`DomViewPanelTest.laysOutAndPaintsInlineBackgroundPaddingAndBorder`.

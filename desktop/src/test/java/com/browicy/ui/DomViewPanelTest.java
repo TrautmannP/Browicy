@@ -14,6 +14,7 @@ import com.browicy.ui.render.RenderLayoutEngine.ImageFragment;
 import com.browicy.ui.render.RenderLayoutEngine.LayoutResult;
 import com.browicy.ui.render.RenderLayoutEngine.LineBox;
 import com.browicy.ui.render.RenderLayoutEngine.TextFragment;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -30,6 +31,29 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class DomViewPanelTest {
+
+    @Test
+    public void paintsTransformedBoxesAtTheirTransformedPosition() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body style="background: white">
+                  <div style="position:absolute; top:0; left:0; width:40px; height:40px;
+                       background:#ff0000; transform:translate(100px, 50px)"></div>
+                  <div style="position:absolute; top:0; left:0; width:40px; height:40px;
+                       background:#0000ff; transform:scale(2);
+                       transform-origin:0 0"></div>
+                </body>
+                """));
+        try {
+            BufferedImage image = panel.captureScreenshot(320, 200, false);
+            // Panel-Inset 16: rote Box bei (16,16) + translate(100,50) -> (116,66).
+            assertEquals(new Color(255, 0, 0).getRGB(), image.getRGB(126, 76));
+            // Blaue Box bei (16,16), scale(2) um Origin (0,0) -> (16,16)-(96,96).
+            assertEquals(new Color(0, 0, 255).getRGB(), image.getRGB(70, 70));
+            assertEquals(new Color(255, 255, 255).getRGB(), image.getRGB(100, 100));
+        } finally {
+            panel.dispose();
+        }
+    }
 
     @Test
     public void capturesViewportAndFullPageScreenshots() {
