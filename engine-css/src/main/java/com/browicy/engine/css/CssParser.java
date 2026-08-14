@@ -47,7 +47,7 @@ public final class CssParser {
             Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_SIZE = Pattern.compile(
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)", Pattern.CASE_INSENSITIVE);
-    private static final Pattern FONT_WEIGHT = Pattern.compile("[1-9]00");
+    private static final Pattern FONT_WEIGHT = Pattern.compile("(?:[1-9]00|[4-9][0-9]{2})");
     private static final Pattern INTEGER = Pattern.compile("-?\\d+");
     private static final Pattern LETTER_SPACING = Pattern.compile(
             "[-+]?[0-9]*\\.?[0-9]+(px|em|rem)?");
@@ -65,7 +65,7 @@ public final class CssParser {
             "(?:normal|inherit|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:(?:px|em|rem|vw|vh|%|ch|lh)?))",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern BACKGROUND_LENGTH = Pattern.compile(
-            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0)",
+            "(?:[-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern FONT_SHORTHAND = Pattern.compile(
             "^(.*?)(" + FONT_SIZE.pattern() + ")(?:\\s*/\\s*(" + LINE_HEIGHT.pattern()
@@ -669,8 +669,8 @@ public final class CssParser {
             case "white-space" -> supports(normalized, "normal");
             case "text-decoration", "text-decoration-line" -> supports(normalized, "underline");
             case "text-decoration-color" -> supports(normalized, "black");
-            case "-webkit-text-decoration", "-webkit-text-decoration-color" ->
-                    supports(normalized, "underline");
+            case "-webkit-text-decoration" -> supports(normalized, "underline");
+            case "-webkit-text-decoration-color" -> supports(normalized, "blue");
             case "-webkit-text-fill-color", "-webkit-tap-highlight-color" ->
                     supports(normalized, "black");
             case "-webkit-user-select", "-webkit-font-smoothing", "-moz-osx-font-smoothing",
@@ -766,6 +766,8 @@ public final class CssParser {
             case "background-color" -> {
                 if (value.equals("initial")) {
                     target.put(property, "transparent");
+                } else if (value.equals("inherit")) {
+                    target.put(property, value);
                 } else if (SYSTEM_COLORS.contains(value)) {
                     target.put(property, value);
                 } else {
@@ -918,12 +920,13 @@ public final class CssParser {
                 if (value.equals("stretch") || value.equals("flex-start")
                         || value.equals("center") || value.equals("flex-end")
                         || value.equals("baseline") || value.equals("start")
-                        || value.equals("end")) {
+                        || value.equals("end") || value.equals("top")
+                        || value.equals("bottom") || value.equals("inherit")) {
                     target.put(property, value);
                 }
             }
             case "align-self", "justify-self" -> {
-                if (isAlignSelfValue(value)) {
+                if (isAlignSelfValue(value) || value.equals("inherit")) {
                     target.put(property, value);
                 }
             }
@@ -980,7 +983,8 @@ public final class CssParser {
             }
             case "background-clip" -> {
                 if (value.equals("border-box") || value.equals("padding-box")
-                        || value.equals("content-box") || value.equals("text")) {
+                        || value.equals("content-box") || value.equals("text")
+                        || value.equals("initial")) {
                     target.put(property, value);
                 }
             }
@@ -1532,10 +1536,19 @@ public final class CssParser {
                     value, MAX_DIMENSION);
             case "border-width" -> expandLengths(target, "border", value, POSITIVE_LENGTH, "-width");
             case "border-color" -> {
-                if (SYSTEM_COLORS.contains(value)) {
+                if (value.equals("none")) {
+                    target.put(property, "transparent");
+                } else if (SYSTEM_COLORS.contains(value)) {
                     target.put(property, value);
                 } else {
                     expandColors(target, value);
+                }
+            }
+            case "border-top-color", "border-right-color",
+                 "border-bottom-color", "border-left-color" -> {
+                if (value.equals("inherit") || isColorValue(value)
+                        || SYSTEM_COLORS.contains(value)) {
+                    target.put(property, value);
                 }
             }
             case "border-style" -> expandBorderStyles(target, value);
@@ -2083,7 +2096,7 @@ public final class CssParser {
                 return false;
             }
         }
-        return lengths >= 2;
+        return lengths >= 1;
     }
 
     private static boolean isNegativeLength(String token) {
@@ -2937,7 +2950,7 @@ public final class CssParser {
             return;
         }
         for (String entry : values) {
-            if (!isColorValue(entry)) {
+            if (!isColorValue(entry) && !entry.equals("inherit")) {
                 return;
             }
         }

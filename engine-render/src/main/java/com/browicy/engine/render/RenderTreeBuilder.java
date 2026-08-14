@@ -952,13 +952,15 @@ public final class RenderTreeBuilder {
             default -> RenderStyle.JustifyContent.FLEX_START; // start/left/Flex-Fallback
         };
         alignItems = switch (declarations.getOrDefault("align-items", "stretch")) {
-            case "flex-start", "start" -> RenderStyle.AlignItems.FLEX_START;
+            case "flex-start", "start", "top" -> RenderStyle.AlignItems.FLEX_START;
             case "center" -> RenderStyle.AlignItems.CENTER;
-            case "flex-end", "end" -> RenderStyle.AlignItems.FLEX_END;
+            case "flex-end", "end", "bottom" -> RenderStyle.AlignItems.FLEX_END;
             case "baseline" -> RenderStyle.AlignItems.BASELINE;
+            case "inherit" -> parent.alignItems();
             default -> RenderStyle.AlignItems.STRETCH;
         };
         alignSelf = switch (declarations.getOrDefault("align-self", "auto")) {
+            case "inherit" -> parent.alignSelf();
             case "stretch" -> RenderStyle.AlignSelf.STRETCH;
             case "flex-start", "start", "self-start" -> RenderStyle.AlignSelf.FLEX_START;
             case "center" -> RenderStyle.AlignSelf.CENTER;
@@ -1040,7 +1042,9 @@ public final class RenderTreeBuilder {
             textDecorationColor = color;
         } else if ((underline || lineThrough)
                 && !(parent.underline() || parent.lineThrough())) textDecorationColor = color;
-        CssColor declaredBackground = CssColor.parse(declarations.get("background-color"));
+        CssColor declaredBackground = "inherit".equals(declarations.get("background-color"))
+                ? parent.backgroundColor()
+                : CssColor.parse(declarations.get("background-color"));
         if (declaredBackground != null && !declaredBackground.isTransparent()) {
             background = declaredBackground;
         } else if ("currentcolor".equals(declarations.get("background-color"))) {
@@ -1087,7 +1091,9 @@ public final class RenderTreeBuilder {
                 : nonNegative(resolveEdges(
                         declarations, "padding", fontSize, padding, "", parent.padding()));
         borderWidth = nonNegative(resolveEdges(declarations, "border", fontSize, borderWidth, "-width"));
-        borderColor = resolveBorderColors(declarations, color);
+        borderColor = "inherit".equals(declarations.get("border-color"))
+                ? parent.borderColor()
+                : resolveBorderColors(declarations, color);
         borderStyle = resolveBorderStyles(declarations);
         borderWidth = effectiveBorderWidths(borderWidth, borderStyle);
         String radiusDeclaration = declarations.get("border-radius");

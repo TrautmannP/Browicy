@@ -659,7 +659,7 @@ public class CssParserTest {
         assertTrue(parser.supportsProperty("box-shadow"));
         assertTrue(parser.supports("box-shadow", "none"));
         assertTrue(parser.supports("box-shadow", "0 0 0 1px #ccc inset"));
-        assertFalse(parser.supports("box-shadow", "1px"));
+        assertTrue(parser.supports("box-shadow", "1px"));
         assertFalse(parser.supports("box-shadow", "red blue"));
         assertFalse(parser.supports("box-shadow", "0 1px solid"));
     }
@@ -1472,5 +1472,30 @@ public class CssParserTest {
         assertTrue(parser.supports("grid", "none/1fr"));
         assertFalse(parser.parseDeclarations("font-variant-ligatures:bogus")
                 .containsKey("font-variant-ligatures"));
+    }
+
+    @Test
+    public void acceptsAlignTopInheritColorsAndSingleShadowValues() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                align-items:top;align-self:inherit;background-clip:initial;
+                background-color:inherit;background-position:-500px 0;
+                border-color:none;border-top-color:inherit;box-shadow:0;
+                font-weight:450
+                """);
+
+        assertEquals("top", declarations.get("align-items"));
+        assertEquals("inherit", declarations.get("align-self"));
+        assertEquals("initial", declarations.get("background-clip"));
+        assertEquals("inherit", declarations.get("background-color"));
+        assertEquals("-500px", declarations.get("background-position-x-offset"));
+        assertEquals("0", declarations.get("background-position-y-offset"));
+        assertEquals("transparent", declarations.get("border-color"));
+        assertEquals("inherit", declarations.get("border-top-color"));
+        assertEquals("0", declarations.get("box-shadow"));
+        assertEquals("450", declarations.get("font-weight"));
+
+        assertTrue(parser.supports("font-weight", "450"));
+        assertTrue(parser.supports("box-shadow", "0"));
     }
 }
