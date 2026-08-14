@@ -54,7 +54,7 @@ public final class CssParser {
     private static final Pattern GRADIENT_ANGLE = Pattern.compile(
             "[-+]?[0-9]*\\.?[0-9]+(deg|turn|rad|grad)");
     private static final Pattern GRADIENT_POSITION = Pattern.compile(
-            "[-+]?[0-9]*\\.?[0-9]+%");
+            "[-+]?[0-9]*\\.?[0-9]+(%|px|em|rem)");
     private static final Pattern NON_NEGATIVE_NUMBER = Pattern.compile(
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)");
     private static final Pattern ASPECT_RATIO = Pattern.compile(
@@ -611,6 +611,13 @@ public final class CssParser {
             case "clip" -> supports(normalized, "rect(1px,1px,1px,1px)");
             case "mask-size" -> supports(normalized, "75%");
             case "place-self", "justify-self" -> supports(normalized, "start");
+            case "animation-play-state" -> supports(normalized, "paused");
+            case "justify-items" -> supports(normalized, "start");
+            case "mask-position" -> supports(normalized, "50%");
+            case "mask-repeat" -> supports(normalized, "no-repeat");
+            case "stroke-dasharray" -> supports(normalized, "3 3");
+            case "text-rendering" -> supports(normalized, "optimizelegibility");
+            case "text-underline-offset" -> supports(normalized, "2px");
             case "align-self" -> supports(normalized, "stretch");
             case "align-content" -> supports(normalized, "stretch");
             case "order" -> supports(normalized, "0");
@@ -813,7 +820,8 @@ public final class CssParser {
                         || value.equals("table-footer-group") || value.equals("table-row")
                         || value.equals("table-cell") || value.equals("table-column-group")
                         || value.equals("table-column") || value.equals("table-caption")
-                        || value.equals("inherit") || value.equals("-webkit-box")) {
+                        || value.equals("inherit") || value.equals("-webkit-box")
+                        || value.equals("contents")) {
                     target.put(property, value);
                 }
             }
@@ -975,7 +983,13 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
-            case "aspect-ratio" -> putIfMatches(target, property, value, ASPECT_RATIO);
+            case "aspect-ratio" -> {
+                if (value.equals("unset") || value.equals("inherit")) {
+                    target.put(property, value);
+                } else {
+                    putIfMatches(target, property, value, ASPECT_RATIO);
+                }
+            }
             case "object-fit" -> {
                 if (value.equals("fill") || value.equals("contain") || value.equals("cover")
                         || value.equals("none") || value.equals("scale-down")) {
@@ -1054,6 +1068,7 @@ public final class CssParser {
             case "max-width", "max-height" -> {
                 if (value.equals("max-content") || value.equals("min-content")
                         || value.equals("fit-content") || value.equals("unset")
+                        || value.equals("inherit")
                         || isMathFunctionValue(value)) {
                     target.put(property, value);
                 } else {
@@ -1101,7 +1116,8 @@ public final class CssParser {
             case "white-space" -> {
                 if (value.equals("normal") || value.equals("nowrap") || value.equals("pre")
                         || value.equals("pre-wrap") || value.equals("pre-line")
-                        || value.equals("break-spaces")) {
+                        || value.equals("break-spaces") || value.equals("unset")
+                        || value.equals("inherit")) {
                     target.put(property, value);
                 }
             }
@@ -1134,7 +1150,8 @@ public final class CssParser {
             }
             case "text-decoration", "text-decoration-line" -> {
                 if (value.equals("none") || value.equals("underline")
-                        || value.equals("line-through") || value.equals("overline")) {
+                        || value.equals("line-through") || value.equals("overline")
+                        || value.equals("inherit")) {
                     target.put("text-decoration-line", value);
                 } else if (property.equals("text-decoration")) {
                     expandTextDecoration(target, value);
@@ -1259,6 +1276,59 @@ public final class CssParser {
                         || value.equals("pan-y") || value.equals("pan-left")
                         || value.equals("pan-right") || value.equals("pan-up")
                         || value.equals("pan-down") || value.equals("pinch-zoom")) {
+                    target.put(property, value);
+                }
+            }
+            case "animation-play-state" -> {
+                if (value.equals("running") || value.equals("paused")) {
+                    target.put(property, value);
+                }
+            }
+            case "justify-items" -> {
+                if (value.equals("auto") || value.equals("normal")
+                        || value.equals("stretch") || value.equals("start")
+                        || value.equals("end") || value.equals("center")
+                        || value.equals("left") || value.equals("right")
+                        || value.equals("self-start") || value.equals("self-end")) {
+                    target.put(property, value);
+                }
+            }
+            case "mask-position" -> {
+                if (value.equals("left") || value.equals("center")
+                        || value.equals("right") || value.equals("top")
+                        || value.equals("bottom")
+                        || BACKGROUND_LENGTH.matcher(value).matches()) {
+                    target.put(property, value);
+                }
+            }
+            case "mask-repeat" -> {
+                if (value.equals("repeat") || value.equals("no-repeat")
+                        || value.equals("repeat-x") || value.equals("repeat-y")) {
+                    target.put(property, value);
+                }
+            }
+            case "stroke-dasharray" -> {
+                boolean valid = true;
+                for (String token : value.strip().split("\\s+")) {
+                    if (!NON_NEGATIVE_NUMBER.matcher(token).matches()
+                            && !token.matches("[0-9]*\\.?[0-9]+px")) {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (valid && !value.isBlank()) {
+                    target.put(property, value);
+                }
+            }
+            case "text-rendering" -> {
+                if (value.equals("auto") || value.equals("optimizespeed")
+                        || value.equals("optimizelegibility")
+                        || value.equals("geometricprecision")) {
+                    target.put(property, value);
+                }
+            }
+            case "text-underline-offset" -> {
+                if (value.equals("auto") || POSITION_OFFSET.matcher(value).matches()) {
                     target.put(property, value);
                 }
             }
@@ -1720,13 +1790,19 @@ public final class CssParser {
             return true;
         }
         String[] tokens = part.split("\\s+");
-        if (tokens.length < 1 || tokens.length > 2) {
+        if (tokens.length < 1 || tokens.length > 3) {
             return false;
         }
         if (!isColorValue(tokens[0])) {
             return false;
         }
-        return tokens.length == 1 || GRADIENT_POSITION.matcher(tokens[1]).matches();
+        if (tokens.length == 1) {
+            return true;
+        }
+        if (!GRADIENT_POSITION.matcher(tokens[1]).matches()) {
+            return false;
+        }
+        return tokens.length == 2 || GRADIENT_POSITION.matcher(tokens[2]).matches();
     }
 
     private static void putBackground(Map<String, String> target, String value) {
@@ -2280,7 +2356,7 @@ public final class CssParser {
         if (normalized.isEmpty() || normalized.equals("none")) {
             return true;
         }
-        for (String rawToken : normalized.split("\\s+")) {
+        for (String rawToken : splitTopLevelWhitespace(normalized)) {
             String token = rawToken.replaceAll("^,|,$", "").strip();
             if (token.isEmpty()) {
                 continue;
@@ -2479,6 +2555,29 @@ public final class CssParser {
             value = value.substring(5).strip();
         }
         return value.matches("[-+]?[0-9]+");
+    }
+
+    private static List<String> splitTopLevelWhitespace(String source) {
+        List<String> parts = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int index = 0; index < source.length(); index++) {
+            char current = source.charAt(index);
+            if (current == '(') {
+                depth++;
+            } else if (current == ')') {
+                depth--;
+            } else if (Character.isWhitespace(current) && depth == 0) {
+                if (index > start) {
+                    parts.add(source.substring(start, index));
+                }
+                start = index + 1;
+            }
+        }
+        if (start < source.length()) {
+            parts.add(source.substring(start));
+        }
+        return parts;
     }
 
     private static boolean isFilterFunctionList(String value) {
@@ -2767,7 +2866,8 @@ public final class CssParser {
                 width = token;
             } else if ((token.equals("none") || token.equals("solid")) && style == null) {
                 style = token;
-            } else if ((isColorValue(token) || containsVarFunction(token)) && color == null) {
+            } else if ((isColorValue(token) || SYSTEM_COLORS.contains(token)
+                    || containsVarFunction(token)) && color == null) {
                 color = token;
             } else {
                 return;

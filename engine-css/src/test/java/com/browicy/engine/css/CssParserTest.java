@@ -1348,4 +1348,45 @@ public class CssParserTest {
         assertFalse(parser.parseDeclarations("clip:rect()").containsKey("clip"));
         assertFalse(parser.parseDeclarations("mask-size:garbage").containsKey("mask-size"));
     }
+
+    @Test
+    public void acceptsPlayStateContentsMultiStopGradientsAndRepeatWithSpaces() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                animation-play-state:paused;justify-items:center;mask-position:50%;
+                mask-repeat:no-repeat;stroke-dasharray:3 3;text-rendering:optimizelegibility;
+                text-underline-offset:2px;outline:2px solid highlighttext;
+                text-decoration:inherit;white-space:unset;aspect-ratio:unset;
+                display:contents;max-width:inherit;
+                grid-template-columns:repeat(auto-fit,160px 160px)
+                """);
+
+        assertEquals("paused", declarations.get("animation-play-state"));
+        assertEquals("center", declarations.get("justify-items"));
+        assertEquals("50%", declarations.get("mask-position"));
+        assertEquals("no-repeat", declarations.get("mask-repeat"));
+        assertEquals("3 3", declarations.get("stroke-dasharray"));
+        assertEquals("optimizelegibility", declarations.get("text-rendering"));
+        assertEquals("2px", declarations.get("text-underline-offset"));
+        assertEquals("highlighttext", declarations.get("outline-color"));
+        assertEquals("inherit", declarations.get("text-decoration-line"));
+        assertEquals("unset", declarations.get("white-space"));
+        assertEquals("unset", declarations.get("aspect-ratio"));
+        assertEquals("contents", declarations.get("display"));
+        assertEquals("inherit", declarations.get("max-width"));
+        assertEquals("repeat(auto-fit,160px 160px)", declarations.get("grid-template-columns"));
+
+        assertEquals("radial-gradient(#ffc58b 10%,#e1a6ff 20% 30%,#352cee 60%)",
+                parser.parseDeclarations(
+                        "background:radial-gradient(#ffc58b 10%,#e1a6ff 20% 30%,#352cee 60%)")
+                        .get("background-image"));
+        assertEquals("linear-gradient(90deg,#e9edec 160px,#0000 200px)",
+                parser.parseDeclarations(
+                        "background:linear-gradient(90deg,#e9edec 160px,#0000 200px)")
+                        .get("background-image"));
+
+        assertTrue(parser.supportsProperty("animation-play-state"));
+        assertTrue(parser.supports("display", "contents"));
+        assertFalse(parser.parseDeclarations("stroke-dasharray:abc").containsKey("stroke-dasharray"));
+    }
 }

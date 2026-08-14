@@ -783,6 +783,7 @@ public final class RenderTreeBuilder {
             display = switch (displayValue) {
                 case "inherit" -> parent.display();
                 case "-webkit-box" -> RenderStyle.Display.FLEX;
+                case "contents" -> RenderStyle.Display.BLOCK;
                 case "block" -> RenderStyle.Display.BLOCK;
                 case "inline-block" -> RenderStyle.Display.INLINE_BLOCK;
                 case "flex" -> RenderStyle.Display.FLEX;
@@ -878,9 +879,11 @@ public final class RenderTreeBuilder {
         width = resolveDimension(declarations.get("width"), fontSize);
         height = resolveDimension(declarations.get("height"), fontSize);
         minWidth = resolveDimension(declarations.get("min-width"), fontSize);
-        maxWidth = resolveDimension(declarations.get("max-width"), fontSize);
+        maxWidth = "inherit".equals(declarations.get("max-width"))
+                ? parent.maxWidth() : resolveDimension(declarations.get("max-width"), fontSize);
         minHeight = resolveDimension(declarations.get("min-height"), fontSize);
-        maxHeight = resolveDimension(declarations.get("max-height"), fontSize);
+        maxHeight = "inherit".equals(declarations.get("max-height"))
+                ? parent.maxHeight() : resolveDimension(declarations.get("max-height"), fontSize);
         aspectRatio = parseAspectRatio(declarations.get("aspect-ratio"));
         objectFit = switch (declarations.getOrDefault("object-fit", "fill")) {
             case "contain" -> RenderStyle.ObjectFit.CONTAIN;
@@ -1156,7 +1159,7 @@ public final class RenderTreeBuilder {
             return java.util.List.of();
         }
         java.util.List<RenderStyle.GridTrack> tracks = new ArrayList<>();
-        for (String rawToken : value.strip().split("\\s+")) {
+        for (String rawToken : splitTopLevelWhitespace(value)) {
             String token = rawToken.replaceAll("^,|,$", "").strip();
             if (token.isEmpty()) {
                 continue;
@@ -1227,14 +1230,20 @@ public final class RenderTreeBuilder {
                 return false;
             }
             String inner = token.substring(comma + 1, token.length() - 1);
+            java.util.List<String> innerParts = splitTopLevelCommas(inner);
+            if (innerParts.isEmpty()) {
+                return false;
+            }
             java.util.List<RenderStyle.GridTrack> innerTracks = new ArrayList<>();
-            for (String rawPart : inner.strip().split("\\s+")) {
-                String part = rawPart.replaceAll("^,|,$", "").strip();
-                if (part.isEmpty()) {
-                    continue;
-                }
-                if (!expandGridTrack(innerTracks, part, fontSize, rootFontSizePx)) {
-                    return false;
+            for (String partList : innerParts.subList(1, innerParts.size())) {
+                for (String rawPart : splitTopLevelWhitespace(partList)) {
+                    String part = rawPart.replaceAll("^,|,$", "").strip();
+                    if (part.isEmpty()) {
+                        continue;
+                    }
+                    if (!expandGridTrack(innerTracks, part, fontSize, rootFontSizePx)) {
+                        return false;
+                    }
                 }
             }
             if (innerTracks.isEmpty()) {
@@ -1742,6 +1751,29 @@ public final class RenderTreeBuilder {
                     : minimum ? Math.min(result, parsed) : Math.max(result, parsed);
         }
         return result;
+    }
+
+    private static List<String> splitTopLevelWhitespace(String source) {
+        List<String> parts = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int index = 0; index < source.length(); index++) {
+            char current = source.charAt(index);
+            if (current == '(') {
+                depth++;
+            } else if (current == ')') {
+                depth--;
+            } else if (Character.isWhitespace(current) && depth == 0) {
+                if (index > start) {
+                    parts.add(source.substring(start, index));
+                }
+                start = index + 1;
+            }
+        }
+        if (start < source.length()) {
+            parts.add(source.substring(start));
+        }
+        return parts;
     }
 
     private static List<String> splitTopLevelCommas(String source) {
