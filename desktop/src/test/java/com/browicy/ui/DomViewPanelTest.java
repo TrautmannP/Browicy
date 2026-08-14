@@ -1419,6 +1419,67 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void laysOutGridTemplateWithFrTracksAndNamedAreas() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="grid" style="display:grid;width:300px;
+                  grid-template-columns:1fr 2fr;grid-template-rows:40px auto;
+                  grid-template-areas:'content pane' 'footer footer';
+                  grid-gap:10px">
+                  <div id="content" style="grid-area:content"></div>
+                  <div id="pane" style="grid-area:pane"></div>
+                  <div id="footer" style="grid-area:footer;height:20px"></div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment grid = boxById(layout, "grid");
+        BoxFragment content = boxById(layout, "content");
+        BoxFragment pane = boxById(layout, "pane");
+        BoxFragment footer = boxById(layout, "footer");
+
+        assertEquals(300f, grid.width(), 0.001f);
+        // 300 - 10 gap = 290; Spalten 1fr:2fr → 96.667 / 193.333
+        assertEquals(290f / 3f, content.width(), 0.001f);
+        assertEquals(290f * 2f / 3f, pane.width(), 0.001f);
+        assertEquals(content.x() + content.width() + 10f, pane.x(), 0.001f);
+        assertEquals(grid.y(), content.y(), 0.001f);
+        assertEquals(grid.y() + 40f + 10f, footer.y(), 0.001f);
+        assertEquals(grid.x(), footer.x(), 0.001f);
+        assertEquals(300f, footer.width(), 0.001f);
+        // Auto-Zeile footer wächst auf Item-Höhe.
+        assertEquals(20f, footer.height(), 0.001f);
+    }
+
+    @Test
+    public void autoPlacesGridItemsInRowMajorOrder() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body><div id="grid" style="display:grid;width:300px;grid-template-columns:1fr 1fr;
+                  grid-template-rows:30px 30px;grid-gap:10px">
+                  <div id="a" style="height:10px"></div>
+                  <div id="b" style="height:10px"></div>
+                  <div id="c" style="height:10px"></div>
+                  <div id="d" style="height:10px"></div>
+                </div></body>
+                """));
+
+        LayoutResult layout = panel.layoutForTesting(400);
+        BoxFragment grid = boxById(layout, "grid");
+        BoxFragment a = boxById(layout, "a");
+        BoxFragment b = boxById(layout, "b");
+        BoxFragment c = boxById(layout, "c");
+        BoxFragment d = boxById(layout, "d");
+
+        assertEquals(grid.x(), a.x(), 0.001f);
+        assertEquals(grid.y(), a.y(), 0.001f);
+        assertEquals(a.x() + a.width() + 10f, b.x(), 0.001f);
+        assertEquals(grid.y(), b.y(), 0.001f);
+        assertEquals(grid.x(), c.x(), 0.001f);
+        assertEquals(b.y() + 30f + 10f, c.y(), 0.001f);
+        assertEquals(c.x() + c.width() + 10f, d.x(), 0.001f);
+        assertEquals(c.y(), d.y(), 0.001f);
+    }
+
+    @Test
     public void honorsFlexDirectionJustificationAndInlineFlex() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body>

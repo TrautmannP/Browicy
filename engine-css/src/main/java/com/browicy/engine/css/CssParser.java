@@ -589,6 +589,15 @@ public final class CssParser {
             case "flex", "flex-grow", "flex-shrink" -> supports(normalized, "1");
             case "flex-basis" -> supports(normalized, "auto");
             case "aspect-ratio" -> supports(normalized, "16 / 9");
+            case "grid-template-columns", "grid-template-rows" ->
+                    supports(normalized, "1fr");
+            case "grid-template-areas" -> supports(normalized, "\"a\"");
+            case "grid-template" -> supports(normalized, "\"a\" 1fr / 1fr");
+            case "grid-area" -> supports(normalized, "auto");
+            case "grid-row", "grid-column", "grid-row-start", "grid-row-end",
+                 "grid-column-start", "grid-column-end" -> supports(normalized, "auto");
+            case "grid-auto-flow" -> supports(normalized, "row");
+            case "grid-gap" -> supports(normalized, "1px");
             case "object-fit" -> supports(normalized, "cover");
             case "opacity" -> supports(normalized, "0.5");
             case "fill" -> supports(normalized, "black");
@@ -754,6 +763,7 @@ public final class CssParser {
                 if (value.equals("block") || value.equals("inline")
                         || value.equals("inline-block") || value.equals("none")
                         || value.equals("flex") || value.equals("inline-flex")
+                        || value.equals("grid") || value.equals("inline-grid")
                         || value.equals("table") || value.equals("inline-table")
                         || value.equals("table-row-group") || value.equals("table-header-group")
                         || value.equals("table-footer-group") || value.equals("table-row")
@@ -762,6 +772,27 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
+            case "grid-template-columns", "grid-template-rows" ->
+                    putGridTrackList(target, property, value);
+            case "grid-template-areas" -> {
+                if (isGridAreasValue(value)) {
+                    target.put(property, value);
+                }
+            }
+            case "grid-template" -> putGridTemplate(target, value);
+            case "grid-area" -> putGridArea(target, value);
+            case "grid-row", "grid-column" -> putGridLineShorthand(target, property, value);
+            case "grid-row-start", "grid-row-end", "grid-column-start", "grid-column-end" ->
+                    putGridLine(target, property, value);
+            case "grid-auto-flow" -> {
+                if (value.equals("row") || value.equals("column")
+                        || value.equals("row dense") || value.equals("column dense")) {
+                    target.put(property, value);
+                }
+            }
+            case "grid-gap" -> expandGap(target, value);
+            case "grid-row-gap" -> putIfMatches(target, "row-gap", value, POSITIVE_LENGTH);
+            case "grid-column-gap" -> putIfMatches(target, "column-gap", value, POSITIVE_LENGTH);
             case "flex-flow" -> {
                 String[] tokens = value.split("\\s+");
                 if (tokens.length < 1 || tokens.length > 2) {
@@ -1958,6 +1989,195 @@ public final class CssParser {
         return keywords > 0 || tokens.length >= 1 && BACKGROUND_LENGTH.matcher(
                 tokens[tokens.length - 1]).matches() && BACKGROUND_LENGTH.matcher(
                         tokens[0]).matches();
+    }
+
+    private static final Pattern GRID_TRACK = Pattern.compile(
+            "auto|min-content|max-content|[0-9]*\\.?[0-9]+(px|em|rem|vw|vh|%|fr)"
+                    + "|minmax\\([^)]*\\)|repeat\\([^)]*\\)|fit-content\\([^)]*\\)");
+
+    private static boolean isGridTrackList(String value) {
+        String normalized = value.strip();
+        if (normalized.isEmpty() || normalized.equals("none")) {
+            return true;
+        }
+        for (String rawToken : normalized.split("\\s+")) {
+            String token = rawToken.replaceAll("^,|,$", "").strip();
+            if (token.isEmpty()) {
+                continue;
+            }
+            String lower = token.toLowerCase(Locale.ROOT);
+            boolean basic = GRID_TRACK.matcher(lower).matches();
+            boolean function = lower.startsWith("minmax(") || lower.startsWith("repeat(")
+                    || lower.startsWith("fit-content(");
+            if (!basic && !function) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void putGridTrackList(Map<String, String> target, String property,
+                                         String value) {
+        if (isGridTrackList(value)) {
+            target.put(property, value.replaceAll("\\s+", " ").strip());
+        }
+    }
+
+    private static boolean isGridAreasValue(String value) {
+        int columns = -1;
+        int rowCount = 0;
+        int offset = 0;
+        while (offset < value.length()) {
+            int start = value.indexOf('"', offset);
+            char quote = '"';
+            if (start < 0) {
+                start = value.indexOf('\'', offset);
+                quote = '\'';
+            }
+            if (start < 0) {
+                break;
+            }
+            int end = value.indexOf(quote, start + 1);
+            if (end < 0) {
+                return false;
+            }
+            String row = value.substring(start + 1, end).strip();
+            int count = row.isEmpty() ? 0 : row.split("\\s+").length;
+            if (count == 0) {
+                return false;
+            }
+            if (columns < 0) {
+                columns = count;
+            } else if (columns != count) {
+                return false;
+            }
+            rowCount++;
+            offset = end + 1;
+        }
+        return columns > 0 && rowCount <= 64;
+    }
+
+    private static void putGridTemplate(Map<String, String> target, String value) {
+        String normalized = value.strip();
+        if (normalized.equals("none")) {
+            return;
+        }
+        int slash = topLevelSlash(normalized);
+        String beforeSlash = slash < 0 ? normalized : normalized.substring(0, slash).strip();
+        String afterSlash = slash < 0 ? "" : normalized.substring(slash + 1).strip();
+        StringBuilder areas = new StringBuilder();
+        StringBuilder rows = new StringBuilder();
+        int offset = 0;
+        while (offset < beforeSlash.length()) {
+            int start = beforeSlash.indexOf('"', offset);
+            char quote = '"';
+            if (start < 0) {
+                start = beforeSlash.indexOf('\'', offset);
+                quote = '\'';
+            }
+            int end = start < 0 ? -1 : beforeSlash.indexOf(quote, start + 1);
+            if (start >= 0 && end >= 0) {
+                for (String token : beforeSlash.substring(offset, start).split("\\s+")) {
+                    if (!token.isEmpty() && !isGridRowToken(token)) {
+                        return;
+                    }
+                    if (!token.isEmpty()) {
+                        rows.append(' ').append(token);
+                    }
+                }
+                if (areas.length() > 0) {
+                    areas.append(' ');
+                }
+                areas.append(beforeSlash, start, end + 1);
+                offset = end + 1;
+            } else {
+                for (String token : beforeSlash.substring(offset).split("\\s+")) {
+                    if (!token.isEmpty() && !isGridRowToken(token)) {
+                        return;
+                    }
+                    if (!token.isEmpty()) {
+                        rows.append(' ').append(token);
+                    }
+                }
+                offset = beforeSlash.length();
+            }
+        }
+        if (areas.isEmpty()) {
+            return;
+        }
+        target.put("grid-template-areas", areas.toString().strip());
+        if (!rows.isEmpty()) {
+            target.put("grid-template-rows", rows.toString().strip());
+        }
+        if (!afterSlash.isEmpty()) {
+            if (!isGridTrackList(afterSlash)) {
+                return;
+            }
+            target.put("grid-template-columns", afterSlash.replaceAll("\\s+", " ").strip());
+        }
+    }
+
+    private static boolean isGridRowToken(String token) {
+        String lower = token.toLowerCase(Locale.ROOT);
+        return GRID_TRACK.matcher(lower).matches() || lower.startsWith("minmax(")
+                || lower.startsWith("repeat(") || lower.startsWith("fit-content(");
+    }
+
+    private static void putGridArea(Map<String, String> target, String value) {
+        String[] tokens = value.strip().split("\\s+");
+        if (tokens.length == 1) {
+            if (tokens[0].matches("[-_a-zA-Z][-_a-zA-Z0-9]*")) {
+                target.put("grid-area", tokens[0]);
+            }
+            return;
+        }
+        if (tokens.length != 4) {
+            return;
+        }
+        for (String token : tokens) {
+            if (!isGridLineValue(token)) {
+                return;
+            }
+        }
+        target.put("grid-row-start", tokens[0]);
+        target.put("grid-column-start", tokens[1]);
+        target.put("grid-row-end", tokens[2]);
+        target.put("grid-column-end", tokens[3]);
+    }
+
+    private static void putGridLineShorthand(Map<String, String> target, String property,
+                                             String value) {
+        String[] parts = value.strip().split("/");
+        if (parts.length < 1 || parts.length > 2) {
+            return;
+        }
+        if (!isGridLineValue(parts[0].strip())) {
+            return;
+        }
+        target.put(property + "-start", parts[0].strip());
+        if (parts.length == 2) {
+            if (!isGridLineValue(parts[1].strip())) {
+                target.remove(property + "-start");
+                return;
+            }
+            target.put(property + "-end", parts[1].strip());
+        }
+    }
+
+    private static void putGridLine(Map<String, String> target, String property, String value) {
+        if (isGridLineValue(value)) {
+            target.put(property, value);
+        }
+    }
+
+    private static boolean isGridLineValue(String value) {
+        if (value.equals("auto")) {
+            return true;
+        }
+        if (value.startsWith("span ")) {
+            value = value.substring(5).strip();
+        }
+        return value.matches("[-+]?[0-9]+");
     }
 
     private static boolean isClipPathFunction(String value) {

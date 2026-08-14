@@ -157,6 +157,12 @@ public final class RenderLayoutEngine {
                     childContainingHeight, graphics, lineBoxes, childPositionedContext);
             childFragments.addAll(flex.fragments());
             naturalContentHeight = flex.height();
+        } else if (style.display() == RenderStyle.Display.GRID
+                || style.display() == RenderStyle.Display.INLINE_GRID) {
+            GridLayout grid = layoutGrid(box, contentX, contentY, contentWidth,
+                    childContainingHeight, graphics, lineBoxes, childPositionedContext);
+            childFragments.addAll(grid.fragments());
+            naturalContentHeight = grid.height();
         } else {
             naturalContentHeight = layoutBlockChildren(box, contentX, contentY, contentWidth,
                     childContainingHeight, graphics, lineBoxes, childPositionedContext,
@@ -284,6 +290,285 @@ public final class RenderLayoutEngine {
                 childContainingHeight, box.style().textAlign(), graphics, childFragments,
                 lineBoxes);
         return Math.max(0, currentY - contentY);
+    }
+
+    private record GridLayout(float height, List<PaintFragment> fragments) {
+    }
+
+    private record GridPlacement(int row, int column, int rowSpan, int columnSpan) {
+    }
+
+    private GridLayout layoutGrid(RenderBox container, float contentX, float contentY,
+                                  float contentWidth, Float contentHeight, Graphics2D graphics,
+                                  List<LineBox> lineBoxes, PositionedContext positionedContext) {
+        List<RenderBox> items = new ArrayList<>();
+        for (RenderNode child : container.children()) {
+            if (!(child instanceof RenderBox item)) {
+                continue;
+            }
+            if (item.style().position() == RenderStyle.Position.ABSOLUTE
+                    || item.style().position() == RenderStyle.Position.FIXED) {
+                positionedContext.requests.add(new AbsoluteRequest(item, contentX, contentY));
+            } else {
+                items.add(item);
+            }
+        }
+        if (items.isEmpty()) {
+            return new GridLayout(0, List.of());
+        }
+        RenderStyle style = container.style();
+        List<RenderStyle.GridTrack> columns = style.gridTemplateColumns().isEmpty()
+                ? List.of(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.AUTO, 0, 0, 0, 0))
+                : style.gridTemplateColumns();
+        List<RenderStyle.GridTrack> rows = style.gridTemplateRows();
+        int columnCount = columns.size();
+        float columnGap = style.columnGapPx();
+        float rowGap = style.rowGapPx();
+        String[][] areas = style.gridTemplateAreas();
+
+        // Platzierung: zuerst explizite Zellen, dann Auto-Flow.
+        int rowsUsed = 0;
+        java.util.Set<String> occupied = new java.util.HashSet<>();
+        List<GridPlacement> placements = new ArrayList<>();
+        List<RenderBox> placed = new ArrayList<>();
+        for (RenderBox item : items) {
+            RenderStyle itemStyle = item.style();
+            int startCol = itemStyle.gridColumnStart();
+            int startRow = itemStyle.gridRowStart();
+            int endCol = itemStyle.gridColumnEnd();
+            int endRow = itemStyle.gridRowEnd();
+            int spanCol = endCol > 0 ? endCol - startCol : 1;
+            int spanRow = endRow > 0 ? endRow - startRow : 1;
+            String areaName = itemStyle.gridAreaName();
+            if (areaName != null && areas != null) {
+                int[] cell = findArea(areas, areaName);
+                if (cell == null) {
+                    continue; // Unbekannte Area: nicht platzieren.
+                }
+                int[] extent = areaExtent(areas, cell[0], cell[1], areaName);
+                startRow = cell[0] + 1;
+                startCol = cell[1] + 1;
+                spanRow = extent[0];
+                spanCol = extent[1];
+            }
+            if (startCol == 0 && startRow == 0) {
+                // Auto-Platzierung im Raster.
+                int[] slot = findFreeCell(occupied, columnCount, spanCol, spanRow, startRow);
+                startRow = slot[0] + 1;
+                startCol = slot[1] + 1;
+            } else {
+                if (startCol == 0) {
+                    startCol = 1;
+                }
+                if (startRow == 0) {
+                    startRow = 1;
+                }
+            }
+            for (int r = startRow; r < startRow + spanRow; r++) {
+                for (int c = startCol; c < startCol + spanCol; c++) {
+                    occupied.add(r + ":" + c);
+                }
+            }
+            placements.add(new GridPlacement(startRow, startCol, spanRow, spanCol));
+            placed.add(item);
+            rowsUsed = Math.max(rowsUsed, startRow + spanRow - 1);
+        }
+        int rowCount = Math.max(rowsUsed, rows.isEmpty() ? rowsUsed : Math.max(rowsUsed, rows.size()));
+
+        // Spaltenbreiten: feste zuerst, fr verteilt den Rest.
+        float[] columnWidths = new float[columnCount];
+        float used = columnGap * Math.max(0, columnCount - 1);
+        float[] fractions = new float[columnCount];
+        float fractionSum = 0;
+        for (int column = 0; column < columnCount; column++) {
+            columnWidths[column] = trackBase(columns.get(column), contentWidth);
+            float fraction = trackFraction(columns.get(column));
+            if (fraction > 0) {
+                fractions[column] = fraction;
+                fractionSum += fraction;
+            } else {
+                used += columnWidths[column];
+            }
+        }
+        float free = Math.max(0, contentWidth - used);
+        for (int column = 0; column < columnCount; column++) {
+            if (fractions[column] > 0) {
+                columnWidths[column] = fractions[column] / fractionSum * free;
+            }
+        }
+
+        // Zeilenhöhen: Auto-Zeilen anhand des Inhalts, feste wie angegeben.
+        float[] rowHeights = new float[rowCount];
+        for (int row = 0; row < rowCount; row++) {
+            rowHeights[row] = 0;
+        }
+        float[] provisional = new float[rowCount];
+        for (int index = 0; index < placed.size(); index++) {
+            RenderBox item = placed.get(index);
+            GridPlacement placement = placements.get(index);
+            float cellWidth = columnWidths[placement.column() - 1];
+            for (int c = 1; c < placement.columnSpan(); c++) {
+                cellWidth += columnWidths[placement.column() - 1 + c] + columnGap;
+            }
+            float itemWidth = Math.max(1, cellWidth - item.style().margin().horizontal());
+            float rowY = rowOffset(provisional, placement.row() - 1, rowGap, 0);
+            float x = columnOffset(columnWidths, placement.column() - 1, columnGap, contentX);
+            BlockLayout itemLayout = layoutBlock(item, x + item.style().margin().left(),
+                    contentY + rowY + item.style().margin().top(), itemWidth, null,
+                    false, graphics, lineBoxes, positionedContext);
+            float itemHeight = itemLayout.outerHeight() + item.style().margin().vertical();
+            for (int r = 0; r < placement.rowSpan(); r++) {
+                provisional[placement.row() - 1 + r] = Math.max(
+                        provisional[placement.row() - 1 + r], itemHeight);
+            }
+        }
+        float fixedRows = 0;
+        float rowFractionSum = 0;
+        float[] rowFractions = new float[rowCount];
+        for (int row = 0; row < rowCount; row++) {
+            if (row < rows.size()) {
+                RenderStyle.GridTrack track = rows.get(row);
+                float fraction = trackFraction(track);
+                if (fraction > 0) {
+                    rowFractions[row] = fraction;
+                    rowFractionSum += fraction;
+                } else if (track.type() == RenderStyle.GridTrack.Type.FIXED
+                        || track.type() == RenderStyle.GridTrack.Type.PERCENT) {
+                    rowHeights[row] = trackBase(track, contentHeight == null ? 0 : contentHeight);
+                    fixedRows += rowHeights[row];
+                } else {
+                    rowHeights[row] = provisional[row];
+                    fixedRows += rowHeights[row];
+                }
+            } else {
+                rowHeights[row] = provisional[row];
+                fixedRows += rowHeights[row];
+            }
+        }
+        float rowFree = contentHeight == null ? 0
+                : Math.max(0, contentHeight - fixedRows
+                        - rowGap * Math.max(0, rowCount - 1));
+        for (int row = 0; row < rowCount; row++) {
+            if (rowFractions[row] > 0) {
+                rowHeights[row] = rowFractions[row] / rowFractionSum * rowFree;
+            }
+        }
+
+        // Items final positionieren.
+        List<PaintFragment> fragments = new ArrayList<>();
+        float totalHeight = rowGap * Math.max(0, rowCount - 1);
+        for (int row = 0; row < rowCount; row++) {
+            totalHeight += rowHeights[row];
+        }
+        for (int index = 0; index < placed.size(); index++) {
+            RenderBox item = placed.get(index);
+            GridPlacement placement = placements.get(index);
+            float cellWidth = columnWidths[placement.column() - 1];
+            for (int c = 1; c < placement.columnSpan(); c++) {
+                cellWidth += columnWidths[placement.column() - 1 + c] + columnGap;
+            }
+            float cellHeight = rowHeights[placement.row() - 1];
+            for (int r = 1; r < placement.rowSpan(); r++) {
+                cellHeight += rowHeights[placement.row() - 1 + r] + rowGap;
+            }
+            float x = columnOffset(columnWidths, placement.column() - 1, columnGap, contentX);
+            float y = rowOffset(rowHeights, placement.row() - 1, rowGap, contentY);
+            float itemWidth = Math.max(1, cellWidth - item.style().margin().horizontal());
+            boolean stretch = item.style().height().isAuto()
+                    && placement.rowSpan() == 1;
+            BlockLayout itemLayout = layoutBlock(item, x + item.style().margin().left(),
+                    y + item.style().margin().top(), itemWidth, stretch ? cellHeight : null,
+                    false, graphics, lineBoxes, positionedContext);
+            for (PaintFragment fragment : itemLayout.fragments()) {
+                fragments.add(fragment);
+            }
+        }
+        return new GridLayout(contentHeight == null ? totalHeight
+                : Math.max(totalHeight, contentHeight), List.copyOf(fragments));
+    }
+
+    private static float trackBase(RenderStyle.GridTrack track, float contentWidth) {
+        return switch (track.type()) {
+            case FIXED -> track.fixed();
+            case PERCENT -> track.fixed() / 100f * contentWidth;
+            case MINMAX -> track.minFixed();
+            default -> 0;
+        };
+    }
+
+    private static float trackFraction(RenderStyle.GridTrack track) {
+        if (track.type() == RenderStyle.GridTrack.Type.FRACTION) {
+            return track.fraction();
+        }
+        if (track.type() == RenderStyle.GridTrack.Type.MINMAX
+                && track.maxFixed() < 0) {
+            return -track.maxFixed();
+        }
+        return 0;
+    }
+
+    private static float columnOffset(float[] widths, int start, float gap, float origin) {
+        float offset = origin;
+        for (int column = 0; column < start; column++) {
+            offset += widths[column] + gap;
+        }
+        return offset;
+    }
+
+    private static float rowOffset(float[] heights, int start, float gap, float origin) {
+        float offset = origin;
+        for (int row = 0; row < start; row++) {
+            offset += heights[row] + gap;
+        }
+        return offset;
+    }
+
+    private static int[] findFreeCell(java.util.Set<String> occupied, int columnCount,
+                                      int spanCol, int spanRow, int startRow) {
+        int row = Math.max(0, startRow - 1);
+        while (true) {
+            for (int column = 0; column < columnCount; column++) {
+                boolean free = true;
+                for (int r = row; r < row + spanRow; r++) {
+                    for (int c = column; c < column + spanCol; c++) {
+                        if (occupied.contains((r + 1) + ":" + (c + 1))) {
+                            free = false;
+                            break;
+                        }
+                    }
+                    if (!free) {
+                        break;
+                    }
+                }
+                if (free) {
+                    return new int[] {row, column};
+                }
+            }
+            row++;
+        }
+    }
+
+    private static int[] findArea(String[][] areas, String name) {
+        for (int row = 0; row < areas.length; row++) {
+            for (int column = 0; column < areas[row].length; column++) {
+                if (name.equals(areas[row][column])) {
+                    return new int[] {row, column};
+                }
+            }
+        }
+        return null;
+    }
+
+    private static int[] areaExtent(String[][] areas, int row, int column, String name) {
+        int rows = 1;
+        int columns = 1;
+        while (row + rows < areas.length && areas[row + rows][column].equals(name)) {
+            rows++;
+        }
+        while (column + columns < areas[row].length && areas[row][column + columns].equals(name)) {
+            columns++;
+        }
+        return new int[] {rows, columns};
     }
 
     private FlexLayout layoutFlex(RenderBox container,

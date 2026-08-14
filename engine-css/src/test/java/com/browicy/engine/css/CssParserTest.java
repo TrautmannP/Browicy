@@ -139,7 +139,8 @@ public class CssParserTest {
 
         assertTrue(parser.supportsProperty("background-color"));
         assertTrue(parser.supports("display", "block"));
-        assertFalse(parser.supports("display", "grid"));
+        assertTrue(parser.supports("display", "grid"));
+        assertFalse(parser.supports("display", "masonry"));
         assertTrue(parser.supportsProperty("position"));
         assertTrue(parser.supports("position", "absolute"));
         assertTrue(parser.supports("position", "fixed"));
@@ -1075,7 +1076,7 @@ public class CssParserTest {
                 @supports (display: flex) {
                   .flexed { color: green }
                 }
-                @supports (display: grid) {
+                @supports (display: masonry) {
                   .gridded { color: red }
                 }
                 """);
@@ -1088,13 +1089,13 @@ public class CssParserTest {
     @Test
     public void evaluatesSupportsNotAndOrConditions() {
         List<CssRule> rules = new CssParser().parse("""
-                @supports not (display: grid) {
+                @supports not (display: masonry) {
                   .noGrid { color: blue }
                 }
-                @supports (color: red) or (display: grid) {
+                @supports (color: red) or (display: masonry) {
                   .orMatch { color: green }
                 }
-                @supports (display: grid) and (color: red) {
+                @supports (display: masonry) and (color: red) {
                   .andMiss { color: red }
                 }
                 @supports (color: red) and (display: flex) {
@@ -1147,5 +1148,47 @@ public class CssParserTest {
                 "background-position:0 50%").get("background-position-y-offset"));
         assertEquals("right", parser.parseDeclarations(
                 "background-position:center right").get("background-position-x"));
+    }
+
+    @Test
+    public void parsesGridDisplayTemplatesAndPlacement() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+                grid-template-rows:auto min-content;
+                grid-template-areas:"content pane" "footer footer";
+                grid-auto-flow:row dense;
+                grid-area:content;
+                grid-column:1 / span 2;grid-row:2 / 4;
+                grid-gap:8px 16px
+                """);
+
+        assertEquals("grid", declarations.get("display"));
+        assertEquals("repeat(2,minmax(0,1fr))", declarations.get("grid-template-columns"));
+        assertEquals("auto min-content", declarations.get("grid-template-rows"));
+        assertEquals("\"content pane\" \"footer footer\"", declarations.get("grid-template-areas"));
+        assertEquals("row dense", declarations.get("grid-auto-flow"));
+        assertEquals("content", declarations.get("grid-area"));
+        assertEquals("1", declarations.get("grid-column-start"));
+        assertEquals("span 2", declarations.get("grid-column-end"));
+        assertEquals("2", declarations.get("grid-row-start"));
+        assertEquals("4", declarations.get("grid-row-end"));
+        assertEquals("8px", declarations.get("row-gap"));
+        assertEquals("16px", declarations.get("column-gap"));
+
+        assertTrue(parser.supports("display", "grid"));
+        assertTrue(parser.supportsProperty("grid-template-columns"));
+        assertTrue(parser.supports("grid-template-areas", "\"a\" \"b\""));
+        assertTrue(parser.supportsProperty("grid-area"));
+        assertFalse(parser.parseDeclarations("grid-template-columns:bogus 1fr")
+                .containsKey("grid-template-columns"));
+        assertFalse(parser.parseDeclarations("grid-row:1/2/3").containsKey("grid-row-start"));
+        assertFalse(parser.parseDeclarations("grid-area:content 1").containsKey("grid-area"));
+
+        Map<String, String> shorthand = parser.parseDeclarations(
+                "grid-template:\"header header\" 56px / 1fr 2fr");
+        assertEquals("\"header header\"", shorthand.get("grid-template-areas"));
+        assertEquals("56px", shorthand.get("grid-template-rows"));
+        assertEquals("1fr 2fr", shorthand.get("grid-template-columns"));
     }
 }

@@ -69,6 +69,15 @@ public record RenderStyle(
         AlignSelf alignSelf,
         AlignContent alignContent,
         int order,
+        java.util.List<GridTrack> gridTemplateColumns,
+        java.util.List<GridTrack> gridTemplateRows,
+        String[][] gridTemplateAreas,
+        String gridAreaName,
+        GridAutoFlow gridAutoFlow,
+        int gridColumnStart,
+        int gridColumnEnd,
+        int gridRowStart,
+        int gridRowEnd,
         float rowGapPx,
         float columnGapPx,
         float flexGrow,
@@ -77,9 +86,16 @@ public record RenderStyle(
         float opacity) {
 
     public enum Display {
-        BLOCK, INLINE, INLINE_BLOCK, FLEX, INLINE_FLEX, NONE,
+        BLOCK, INLINE, INLINE_BLOCK, FLEX, INLINE_FLEX, NONE, GRID, INLINE_GRID,
         TABLE, INLINE_TABLE, TABLE_ROW_GROUP, TABLE_HEADER_GROUP, TABLE_FOOTER_GROUP,
         TABLE_ROW, TABLE_CELL, TABLE_COLUMN_GROUP, TABLE_COLUMN, TABLE_CAPTION
+    }
+
+    public enum GridAutoFlow { ROW, COLUMN, ROW_DENSE, COLUMN_DENSE }
+
+    public record GridTrack(Type type, float fixed, float fraction,
+                            float minFixed, float maxFixed) {
+        public enum Type { FIXED, PERCENT, FRACTION, AUTO, MINMAX }
     }
     public enum BorderCollapse { SEPARATE, COLLAPSE }
     public enum ListStyleType { DISC, CIRCLE, SQUARE, NONE }
@@ -174,6 +190,8 @@ public record RenderStyle(
                 textOverflow, overflow,
                 verticalAlign, flexDirection,
                 flexWrap, justifyContent, alignItems, alignSelf, alignContent, order,
+                gridTemplateColumns, gridTemplateRows, gridTemplateAreas, gridAreaName,
+                gridAutoFlow, gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd,
                 rowGapPx, columnGapPx,
                 newFlexGrow, flexShrink, flexBasis, opacity);
     }
