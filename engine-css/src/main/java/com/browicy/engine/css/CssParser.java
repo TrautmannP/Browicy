@@ -1444,7 +1444,7 @@ public final class CssParser {
         return token.matches("-?\\d+(\\.\\d+)?(?:px|em|rem|vw|vh)?");
     }
 
-    private static java.util.List<String> splitTopLevel(String source, char separator) {
+    public static java.util.List<String> splitTopLevel(String source, char separator) {
         java.util.List<String> parts = new ArrayList<>();
         int depth = 0;
         boolean quoted = false;

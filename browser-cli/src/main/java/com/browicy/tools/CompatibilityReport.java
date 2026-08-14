@@ -106,7 +106,7 @@ final class CompatibilityReport {
     }
 
     private void inspectDeclarations(String declarations, String source, String context) {
-        for (String declaration : declarations.split(";")) {
+        for (String declaration : CssParser.splitTopLevel(declarations, ';')) {
             int separator = declaration.indexOf(':');
             if (separator < 1) continue;
             String property = declaration.substring(0, separator).strip().toLowerCase(Locale.ROOT);
