@@ -664,6 +664,25 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesWordBreakAppearanceFontSizeInheritAndRadiusInherit() {
+        CssParser parser = new CssParser();
+        Map<String, String> batch = parser.parseDeclarations("""
+                word-break:break-all;appearance:none;font-size:inherit;
+                border-radius:inherit
+                """);
+        assertEquals("break-all", batch.get("word-break"));
+        assertEquals("none", batch.get("appearance"));
+        assertEquals("inherit", batch.get("font-size"));
+        assertEquals("inherit", batch.get("border-radius"));
+
+        assertFalse(parser.parseDeclarations("word-break:break-everything")
+                .containsKey("word-break"));
+        assertTrue(parser.supports("word-break", "break-word"));
+        assertTrue(parser.supports("border-radius", "inherit"));
+        assertTrue(parser.supports("appearance", "none"));
+    }
+
+    @Test
     public void parsesUnsetFitContentInitialStrokeWidthAndScrollbarWidth() {
         CssParser parser = new CssParser();
         Map<String, String> batch = parser.parseDeclarations("""

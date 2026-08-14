@@ -791,9 +791,13 @@ public final class RenderTreeBuilder {
             default -> RenderStyle.Clear.NONE;
         };
         if (declarations.containsKey("font-size")) {
-            float remBase = rootElement ? DEFAULT_FONT_SIZE : rootFontSizePx;
-            fontSize = resolveLength(
-                    declarations.get("font-size"), parent.fontSizePx(), remBase, fontSize);
+            if ("inherit".equals(declarations.get("font-size"))) {
+                fontSize = parent.fontSizePx();
+            } else {
+                float remBase = rootElement ? DEFAULT_FONT_SIZE : rootFontSizePx;
+                fontSize = resolveLength(
+                        declarations.get("font-size"), parent.fontSizePx(), remBase, fontSize);
+            }
         }
         if (declarations.containsKey("font-weight")) {
             fontWeight = parseFontWeight(declarations.get("font-weight"), parent.fontWeight());
@@ -988,7 +992,10 @@ public final class RenderTreeBuilder {
         borderColor = resolveBorderColors(declarations, color);
         borderStyle = resolveBorderStyles(declarations);
         borderWidth = effectiveBorderWidths(borderWidth, borderStyle);
-        borderRadius = resolveCornerRadii(declarations, fontSize, rootFontSizePx);
+        String radiusDeclaration = declarations.get("border-radius");
+        borderRadius = "inherit".equals(radiusDeclaration) || "unset".equals(radiusDeclaration)
+                ? parent.borderRadius()
+                : resolveCornerRadii(declarations, fontSize, rootFontSizePx);
         boxShadows = parseBoxShadows(declarations.get("box-shadow"), fontSize,
                 rootFontSizePx, color);
         outlineWidth = Math.max(0, resolveLength(

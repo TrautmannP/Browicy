@@ -543,6 +543,8 @@ public final class CssParser {
             case "outline-width" -> supports(normalized, "2px");
             case "outline-offset" -> supports(normalized, "2px");
             case "letter-spacing" -> supports(normalized, "0");
+            case "word-break" -> supports(normalized, "break-all");
+            case "appearance" -> supports(normalized, "none");
             case "text-overflow" -> supports(normalized, "ellipsis");
             case "overflow-wrap", "word-wrap" -> supports(normalized, "break-word");
             case "user-select" -> supports(normalized, "none");
@@ -609,7 +611,25 @@ public final class CssParser {
             }
             case "background-position" -> putBackgroundPosition(target, value);
             case "background-size" -> putBackgroundSize(target, value);
-            case "font-size" -> putIfMatches(target, property, value, FONT_SIZE);
+            case "font-size" -> {
+                if (value.equals("inherit")) {
+                    target.put(property, value);
+                } else {
+                    putIfMatches(target, property, value, FONT_SIZE);
+                }
+            }
+            case "word-break" -> {
+                if (value.equals("normal") || value.equals("break-all")
+                        || value.equals("break-word") || value.equals("keep-all")) {
+                    target.put(property, value);
+                }
+            }
+            case "appearance", "-webkit-appearance" -> {
+                if (value.equals("none") || value.equals("auto") || value.equals("textfield")
+                        || value.equals("button")) {
+                    target.put(property, value);
+                }
+            }
             case "font-family" -> {
                 if (!value.isBlank()) target.put(property, value);
             }
@@ -911,7 +931,13 @@ public final class CssParser {
             case "border-color" -> expandColors(target, value);
             case "border-style" -> expandBorderStyles(target, value);
             case "border" -> expandBorder(target, null, value);
-            case "border-radius" -> putBorderRadius(target, value);
+            case "border-radius" -> {
+                if (value.equals("inherit") || value.equals("unset")) {
+                    target.put(property, value);
+                } else {
+                    putBorderRadius(target, value);
+                }
+            }
             case "box-shadow" -> {
                 if (isBoxShadowValue(value)) {
                     target.put(property, value);
