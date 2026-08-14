@@ -610,6 +610,24 @@ public class CssParserTest {
     }
 
     @Test
+    public void expandsBorderSideShorthandsAndAcceptsVarColors() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations(
+                "border-top:2px solid #abc;border-bottom:1px solid var(--muted);"
+                        + "border-left:solid red");
+        assertEquals("2px", declarations.get("border-top-width"));
+        assertEquals("solid", declarations.get("border-top-style"));
+        assertEquals("#abc", declarations.get("border-top-color"));
+        assertEquals("1px solid var(--muted)", declarations.get("border-bottom"));
+        assertEquals("solid", declarations.get("border-left-style"));
+        assertEquals("red", declarations.get("border-left-color"));
+        assertTrue(parser.supportsProperty("border-top"));
+        assertTrue(parser.supportsProperty("border-bottom"));
+        assertTrue(parser.supports("border-top", "1px solid black"));
+        assertFalse(parser.supports("border-top", "1px 2px"));
+    }
+
+    @Test
     public void parsesRulesInsideTrueSupportsConditionsAndSkipsFalseOnes() {
         List<CssRule> rules = new CssParser().parse("""
                 .base { color: black }

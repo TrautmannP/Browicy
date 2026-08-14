@@ -526,6 +526,8 @@ public final class CssParser {
                  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
                  "border", "border-width", "border-top-width", "border-right-width",
                  "border-bottom-width", "border-left-width" -> supports(normalized, "0");
+            case "border-top", "border-right", "border-bottom", "border-left" ->
+                    supports(normalized, "1px solid black");
             case "border-color", "border-top-color", "border-right-color",
                  "border-bottom-color", "border-left-color" -> supports(normalized, "black");
             case "border-style", "border-top-style", "border-right-style",
@@ -1110,7 +1112,7 @@ public final class CssParser {
                 width = token;
             } else if ((token.equals("none") || token.equals("solid")) && style == null) {
                 style = token;
-            } else if (isColorValue(token) && color == null) {
+            } else if ((isColorValue(token) || containsVarFunction(token)) && color == null) {
                 color = token;
             } else {
                 return;
@@ -1144,7 +1146,7 @@ public final class CssParser {
                 width = token;
             } else if ((token.equals("none") || token.equals("solid")) && style == null) {
                 style = token;
-            } else if (isColorValue(token) && color == null) {
+            } else if ((isColorValue(token) || containsVarFunction(token)) && color == null) {
                 color = token;
             } else {
                 return;
