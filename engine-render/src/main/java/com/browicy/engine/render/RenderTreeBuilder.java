@@ -955,9 +955,9 @@ public final class RenderTreeBuilder {
         };
         alignSelf = switch (declarations.getOrDefault("align-self", "auto")) {
             case "stretch" -> RenderStyle.AlignSelf.STRETCH;
-            case "flex-start" -> RenderStyle.AlignSelf.FLEX_START;
+            case "flex-start", "start", "self-start" -> RenderStyle.AlignSelf.FLEX_START;
             case "center" -> RenderStyle.AlignSelf.CENTER;
-            case "flex-end" -> RenderStyle.AlignSelf.FLEX_END;
+            case "flex-end", "end", "self-end" -> RenderStyle.AlignSelf.FLEX_END;
             case "baseline" -> RenderStyle.AlignSelf.BASELINE;
             default -> RenderStyle.AlignSelf.AUTO;
         };
@@ -1071,13 +1071,16 @@ public final class RenderTreeBuilder {
         backgroundSizeX = resolveDimension(declarations.get("background-size-x"), fontSize);
         backgroundSizeY = resolveDimension(declarations.get("background-size-y"), fontSize);
 
-        margin = resolveEdges(declarations, "margin", fontSize, margin);
+        margin = "inherit".equals(declarations.get("margin"))
+                ? parent.margin()
+                : resolveEdges(declarations, "margin", fontSize, margin, "", parent.margin());
         autoMargins = new HorizontalAutoMargins(
                 "auto".equals(declarations.get("margin-left")),
                 "auto".equals(declarations.get("margin-right")));
         padding = "inherit".equals(declarations.get("padding"))
                 ? parent.padding()
-                : nonNegative(resolveEdges(declarations, "padding", fontSize, padding));
+                : nonNegative(resolveEdges(
+                        declarations, "padding", fontSize, padding, "", parent.padding()));
         borderWidth = nonNegative(resolveEdges(declarations, "border", fontSize, borderWidth, "-width"));
         borderColor = resolveBorderColors(declarations, color);
         borderStyle = resolveBorderStyles(declarations);
@@ -1217,7 +1220,8 @@ public final class RenderTreeBuilder {
             try {
                 count = Integer.parseInt(token.substring(7, comma).strip());
             } catch (NumberFormatException ignored) {
-                return false;
+                // auto-fit/auto-fill: ein Satz Tracks (Approximation).
+                count = 1;
             }
             if (count <= 0 || count > 64) {
                 return false;
@@ -1248,6 +1252,11 @@ public final class RenderTreeBuilder {
             return true;
         }
         try {
+            if (lower.equals("0")) {
+                tracks.add(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.FIXED,
+                        0, 0, 0, 0));
+                return true;
+            }
             if (lower.endsWith("%")) {
                 tracks.add(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.PERCENT,
                         0, 0, Float.parseFloat(token.substring(0, token.length() - 1)), 0));
@@ -1495,6 +1504,7 @@ public final class RenderTreeBuilder {
             case "bold" -> 700;
             case "bolder" -> Math.min(900, inherited + 300);
             case "lighter" -> Math.max(100, inherited - 300);
+            case "inherit" -> inherited;
             default -> Integer.parseInt(value);
         };
     }
@@ -1511,15 +1521,39 @@ public final class RenderTreeBuilder {
                                   float emBase,
                                   BoxEdges defaults,
                                   String suffix) {
-        float top = resolveLength(declarations.get(prefix + "-top" + suffix), emBase,
-                rootFontSizePx, defaults.top());
-        float right = resolveLength(declarations.get(prefix + "-right" + suffix), emBase,
-                rootFontSizePx, defaults.right());
-        float bottom = resolveLength(declarations.get(prefix + "-bottom" + suffix), emBase,
-                rootFontSizePx, defaults.bottom());
-        float left = resolveLength(declarations.get(prefix + "-left" + suffix), emBase,
-                rootFontSizePx, defaults.left());
+        return resolveEdges(declarations, prefix, emBase, defaults, suffix, null);
+    }
+
+    private BoxEdges resolveEdges(Map<String, String> declarations,
+                                  String prefix,
+                                  float emBase,
+                                  BoxEdges defaults,
+                                  String suffix,
+                                  BoxEdges inheritSource) {
+        float top = resolveEdgeSide(declarations, prefix + "-top" + suffix,
+                defaults.top(), emBase, inheritSource);
+        float right = resolveEdgeSide(declarations, prefix + "-right" + suffix,
+                defaults.right(), emBase, inheritSource);
+        float bottom = resolveEdgeSide(declarations, prefix + "-bottom" + suffix,
+                defaults.bottom(), emBase, inheritSource);
+        float left = resolveEdgeSide(declarations, prefix + "-left" + suffix,
+                defaults.left(), emBase, inheritSource);
         return new BoxEdges(top, right, bottom, left);
+    }
+
+    private float resolveEdgeSide(Map<String, String> declarations, String key,
+                                  float fallback, float emBase, BoxEdges inheritSource) {
+        String value = declarations.get(key);
+        if ("inherit".equals(value) && inheritSource != null) {
+            return switch (key.substring(key.lastIndexOf('-') + 1)) {
+                case "top" -> inheritSource.top();
+                case "right" -> inheritSource.right();
+                case "bottom" -> inheritSource.bottom();
+                case "left" -> inheritSource.left();
+                default -> fallback;
+            };
+        }
+        return resolveLength(value, emBase, rootFontSizePx, fallback);
     }
 
     private static BoxEdges effectiveBorderWidths(BoxEdges widths, BoxBorders styles) {
@@ -1540,7 +1574,21 @@ public final class RenderTreeBuilder {
 
     private static CssColor colorOrCurrent(String value, CssColor currentColor) {
         CssColor parsed = CssColor.parse(value);
-        return parsed == null ? currentColor : parsed;
+        if (parsed != null) {
+            return parsed;
+        }
+        if ("canvastext".equals(value) || "highlighttext".equals(value)
+                || "buttontext".equals(value) || "fieldtext".equals(value)) {
+            return currentColor;
+        }
+        if ("canvas".equals(value) || "field".equals(value)
+                || "buttonface".equals(value) || "highlight".equals(value)) {
+            return CssColor.rgb(0xffffff);
+        }
+        if ("linktext".equals(value)) {
+            return CssColor.rgb(0x0000ee);
+        }
+        return currentColor;
     }
 
     private static BoxBorders resolveBorderStyles(Map<String, String> declarations) {

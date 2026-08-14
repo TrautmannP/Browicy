@@ -22,7 +22,7 @@ public final class CssParser {
             "@font-face\\s*\\{([^}]*)}", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern FONT_FORMAT = Pattern.compile(
             "^\\s*format\\(\\s*(['\"]?)(.*?)\\1\\s*\\)", Pattern.CASE_INSENSITIVE);
-    private static final String LENGTH_UNIT = "(?:px|em|rem|vw|vh)";
+    private static final String LENGTH_UNIT = "(?:px|em|rem|vw|vh|dvh|svh|lvh|ch|lh|%)";
     private static final Pattern POSITIVE_LENGTH = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)" + LENGTH_UNIT + "|0)", Pattern.CASE_INSENSITIVE);
     private static final Pattern RADIUS_LENGTH = Pattern.compile(
@@ -35,12 +35,12 @@ public final class CssParser {
             "(?:(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0)|auto)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern DIMENSION = Pattern.compile(
-            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|dvh|svh|lvh|%)|0|auto|"
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|dvh|svh|lvh|ch|lh|%)|0|auto|"
                     + "calc\\(\\s*(?:\\d+(?:\\.\\d+)?|\\.\\d+)%\\s*[+-]\\s*"
                     + "(?:\\d+(?:\\.\\d+)?|\\.\\d+)px\\s*\\))",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern MAX_DIMENSION = Pattern.compile(
-            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|dvh|svh|lvh|%)|0|none)",
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|dvh|svh|lvh|ch|lh|%)|0|none)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern POSITION_OFFSET = Pattern.compile(
             "(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|auto)",
@@ -62,7 +62,7 @@ public final class CssParser {
                     + "(?:\\d+(?:\\.\\d+)?|\\.\\d+))?)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern LINE_HEIGHT = Pattern.compile(
-            "(?:normal|inherit|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:(?:px|em|rem|vw|vh|%)?))",
+            "(?:normal|inherit|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:(?:px|em|rem|vw|vh|%|ch|lh)?))",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern BACKGROUND_LENGTH = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0)",
@@ -608,6 +608,9 @@ public final class CssParser {
             case "font-stretch" -> supports(normalized, "normal");
             case "stop-color" -> supports(normalized, "#fff");
             case "touch-action" -> supports(normalized, "manipulation");
+            case "clip" -> supports(normalized, "rect(1px,1px,1px,1px)");
+            case "mask-size" -> supports(normalized, "75%");
+            case "place-self", "justify-self" -> supports(normalized, "start");
             case "align-self" -> supports(normalized, "stretch");
             case "align-content" -> supports(normalized, "stretch");
             case "order" -> supports(normalized, "0");
@@ -790,7 +793,8 @@ public final class CssParser {
             case "font" -> expandFont(target, value);
             case "font-weight" -> {
                 if (value.equals("normal") || value.equals("bold") || value.equals("bolder")
-                        || value.equals("lighter") || FONT_WEIGHT.matcher(value).matches()) {
+                        || value.equals("lighter") || value.equals("inherit")
+                        || FONT_WEIGHT.matcher(value).matches()) {
                     target.put(property, value);
                 }
             }
@@ -878,7 +882,8 @@ public final class CssParser {
                         || value.equals("flex-end") || value.equals("space-between")
                         || value.equals("space-around") || value.equals("space-evenly")
                         || value.equals("start") || value.equals("end")
-                        || value.equals("left") || value.equals("right")) {
+                        || value.equals("left") || value.equals("right")
+                        || value.equals("stretch")) {
                     target.put(property, value);
                 }
             }
@@ -890,10 +895,8 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
-            case "align-self" -> {
-                if (value.equals("auto") || value.equals("stretch")
-                        || value.equals("flex-start") || value.equals("center")
-                        || value.equals("flex-end") || value.equals("baseline")) {
+            case "align-self", "justify-self" -> {
+                if (isAlignSelfValue(value)) {
                     target.put(property, value);
                 }
             }
@@ -1058,7 +1061,8 @@ public final class CssParser {
                 }
             }
             case "box-sizing" -> {
-                if (value.equals("content-box") || value.equals("border-box")) {
+                if (value.equals("content-box") || value.equals("border-box")
+                        || value.equals("initial") || value.equals("inherit")) {
                     target.put(property, value);
                 }
             }
@@ -1150,6 +1154,30 @@ public final class CssParser {
                     expandLengths(target, property, value,
                             property.equals("margin") ? MARGIN_LENGTH : POSITIVE_LENGTH, "");
                 }
+            }
+            case "clip" -> {
+                if (value.equals("auto") || value.equals("inherit")
+                        || value.matches("rect\\s*\\([^)]+\\)")) {
+                    target.put(property, value);
+                }
+            }
+            case "mask-size" -> {
+                if (value.equals("auto") || value.equals("cover")
+                        || value.equals("contain")
+                        || DIMENSION.matcher(value).matches()
+                        || POSITIVE_LENGTH.matcher(value).matches()) {
+                    target.put(property, value);
+                }
+            }
+            case "place-self" -> {
+                String[] tokens = value.split("\\s+");
+                if (tokens.length < 1 || tokens.length > 2
+                        || !isAlignSelfValue(tokens[0])
+                        || tokens.length == 2 && !isAlignSelfValue(tokens[1])) {
+                    break;
+                }
+                target.put("align-self", tokens[0]);
+                target.put("justify-self", tokens.length == 1 ? tokens[0] : tokens[1]);
             }
             case "place-content" -> {
                 String[] tokens = value.split("\\s+");
@@ -1277,6 +1305,20 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
+            case "margin-top", "margin-right", "margin-bottom", "margin-left" -> {
+                if (value.equals("inherit")) {
+                    target.put(property, "inherit");
+                } else {
+                    putIfMatches(target, property, value, MARGIN_LENGTH);
+                }
+            }
+            case "padding-top", "padding-right", "padding-bottom", "padding-left" -> {
+                if (value.equals("inherit")) {
+                    target.put(property, "inherit");
+                } else {
+                    putIfMatches(target, property, value, POSITIVE_LENGTH);
+                }
+            }
             case "margin-inline", "margin-inline-start", "margin-inline-end",
                  "margin-block", "margin-block-start", "margin-block-end" ->
                     putLogicalLengths(target, property, value, "margin", MARGIN_LENGTH);
@@ -1298,7 +1340,13 @@ public final class CssParser {
                     property.equals("max-inline-size") ? "max-width" : "max-height",
                     value, MAX_DIMENSION);
             case "border-width" -> expandLengths(target, "border", value, POSITIVE_LENGTH, "-width");
-            case "border-color" -> expandColors(target, value);
+            case "border-color" -> {
+                if (SYSTEM_COLORS.contains(value)) {
+                    target.put(property, value);
+                } else {
+                    expandColors(target, value);
+                }
+            }
             case "border-style" -> expandBorderStyles(target, value);
             case "border" -> expandBorder(target, null, value);
             case "border-radius" -> {
@@ -1875,7 +1923,8 @@ public final class CssParser {
             return;
         }
         if (normalized.equals("auto")) normalized = "1 1 auto";
-        else if (normalized.equals("initial")) normalized = "0 1 auto";
+        else if (normalized.equals("initial") || normalized.equals("unset")
+                || normalized.equals("inherit")) normalized = "0 1 auto";
         String[] tokens = normalized.split("\\s+");
         if (tokens.length == 1) {
             if (NON_NEGATIVE_NUMBER.matcher(tokens[0]).matches()) {
@@ -1895,18 +1944,24 @@ public final class CssParser {
         if (tokens.length > 3 || !NON_NEGATIVE_NUMBER.matcher(tokens[0]).matches()) return;
         if (NON_NEGATIVE_NUMBER.matcher(tokens[1]).matches()) {
             String basis = tokens.length == 3 ? tokens[2] : "0%";
-            if (!basis.equals("auto") && !DIMENSION.matcher(basis).matches()) return;
+            if (!isFlexBasis(basis)) return;
             target.put("flex-grow", tokens[0]);
             target.put("flex-shrink", tokens[1]);
             target.put("flex-basis", basis);
             return;
         }
         if (tokens.length == 2 && (tokens[1].equals("auto")
-                || DIMENSION.matcher(tokens[1]).matches())) {
+                || isFlexBasis(tokens[1]))) {
             target.put("flex-grow", tokens[0]);
             target.put("flex-shrink", "1");
             target.put("flex-basis", tokens[1]);
         }
+    }
+
+    private static boolean isFlexBasis(String value) {
+        return value.equals("auto") || value.equals("max-content")
+                || value.equals("min-content") || value.equals("fit-content")
+                || value.equals("content") || DIMENSION.matcher(value).matches();
     }
 
     private static void expandGap(Map<String, String> target, String value) {
@@ -2217,7 +2272,7 @@ public final class CssParser {
     }
 
     private static final Pattern GRID_TRACK = Pattern.compile(
-            "auto|min-content|max-content|[0-9]*\\.?[0-9]+(px|em|rem|vw|vh|%|fr)"
+            "auto|min-content|max-content|0|[0-9]*\\.?[0-9]+(px|em|rem|vw|vh|%|fr)"
                     + "|minmax\\([^)]*\\)|repeat\\([^)]*\\)|fit-content\\([^)]*\\)");
 
     private static boolean isGridTrackList(String value) {
@@ -2442,6 +2497,14 @@ public final class CssParser {
             return false;
         }
         return true;
+    }
+
+    private static boolean isAlignSelfValue(String value) {
+        return value.equals("auto") || value.equals("stretch")
+                || value.equals("flex-start") || value.equals("center")
+                || value.equals("flex-end") || value.equals("baseline")
+                || value.equals("start") || value.equals("end")
+                || value.equals("self-start") || value.equals("self-end");
     }
 
     private static final java.util.Set<String> SYSTEM_COLORS = java.util.Set.of(

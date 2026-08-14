@@ -1308,4 +1308,44 @@ public class CssParserTest {
         assertTrue(parser.supports("grid-area", "1/2"));
         assertFalse(parser.parseDeclarations("mask-image:garbage").containsKey("mask-image"));
     }
+
+    @Test
+    public void acceptsChLhUnitsPlaceSelfClipAndInheritLonghands() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                padding:30% 0;min-width:1ch;max-width:65ch;line-height:2lh;
+                clip:rect(1px,1px,1px,1px);mask-size:75%;place-self:center end;
+                align-self:start;border-color:canvastext;box-sizing:initial;
+                justify-content:stretch;margin-bottom:inherit;padding-left:inherit;
+                font-weight:inherit;grid-template-columns:0 0 0 1fr;
+                flex:0 1 max-content
+                """);
+
+        assertEquals("30%", declarations.get("padding-top"));
+        assertEquals("0", declarations.get("padding-right"));
+        assertEquals("inherit", declarations.get("padding-left"));
+        assertEquals("1ch", declarations.get("min-width"));
+        assertEquals("65ch", declarations.get("max-width"));
+        assertEquals("2lh", declarations.get("line-height"));
+        assertEquals("rect(1px,1px,1px,1px)", declarations.get("clip"));
+        assertEquals("75%", declarations.get("mask-size"));
+        assertEquals("start", declarations.get("align-self"));
+        assertEquals("end", declarations.get("justify-self"));
+        assertEquals("start", parser.parseDeclarations(
+                "align-self:start").get("align-self"));
+        assertEquals("canvastext", declarations.get("border-color"));
+        assertEquals("initial", declarations.get("box-sizing"));
+        assertEquals("stretch", declarations.get("justify-content"));
+        assertEquals("inherit", declarations.get("margin-bottom"));
+        assertEquals("inherit", declarations.get("padding-left"));
+        assertEquals("inherit", declarations.get("font-weight"));
+        assertEquals("0 0 0 1fr", declarations.get("grid-template-columns"));
+        assertEquals("max-content", declarations.get("flex-basis"));
+
+        assertTrue(parser.supportsProperty("clip"));
+        assertTrue(parser.supports("place-self", "start"));
+        assertTrue(parser.supports("grid-template-columns", "repeat(auto-fit,160px)"));
+        assertFalse(parser.parseDeclarations("clip:rect()").containsKey("clip"));
+        assertFalse(parser.parseDeclarations("mask-size:garbage").containsKey("mask-size"));
+    }
 }
