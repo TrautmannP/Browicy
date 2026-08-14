@@ -69,4 +69,24 @@ public class CompatibilityReportTest {
         assertTrue(!report.get("issues").toString().contains("at-rule:@media"));
         assertTrue(!report.get("issues").toString().contains("font-face"));
     }
+
+    @Test
+    public void doesNotReportSupportedSupportsOrNamespaceRules() {
+        Document document = new HtmlParser().parse(
+                "<html><body><p>ok</p></body></html>", "https://example.test/");
+        StyleSheetRegistry styles = new StyleSheetRegistry();
+        styles.register(0, """
+                @supports (display: flex) { .flexed { color: red } }
+                @namespace "http://www.w3.org/1999/xhtml";
+                @keyframes spin { from { opacity: 0 } to { opacity: 1 } }
+                """);
+
+        Map<String, Object> report = CompatibilityReport.build(
+                document, styles, JsExecutionResult.EMPTY);
+
+        String issues = report.get("issues").toString();
+        assertTrue(!issues.contains("at-rule:@supports"));
+        assertTrue(!issues.contains("at-rule:@namespace"));
+        assertTrue(issues.contains("at-rule:@keyframes"));
+    }
 }

@@ -21,6 +21,8 @@ import java.util.regex.Pattern;
 final class CompatibilityReport {
 
     private static final int MAX_EXAMPLES = 3;
+    private static final java.util.Set<String> SUPPORTED_AT_RULES = java.util.Set.of(
+            "font-face", "media", "supports", "namespace");
     private static final Pattern JS_REFERENCE_ERROR = Pattern.compile(
             "(?:ReferenceError:\\s*)?([A-Za-z_$][\\w$]*) is not defined");
     private static final Pattern JS_MISSING_FUNCTION = Pattern.compile(
@@ -63,7 +65,7 @@ final class CompatibilityReport {
             Matcher atRules = CSS_AT_RULE_USAGE.matcher(sheet.sourceText());
             while (atRules.find()) {
                 String name = atRules.group(1).toLowerCase(Locale.ROOT);
-                if (!name.equals("font-face") && !name.equals("media")) {
+                if (!SUPPORTED_AT_RULES.contains(name)) {
                     add("css", "at-rule:@" + name, "unsupported-at-rule", source,
                             "@" + name, "certain");
                 }
