@@ -664,6 +664,29 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesUserSelectFlexFlowStrokeAndMathFunctions() {
+        CssParser parser = new CssParser();
+        Map<String, String> batch = parser.parseDeclarations("""
+                user-select:none;flex-flow:column wrap;stroke:#ee8;
+                width:min(256px,100vw - 2rem)
+                """);
+        assertEquals("none", batch.get("user-select"));
+        assertEquals("column", batch.get("flex-direction"));
+        assertEquals("wrap", batch.get("flex-wrap"));
+        assertEquals("#ee8", batch.get("stroke"));
+        assertEquals("min(256px,100vw - 2rem)", batch.get("width"));
+
+        assertTrue(parser.parseDeclarations("flex-flow:row").containsKey("flex-direction"));
+        assertFalse(parser.parseDeclarations("flex-flow:bogus").containsKey("flex-direction"));
+        assertFalse(parser.parseDeclarations("user-select:nonsense").containsKey("user-select"));
+        assertFalse(parser.parseDeclarations("width:min(256px, 2rem, 1em")
+                .containsKey("width"));
+        assertTrue(parser.supportsProperty("user-select"));
+        assertTrue(parser.supports("width", "max(100px, 50vw)"));
+        assertTrue(parser.supports("flex-flow", "column"));
+    }
+
+    @Test
     public void parsesLetterSpacingTextOverflowOverflowWrapAndMaxContent() {
         CssParser parser = new CssParser();
         Map<String, String> text = parser.parseDeclarations("""

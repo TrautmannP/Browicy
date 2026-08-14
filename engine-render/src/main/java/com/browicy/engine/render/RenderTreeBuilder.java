@@ -1376,6 +1376,82 @@ public final class RenderTreeBuilder {
         }
     }
 
+    private Float evaluateMathFunction(String value, float emBase) {
+        boolean minimum = value.startsWith("min(");
+        String args = value.substring(4, value.length() - 1);
+        Float result = null;
+        for (String arg : splitTopLevelCommas(args)) {
+            Float parsed = evaluateMathArg(arg, emBase);
+            if (parsed == null) {
+                return null;
+            }
+            result = result == null ? parsed
+                    : minimum ? Math.min(result, parsed) : Math.max(result, parsed);
+        }
+        return result;
+    }
+
+    private static List<String> splitTopLevelCommas(String source) {
+        List<String> parts = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int index = 0; index < source.length(); index++) {
+            char current = source.charAt(index);
+            if (current == '(') {
+                depth++;
+            } else if (current == ')') {
+                depth--;
+            } else if (current == ',' && depth == 0) {
+                parts.add(source.substring(start, index));
+                start = index + 1;
+            }
+        }
+        parts.add(source.substring(start));
+        return parts;
+    }
+
+    private Float evaluateMathArg(String arg, float emBase) {
+        String normalized = arg.strip().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        float result = 0;
+        int offset = 0;
+        boolean subtract = false;
+        while (offset < normalized.length()) {
+            while (offset < normalized.length() && normalized.charAt(offset) == ' ') {
+                offset++;
+            }
+            if (offset < normalized.length() && (normalized.charAt(offset) == '+'
+                    || normalized.charAt(offset) == '-')) {
+                subtract = normalized.charAt(offset) == '-';
+                offset++;
+            }
+            while (offset < normalized.length() && normalized.charAt(offset) == ' ') {
+                offset++;
+            }
+            int end = offset;
+            while (end < normalized.length()) {
+                char current = normalized.charAt(end);
+                if (current == '+' || current == '-') {
+                    break;
+                }
+                end++;
+            }
+            String term = normalized.substring(offset, end).strip();
+            if (term.isEmpty()) {
+                return null;
+            }
+            float value = resolveLength(term, emBase, rootFontSizePx, Float.NaN);
+            if (Float.isNaN(value)) {
+                return null;
+            }
+            result += subtract ? -value : value;
+            offset = end;
+        }
+        return result;
+    }
+
     private RenderLength resolveDimension(String value, float emBase) {
         if (value == null || "auto".equals(value)) {
             return RenderLength.AUTO;
@@ -1385,6 +1461,13 @@ public final class RenderTreeBuilder {
         }
         if ("min-content".equals(value)) {
             return new RenderLength(0, RenderLength.Unit.MIN_CONTENT);
+        }
+        String math = value.toLowerCase(Locale.ROOT).strip();
+        if (math.startsWith("min(") || math.startsWith("max(")) {
+            Float evaluated = evaluateMathFunction(math, emBase);
+            if (evaluated != null) {
+                return new RenderLength(Math.max(0, evaluated), RenderLength.Unit.PX);
+            }
         }
         if ("0".equals(value)) {
             return new RenderLength(0, RenderLength.Unit.PX);

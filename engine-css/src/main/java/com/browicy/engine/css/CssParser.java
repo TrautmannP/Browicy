@@ -545,6 +545,9 @@ public final class CssParser {
             case "letter-spacing" -> supports(normalized, "0");
             case "text-overflow" -> supports(normalized, "ellipsis");
             case "overflow-wrap", "word-wrap" -> supports(normalized, "break-word");
+            case "user-select" -> supports(normalized, "none");
+            case "stroke" -> supports(normalized, "black");
+            case "flex-flow" -> supports(normalized, "row wrap");
             case "transform" -> supports(normalized, "none");
             case "transform-origin" -> supports(normalized, "50% 50%");
             case "visibility" -> supports(normalized, "visible");
@@ -627,6 +630,33 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
+            case "flex-flow" -> {
+                String[] tokens = value.split("\\s+");
+                if (tokens.length < 1 || tokens.length > 2) {
+                    break;
+                }
+                String direction = null;
+                String wrap = null;
+                for (String token : tokens) {
+                    if (token.equals("row") || token.equals("row-reverse")
+                            || token.equals("column") || token.equals("column-reverse")) {
+                        direction = token;
+                    } else if (token.equals("nowrap") || token.equals("wrap")
+                            || token.equals("wrap-reverse")) {
+                        wrap = token;
+                    } else {
+                        direction = null;
+                        wrap = null;
+                        break;
+                    }
+                }
+                if (direction != null) {
+                    target.put("flex-direction", direction);
+                }
+                if (wrap != null) {
+                    target.put("flex-wrap", wrap);
+                }
+            }
             case "flex-direction" -> {
                 if (value.equals("row") || value.equals("row-reverse")
                         || value.equals("column") || value.equals("column-reverse")) {
@@ -683,6 +713,13 @@ public final class CssParser {
             case "flex-basis" -> putIfMatches(target, property, value, DIMENSION);
             case "flex" -> expandFlex(target, value);
             case "opacity" -> putUnitInterval(target, property, value);
+            case "user-select" -> {
+                if (value.equals("none") || value.equals("all") || value.equals("text")
+                        || value.equals("auto")) {
+                    target.put(property, value);
+                }
+            }
+            case "stroke", "stroke-color" -> putColor(target, property, value);
             case "aspect-ratio" -> putIfMatches(target, property, value, ASPECT_RATIO);
             case "object-fit" -> {
                 if (value.equals("fill") || value.equals("contain") || value.equals("cover")
@@ -736,14 +773,16 @@ public final class CssParser {
             case "top", "right", "bottom", "left" ->
                     putIfMatches(target, property, value, POSITION_OFFSET);
             case "width", "height", "min-width", "min-height" -> {
-                if (value.equals("max-content") || value.equals("min-content")) {
+                if (value.equals("max-content") || value.equals("min-content")
+                        || isMathFunctionValue(value)) {
                     target.put(property, value);
                 } else {
                     putIfMatches(target, property, value, DIMENSION);
                 }
             }
             case "max-width", "max-height" -> {
-                if (value.equals("max-content") || value.equals("min-content")) {
+                if (value.equals("max-content") || value.equals("min-content")
+                        || isMathFunctionValue(value)) {
                     target.put(property, value);
                 } else {
                     putIfMatches(target, property, value, MAX_DIMENSION);
@@ -892,6 +931,28 @@ public final class CssParser {
                 }
             }
         }
+    }
+
+    private static final Pattern MATH_ARG = Pattern.compile(
+            "\\s*[-+]?[0-9]*\\.?[0-9]+(px|em|rem|vw|vh|%)?"
+                    + "(\\s*[+-]\\s*[-+]?[0-9]*\\.?[0-9]+(px|em|rem|vw|vh|%)?)?\\s*");
+
+    private static boolean isMathFunctionValue(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT).strip();
+        if (!(normalized.startsWith("min(") || normalized.startsWith("max("))
+                || !normalized.endsWith(")")) {
+            return false;
+        }
+        String args = normalized.substring(4, normalized.length() - 1);
+        if (args.isEmpty()) {
+            return false;
+        }
+        for (String arg : splitTopLevel(args, ',')) {
+            if (!MATH_ARG.matcher(arg).matches()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static final Pattern TRANSFORM_FUNCTION =
