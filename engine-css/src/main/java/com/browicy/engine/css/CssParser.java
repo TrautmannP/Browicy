@@ -516,6 +516,7 @@ public final class CssParser {
             case "vertical-align" -> supports(normalized, "baseline");
             case "border-collapse" -> supports(normalized, "separate");
             case "border-radius" -> supports(normalized, "4px");
+            case "box-shadow" -> supports(normalized, "0 1px 2px black");
             case "border-top-left-radius", "border-top-right-radius",
                  "border-bottom-right-radius", "border-bottom-left-radius" ->
                     supports(normalized, "4px");
@@ -728,6 +729,11 @@ public final class CssParser {
             case "border-style" -> expandBorderStyles(target, value);
             case "border" -> expandBorder(target, null, value);
             case "border-radius" -> putBorderRadius(target, value);
+            case "box-shadow" -> {
+                if (isBoxShadowValue(value)) {
+                    target.put(property, value);
+                }
+            }
             case "border-top-left-radius", "border-top-right-radius",
                  "border-bottom-right-radius", "border-bottom-left-radius" ->
                     putIfMatches(target, property, value, RADIUS_LENGTH);
@@ -882,6 +888,86 @@ public final class CssParser {
     private static boolean isBackgroundRepeat(String value) {
         return value.equals("repeat") || value.equals("repeat-x")
                 || value.equals("repeat-y") || value.equals("no-repeat");
+    }
+
+    private static boolean isBoxShadowValue(String value) {
+        String normalized = value.strip();
+        if (normalized.equalsIgnoreCase("none")) {
+            return true;
+        }
+        for (String layer : splitTopLevel(normalized, ',')) {
+            if (!isBoxShadowLayer(layer.strip())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isBoxShadowLayer(String value) {
+        if (value.isEmpty()) {
+            return false;
+        }
+        boolean inset = false;
+        int lengths = 0;
+        int colors = 0;
+        String[] tokens = value.split("\\s+");
+        for (int index = 0; index < tokens.length; index++) {
+            String token = tokens[index];
+            if (token.isBlank()) {
+                continue;
+            }
+            boolean last = index == tokens.length - 1;
+            if (token.equalsIgnoreCase("inset") && !inset
+                    && (index == 0 || last)) {
+                inset = true;
+            } else if (POSITIVE_LENGTH.matcher(token).matches() || "0".equals(token)
+                    || isNegativeLength(token)) {
+                lengths++;
+                if (lengths > 4) {
+                    return false;
+                }
+            } else if (isColorValue(token) || containsVarFunction(token)) {
+                colors++;
+                if (colors > 1 || lengths < 2) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        return lengths >= 2;
+    }
+
+    private static boolean isNegativeLength(String token) {
+        return token.matches("-?\\d+(\\.\\d+)?(?:px|em|rem|vw|vh)?");
+    }
+
+    private static java.util.List<String> splitTopLevel(String source, char separator) {
+        java.util.List<String> parts = new ArrayList<>();
+        int depth = 0;
+        boolean quoted = false;
+        char quote = 0;
+        int start = 0;
+        for (int index = 0; index < source.length(); index++) {
+            char current = source.charAt(index);
+            if (quoted) {
+                if (current == quote && (index == 0 || source.charAt(index - 1) != '\\')) {
+                    quoted = false;
+                }
+            } else if (current == '\'' || current == '"') {
+                quoted = true;
+                quote = current;
+            } else if (current == '(') {
+                depth++;
+            } else if (current == ')') {
+                depth--;
+            } else if (current == separator && depth == 0) {
+                parts.add(source.substring(start, index));
+                start = index + 1;
+            }
+        }
+        parts.add(source.substring(start));
+        return parts;
     }
 
     private static boolean isBackgroundSizeToken(String value) {

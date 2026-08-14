@@ -89,6 +89,24 @@ public class RenderTreeBuilderTest {
     }
 
     @Test
+    public void resolvesMultiLayerBoxShadowsWithOffsetsAndColors() {
+        RenderBox box = boxChildren(build("""
+                <body><div style="box-shadow:0 1px 3px rgba(0,0,0,.2),
+                  inset 2px 4px 6px 8px #abc">x</div></body>
+                """).root()).getFirst();
+        java.util.List<BoxShadow> shadows = box.style().boxShadows();
+
+        assertEquals(2, shadows.size());
+        assertEquals(0f, shadows.get(0).xOffset(), 0.001f);
+        assertEquals(1f, shadows.get(0).yOffset(), 0.001f);
+        assertEquals(3f, shadows.get(0).blur(), 0.001f);
+        assertEquals(CssColor.parse("rgba(0,0,0,.2)"), shadows.get(0).color());
+        assertTrue(shadows.get(1).inset());
+        assertEquals(2f, shadows.get(1).xOffset(), 0.001f);
+        assertEquals(8f, shadows.get(1).spread(), 0.001f);
+    }
+
+    @Test
     public void resolvesWhiteSpaceFromDeclarationsAndInheritsIt() {
         RenderBox parent = boxChildren(build("""
                 <body><div style="white-space:pre-wrap"><span>text</span></div></body>

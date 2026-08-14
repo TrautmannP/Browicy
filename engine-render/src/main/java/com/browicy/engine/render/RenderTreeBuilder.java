@@ -99,6 +99,7 @@ public final class RenderTreeBuilder {
                 BoxColors.CURRENT_COLOR,
                 BoxBorders.NONE,
                 CornerRadii.ZERO,
+                java.util.List.of(),
                 0,
                 DEFAULT_COLOR,
                 false,
@@ -619,6 +620,7 @@ public final class RenderTreeBuilder {
                 BoxColors.CURRENT_COLOR,
                 BoxBorders.NONE,
                 CornerRadii.ZERO,
+                java.util.List.of(),
                 0,
                 inherited.color(),
                 false,
@@ -693,6 +695,7 @@ public final class RenderTreeBuilder {
         BoxColors borderColor = BoxColors.CURRENT_COLOR;
         BoxBorders borderStyle = BoxBorders.NONE;
         CornerRadii borderRadius = CornerRadii.ZERO;
+        java.util.List<BoxShadow> boxShadows = java.util.List.of();
         float outlineWidth = 0;
         CssColor outlineColor = color;
         boolean outlineVisible = false;
@@ -927,6 +930,8 @@ public final class RenderTreeBuilder {
         borderStyle = resolveBorderStyles(declarations);
         borderWidth = effectiveBorderWidths(borderWidth, borderStyle);
         borderRadius = resolveCornerRadii(declarations, fontSize, rootFontSizePx);
+        boxShadows = parseBoxShadows(declarations.get("box-shadow"), fontSize,
+                rootFontSizePx, color);
         outlineWidth = Math.max(0, resolveLength(
                 declarations.get("outline-width"), fontSize, rootFontSizePx, 0));
         outlineColor = colorOrCurrent(declarations.get("outline-color"), color);
@@ -949,7 +954,8 @@ public final class RenderTreeBuilder {
                 width, height, minWidth, maxWidth, minHeight, maxHeight,
                 aspectRatio, objectFit, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,
-                outlineWidth, outlineColor, outlineVisible, borderCollapse, textAlign, textTransform,
+                boxShadows, outlineWidth, outlineColor, outlineVisible,
+                borderCollapse, textAlign, textTransform,
                 whiteSpace, overflow, verticalAlign, flexDirection, flexWrap, justifyContent,
                 alignItems, rowGapPx, columnGapPx, flexGrow,
                 flexShrink, flexBasis,
@@ -1091,6 +1097,92 @@ public final class RenderTreeBuilder {
                 "solid".equals(declarations.get("border-right-style")),
                 "solid".equals(declarations.get("border-bottom-style")),
                 "solid".equals(declarations.get("border-left-style")));
+    }
+
+    private java.util.List<BoxShadow> parseBoxShadows(String value,
+                                                      float emBase, float remBase,
+                                                      CssColor currentColor) {
+        if (value == null || value.isBlank() || "none".equalsIgnoreCase(value.strip())) {
+            return java.util.List.of();
+        }
+        java.util.List<BoxShadow> shadows = new ArrayList<>();
+        for (String layer : splitTopLevel(value, ',')) {
+            BoxShadow shadow = parseBoxShadowLayer(layer.strip(), emBase, remBase, currentColor);
+            if (shadow == null) {
+                return java.util.List.of();
+            }
+            shadows.add(shadow);
+        }
+        return List.copyOf(shadows);
+    }
+
+    private BoxShadow parseBoxShadowLayer(String value, float emBase, float remBase,
+                                          CssColor currentColor) {
+        List<String> tokens = java.util.Arrays.stream(value.split("\\s+"))
+                .filter(token -> !token.isBlank()).toList();
+        if (tokens.size() < 2 || tokens.size() > 6) {
+            return null;
+        }
+        boolean inset = false;
+        CssColor color = null;
+        List<String> lengths = new ArrayList<>();
+        for (int index = 0; index < tokens.size(); index++) {
+            String token = tokens.get(index);
+            boolean last = index == tokens.size() - 1;
+            if (token.equalsIgnoreCase("inset") && !inset
+                    && (index == 0 || last)) {
+                inset = true;
+            } else if (isShadowLength(token) || token.equals("0")) {
+                lengths.add(token);
+            } else {
+                CssColor parsed = CssColor.parse(token);
+                if (color != null || parsed == null) {
+                    return null;
+                }
+                color = parsed;
+            }
+        }
+        if (lengths.size() < 2 || lengths.size() > 4) {
+            return null;
+        }
+        float x = resolveLength(lengths.get(0), emBase, remBase, 0);
+        float y = resolveLength(lengths.get(1), emBase, remBase, 0);
+        float blur = lengths.size() >= 3 ? resolveLength(lengths.get(2), emBase, remBase, 0) : 0;
+        float spread = lengths.size() >= 4 ? resolveLength(lengths.get(3), emBase, remBase, 0) : 0;
+        return new BoxShadow(inset, x, y, blur, spread,
+                color == null ? currentColor : color);
+    }
+
+    private static java.util.List<String> splitTopLevel(String source, char separator) {
+        java.util.List<String> parts = new ArrayList<>();
+        int depth = 0;
+        boolean quoted = false;
+        char quote = 0;
+        int start = 0;
+        for (int index = 0; index < source.length(); index++) {
+            char current = source.charAt(index);
+            if (quoted) {
+                if (current == quote && (index == 0 || source.charAt(index - 1) != '\\')) {
+                    quoted = false;
+                }
+            } else if (current == '\'' || current == '"') {
+                quoted = true;
+                quote = current;
+            } else if (current == '(') {
+                depth++;
+            } else if (current == ')') {
+                depth--;
+            } else if (current == separator && depth == 0) {
+                parts.add(source.substring(start, index));
+                start = index + 1;
+            }
+        }
+        parts.add(source.substring(start));
+        return parts;
+    }
+
+    private static boolean isShadowLength(String token) {
+        return token.matches("-?\\d+(\\.\\d+)?(?:px|em|rem|vw|vh)?");
     }
 
     private CornerRadii resolveCornerRadii(Map<String, String> declarations,

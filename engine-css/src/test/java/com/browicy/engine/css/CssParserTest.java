@@ -644,6 +644,25 @@ public class CssParserTest {
     }
 
     @Test
+    public void acceptsBoxShadowValuesAndRejectsInvalidOnes() {
+        CssParser parser = new CssParser();
+        assertEquals("0 1px 3px rgba(0,0,0,.2)",
+                parser.parseDeclarations("box-shadow:0 1px 3px rgba(0,0,0,.2)")
+                        .get("box-shadow"));
+        assertEquals("inset 0 2px 4px black",
+                parser.parseDeclarations("box-shadow:inset 0 2px 4px black")
+                        .get("box-shadow"));
+        assertTrue(parser.parseDeclarations("box-shadow:0 1px 2px black,0 8px 24px gray")
+                .containsKey("box-shadow"));
+        assertTrue(parser.supportsProperty("box-shadow"));
+        assertTrue(parser.supports("box-shadow", "none"));
+        assertTrue(parser.supports("box-shadow", "0 0 0 1px #ccc inset"));
+        assertFalse(parser.supports("box-shadow", "1px"));
+        assertFalse(parser.supports("box-shadow", "red blue"));
+        assertFalse(parser.supports("box-shadow", "0 1px solid"));
+    }
+
+    @Test
     public void parsesRulesInsideTrueSupportsConditionsAndSkipsFalseOnes() {
         List<CssRule> rules = new CssParser().parse("""
                 .base { color: black }

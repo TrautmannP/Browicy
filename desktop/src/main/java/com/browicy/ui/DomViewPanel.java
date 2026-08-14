@@ -13,6 +13,7 @@ import com.browicy.engine.dom.Event;
 import com.browicy.engine.js.PageRuntime;
 import com.browicy.engine.render.BoxBorders;
 import com.browicy.engine.render.BoxEdges;
+import com.browicy.engine.render.BoxShadow;
 import com.browicy.engine.render.CornerRadii;
 import com.browicy.engine.render.CssColor;
 import com.browicy.engine.render.RenderLength;
@@ -42,6 +43,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.KeyAdapter;
@@ -725,6 +727,11 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         boolean rounded = radii.topLeft() > 0 || radii.topRight() > 0
                 || radii.bottomRight() > 0 || radii.bottomLeft() > 0;
         var boxShape = boxPath(x, y, width, height, radii);
+        for (BoxShadow shadow : style.boxShadows()) {
+            if (!shadow.inset()) {
+                paintOuterShadow(graphics, shadow, x, y, width, height, radii);
+            }
+        }
         if (background != null && !background.isTransparent()) {
             graphics.setColor(toAwtColor(background));
             graphics.fill(boxShape);
@@ -770,6 +777,11 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                     x, y, widths.left(), height);
         }
         }
+        for (BoxShadow shadow : style.boxShadows()) {
+            if (shadow.inset()) {
+                paintInsetShadow(graphics, shadow, x, y, width, height, boxShape);
+            }
+        }
         if (style.outlineVisible()) {
             float outline = style.outlineWidth();
             graphics.setColor(toAwtColor(style.outlineColor()));
@@ -780,6 +792,91 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                     grown(radii, outline / 2f)));
             graphics.setStroke(new BasicStroke());
         }
+    }
+
+    private void paintOuterShadow(Graphics2D graphics, BoxShadow shadow,
+                                  float x, float y, float width, float height,
+                                  CornerRadii radii) {
+        float spread = shadow.spread();
+        float shadowX = x + shadow.xOffset() - spread;
+        float shadowY = y + shadow.yOffset() - spread;
+        Shape shadowShape = boxPath(shadowX, shadowY,
+                width + 2 * spread, height + 2 * spread,
+                grown(radii, spread));
+        Color color = toAwtColor(shadow.color());
+        if (shadow.blur() <= 0.5f) {
+            graphics.setColor(color);
+            graphics.fill(shadowShape);
+            return;
+        }
+        int radius = Math.min(24, Math.max(1, Math.round(shadow.blur())));
+        paintBlurred(graphics, shadowShape, color, radius);
+    }
+
+    private void paintInsetShadow(Graphics2D graphics, BoxShadow shadow,
+                                  float x, float y, float width, float height,
+                                  Shape boxShape) {
+        Shape oldClip = graphics.getClip();
+        graphics.clip(boxShape);
+        graphics.setColor(toAwtColor(shadow.color()));
+        float stroke = Math.max(2f, Math.max(shadow.blur(), Math.abs(shadow.xOffset())
+                + Math.abs(shadow.yOffset())));
+        graphics.setStroke(new BasicStroke(stroke));
+        graphics.draw(boxPath(x - shadow.xOffset(), y - shadow.yOffset(),
+                width + 2 * shadow.xOffset(), height + 2 * shadow.yOffset(),
+                CornerRadii.ZERO));
+        graphics.setStroke(new BasicStroke());
+        graphics.setClip(oldClip);
+    }
+
+    private static void paintBlurred(Graphics2D graphics, Shape shape,
+                                     Color color, int radius) {
+        Rectangle bounds = shape.getBounds();
+        int padding = radius * 2 + 4;
+        int imageWidth = Math.max(1, bounds.width + 2 * padding);
+        int imageHeight = Math.max(1, bounds.height + 2 * padding);
+        BufferedImage mask = new BufferedImage(imageWidth, imageHeight,
+                BufferedImage.TYPE_INT_ARGB);
+        Graphics2D maskGraphics = mask.createGraphics();
+        maskGraphics.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 255));
+        maskGraphics.translate(-bounds.x + padding, -bounds.y + padding);
+        maskGraphics.fill(shape);
+        maskGraphics.dispose();
+
+        float[] kernel = gaussianKernel(radius);
+        BufferedImage horizontal = new BufferedImage(imageWidth, imageHeight,
+                BufferedImage.TYPE_INT_ARGB);
+        new java.awt.image.ConvolveOp(new java.awt.image.Kernel(kernel.length, 1, kernel),
+                java.awt.image.ConvolveOp.EDGE_NO_OP, null).filter(mask, horizontal);
+        BufferedImage blurred = new BufferedImage(imageWidth, imageHeight,
+                BufferedImage.TYPE_INT_ARGB);
+        new java.awt.image.ConvolveOp(new java.awt.image.Kernel(1, kernel.length, kernel),
+                java.awt.image.ConvolveOp.EDGE_NO_OP, null).filter(horizontal, blurred);
+
+        float alpha = color.getAlpha() / 255f;
+        if (alpha >= 1f) {
+            graphics.drawImage(blurred, bounds.x - padding, bounds.y - padding, null);
+        } else {
+            graphics.setComposite(AlphaComposite.getInstance(
+                    AlphaComposite.SRC_OVER, alpha));
+            graphics.drawImage(blurred, bounds.x - padding, bounds.y - padding, null);
+            graphics.setComposite(AlphaComposite.SrcOver);
+        }
+    }
+
+    private static float[] gaussianKernel(int radius) {
+        float[] kernel = new float[radius * 2 + 1];
+        float sigma = Math.max(0.5f, radius / 2f);
+        float sum = 0;
+        for (int index = 0; index < kernel.length; index++) {
+            int distance = index - radius;
+            kernel[index] = (float) Math.exp(-(distance * distance) / (2 * sigma * sigma));
+            sum += kernel[index];
+        }
+        for (int index = 0; index < kernel.length; index++) {
+            kernel[index] /= sum;
+        }
+        return kernel;
     }
 
     private static CornerRadii shrunk(CornerRadii radii, float amount) {
