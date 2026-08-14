@@ -696,6 +696,12 @@ public class CssParserTest {
         assertTrue(parser.parseDeclarations("background:inherit")
                 .containsKey("background-color"));
 
+        Map<String, String> cover = parser.parseDeclarations(
+                "background:url(/images/promo.png) bottom/cover no-repeat");
+        assertEquals("url(/images/promo.png)", cover.get("background-image"));
+        assertEquals("cover", cover.get("background-size-x"));
+        assertEquals("no-repeat", cover.get("background-repeat"));
+
         assertFalse(parser.parseDeclarations(
                 "background-image:linear-gradient()").containsKey("background-image"));
         assertFalse(parser.parseDeclarations(

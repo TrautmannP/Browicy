@@ -1347,6 +1347,7 @@ public final class CssParser {
                 if (token.isBlank()) continue;
                 String normalized = token.toLowerCase(Locale.ROOT);
                 if (size.size() < 2 && isBackgroundSizeToken(normalized)) size.add(normalized);
+                else if (isBackgroundRepeat(normalized)) repeat = normalized;
                 else if (isColorValue(normalized)) color = normalized;
                 else return;
             }
@@ -1473,7 +1474,8 @@ public final class CssParser {
     }
 
     private static boolean isBackgroundSizeToken(String value) {
-        return value.equals("auto") || BACKGROUND_LENGTH.matcher(value).matches();
+        return value.equals("auto") || value.equals("cover") || value.equals("contain")
+                || BACKGROUND_LENGTH.matcher(value).matches();
     }
 
     private static boolean containsVarFunction(String value) {
