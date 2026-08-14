@@ -742,6 +742,8 @@ public final class RenderTreeBuilder {
         position = switch (declarations.getOrDefault("position", "static")) {
             case "relative" -> RenderStyle.Position.RELATIVE;
             case "absolute" -> RenderStyle.Position.ABSOLUTE;
+            case "sticky" -> RenderStyle.Position.STICKY;
+            case "fixed" -> RenderStyle.Position.FIXED;
             default -> RenderStyle.Position.STATIC;
         };
         zIndex = parseZIndex(declarations.get("z-index"));
@@ -814,7 +816,12 @@ public final class RenderTreeBuilder {
             case "capitalize" -> RenderStyle.TextTransform.CAPITALIZE;
             default -> RenderStyle.TextTransform.NONE;
         };
-        overflow = switch (declarations.getOrDefault("overflow", "visible")) {
+        String overflowValue = declarations.getOrDefault("overflow", null);
+        if (overflowValue == null) {
+            overflowValue = declarations.getOrDefault("overflow-y",
+                    declarations.getOrDefault("overflow-x", "visible"));
+        }
+        overflow = switch (overflowValue) {
             case "hidden" -> RenderStyle.Overflow.HIDDEN;
             case "auto" -> RenderStyle.Overflow.AUTO;
             case "scroll" -> RenderStyle.Overflow.SCROLL;

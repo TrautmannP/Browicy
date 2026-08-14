@@ -107,6 +107,24 @@ public class RenderTreeBuilderTest {
     }
 
     @Test
+    public void resolvesStickyFixedAndOverflowLonghands() {
+        RenderBox sticky = boxChildren(build("""
+                <body><div style="position:sticky;top:4px">x</div></body>
+                """).root()).getFirst();
+        assertEquals(RenderStyle.Position.STICKY, sticky.style().position());
+
+        RenderBox fixed = boxChildren(build("""
+                <body><div style="position:fixed;top:4px">x</div></body>
+                """).root()).getFirst();
+        assertEquals(RenderStyle.Position.FIXED, fixed.style().position());
+
+        RenderBox clipped = boxChildren(build("""
+                <body><div style="overflow-y:hidden">x</div></body>
+                """).root()).getFirst();
+        assertEquals(RenderStyle.Overflow.HIDDEN, clipped.style().overflow());
+    }
+
+    @Test
     public void resolvesWhiteSpaceFromDeclarationsAndInheritsIt() {
         RenderBox parent = boxChildren(build("""
                 <body><div style="white-space:pre-wrap"><span>text</span></div></body>

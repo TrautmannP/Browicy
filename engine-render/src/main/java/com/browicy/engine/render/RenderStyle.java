@@ -77,7 +77,7 @@ public record RenderStyle(
     public enum BackgroundRepeat { REPEAT, REPEAT_X, REPEAT_Y, NO_REPEAT }
     public enum BackgroundPositionX { LEFT, CENTER, RIGHT }
     public enum BackgroundPositionY { TOP, CENTER, BOTTOM }
-    public enum Position { STATIC, RELATIVE, ABSOLUTE }
+    public enum Position { STATIC, RELATIVE, ABSOLUTE, STICKY, FIXED }
     public enum Cursor { DEFAULT, POINTER, TEXT }
     public enum FloatMode { NONE, LEFT, RIGHT }
     public enum Clear { NONE, LEFT, RIGHT, BOTH }

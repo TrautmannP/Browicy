@@ -95,14 +95,14 @@ public class CssParserTest {
     @Test
     public void ignoresUnknownPropertiesInvalidValuesAndMalformedRules() {
         List<CssRule> rules = new CssParser().parse("""
-                h1 { position: fixed; color: definitely-not-a-color; font-size: huge; }
+                h1 { animation: spin 1s; color: definitely-not-a-color; font-size: huge; }
                 p { color: red; }
                 broken rule
                 """);
 
         assertEquals(1, rules.size());
         assertEquals("p", rules.getFirst().selector().toString());
-        assertFalse(rules.getFirst().declarations().containsKey("position"));
+        assertFalse(rules.getFirst().declarations().containsKey("animation"));
     }
 
     @Test
@@ -142,7 +142,8 @@ public class CssParserTest {
         assertFalse(parser.supports("display", "grid"));
         assertTrue(parser.supportsProperty("position"));
         assertTrue(parser.supports("position", "absolute"));
-        assertFalse(parser.supports("position", "fixed"));
+        assertTrue(parser.supports("position", "fixed"));
+        assertFalse(parser.supports("position", "stickyish"));
     }
 
     @Test
@@ -660,6 +661,27 @@ public class CssParserTest {
         assertFalse(parser.supports("box-shadow", "1px"));
         assertFalse(parser.supports("box-shadow", "red blue"));
         assertFalse(parser.supports("box-shadow", "0 1px solid"));
+    }
+
+    @Test
+    public void parsesPercentageMarginsStickyFixedOverflowLonghandsAndCursors() {
+        CssParser parser = new CssParser();
+        assertEquals("8.33333%", parser.parseDeclarations("margin-left:8.33333%")
+                .get("margin-left"));
+        assertEquals("25%", parser.parseDeclarations("margin:25% 0")
+                .get("margin-top"));
+        assertEquals("sticky", parser.parseDeclarations("position:sticky")
+                .get("position"));
+        assertEquals("fixed", parser.parseDeclarations("position:fixed")
+                .get("position"));
+        assertEquals("hidden", parser.parseDeclarations("overflow-y:hidden")
+                .get("overflow-y"));
+        assertEquals("clip", parser.parseDeclarations("overflow-x:clip")
+                .get("overflow-x"));
+        assertEquals("grab", parser.parseDeclarations("cursor:grab").get("cursor"));
+        assertTrue(parser.supports("position", "sticky"));
+        assertTrue(parser.supports("overflow-y", "auto"));
+        assertFalse(parser.supports("position", "stickyish"));
     }
 
     @Test

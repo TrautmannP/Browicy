@@ -88,8 +88,12 @@ public final class RenderLayoutEngine {
             return layoutTable(box, containingX, y, availableWidth, containingHeight,
                     graphics, lineBoxes, positionedContext);
         }
-        PositionedContext childPositionedContext = style.position() == RenderStyle.Position.STATIC
-                ? positionedContext : new PositionedContext();
+        boolean positioned = switch (style.position()) {
+            case STATIC -> false;
+            default -> true;
+        };
+        PositionedContext childPositionedContext = positioned
+                ? new PositionedContext() : positionedContext;
         BoxEdges margin = style.margin();
         BoxEdges padding = style.padding();
         BoxEdges border = style.borderWidth();
@@ -184,7 +188,8 @@ public final class RenderLayoutEngine {
         List<PaintFragment> fragments = new ArrayList<>(childFragments.size() + 1);
         fragments.add(new BoxFragment(box, borderX, borderY, borderBoxWidth, borderBoxHeight));
         fragments.addAll(childFragments);
-        if (style.position() == RenderStyle.Position.RELATIVE) {
+        if (style.position() == RenderStyle.Position.RELATIVE
+                || style.position() == RenderStyle.Position.STICKY) {
             float dx = relativeHorizontalOffset(style, availableWidth);
             float dy = relativeVerticalOffset(style, containingHeight);
             fragments.replaceAll(fragment -> translate(fragment, dx, dy));
@@ -214,7 +219,8 @@ public final class RenderLayoutEngine {
                         graphics, childFragments, lineBoxes);
                 currentY += inlineHeight;
                 if (inlineHeight > 0) previousBottomMargin = null;
-                if (childBox.style().position() == RenderStyle.Position.ABSOLUTE) {
+                if (childBox.style().position() == RenderStyle.Position.ABSOLUTE
+                        || childBox.style().position() == RenderStyle.Position.FIXED) {
                     childPositionedContext.requests.add(
                             new AbsoluteRequest(childBox, contentX, currentY));
                     continue;
@@ -278,7 +284,8 @@ public final class RenderLayoutEngine {
         List<RenderBox> items = new ArrayList<>();
         for (RenderNode child : container.children()) {
             if (!(child instanceof RenderBox item)) continue;
-            if (item.style().position() == RenderStyle.Position.ABSOLUTE) {
+            if (item.style().position() == RenderStyle.Position.ABSOLUTE
+                    || item.style().position() == RenderStyle.Position.FIXED) {
                 positionedContext.requests.add(new AbsoluteRequest(item, contentX, contentY));
             } else {
                 items.add(item);

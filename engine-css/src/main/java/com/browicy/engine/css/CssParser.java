@@ -27,7 +27,7 @@ public final class CssParser {
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:" + LENGTH_UNIT + "|%)|0)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern MARGIN_LENGTH = Pattern.compile(
-            "(?:(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)" + LENGTH_UNIT + "|0)|auto)",
+            "(?:(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0)|auto)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern DIMENSION = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0|auto|"
@@ -512,7 +512,7 @@ public final class CssParser {
             case "text-decoration", "text-decoration-line" -> supports(normalized, "underline");
             case "text-decoration-color" -> supports(normalized, "black");
             case "list-style", "list-style-type" -> supports(normalized, "disc");
-            case "overflow" -> supports(normalized, "visible");
+            case "overflow", "overflow-x", "overflow-y" -> supports(normalized, "visible");
             case "vertical-align" -> supports(normalized, "baseline");
             case "border-collapse" -> supports(normalized, "separate");
             case "border-radius" -> supports(normalized, "4px");
@@ -641,7 +641,8 @@ public final class CssParser {
             }
             case "position" -> {
                 if (value.equals("static") || value.equals("relative")
-                        || value.equals("absolute")) {
+                        || value.equals("absolute") || value.equals("sticky")
+                        || value.equals("fixed")) {
                     target.put(property, value);
                 }
             }
@@ -652,7 +653,12 @@ public final class CssParser {
             }
             case "cursor" -> {
                 if (value.equals("default") || value.equals("auto")
-                        || value.equals("pointer") || value.equals("text")) {
+                        || value.equals("pointer") || value.equals("text")
+                        || value.equals("crosshair") || value.equals("help")
+                        || value.equals("move") || value.equals("grab")
+                        || value.equals("not-allowed") || value.equals("wait")
+                        || value.equals("progress") || value.equals("zoom-in")
+                        || value.equals("zoom-out") || value.equals("cell")) {
                     target.put(property, value);
                 }
             }
@@ -678,9 +684,9 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
-            case "overflow" -> {
+            case "overflow", "overflow-x", "overflow-y" -> {
                 if (value.equals("visible") || value.equals("hidden") || value.equals("auto")
-                        || value.equals("scroll")) {
+                        || value.equals("scroll") || value.equals("clip")) {
                     target.put(property, value);
                 }
             }
