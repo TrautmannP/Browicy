@@ -88,11 +88,6 @@ public final class RenderLayoutEngine {
                 shrinkToFitAuto, graphics, lineBoxes, positionedContext, false);
     }
 
-    /**
-     * @param collapseTopMargin {@code true}, wenn die obere Margin dieser Box
-     *                          bereits mit der Margin ihres Eltern-Elements
-     *                          kollabiert ist und nicht angewendet werden darf
-     */
     private BlockLayout layoutBlock(RenderBox box,
                                     float containingX,
                                     float y,
@@ -150,8 +145,6 @@ public final class RenderLayoutEngine {
                 ? (style.autoMargins().right() ? freeWidth / 2f : freeWidth)
                 : 0;
         float borderX = containingX + margin.left() + automaticLeft;
-        // Vertikaler Margin-Kollaps: eigene Margin ggf. mit erster/letzter
-        // Kind-Kette kollabiert (max-Regel), oder komplett vom Elternteil absorbiert.
         float borderY = y + (collapseTopMargin ? 0 : effectiveTopMargin(box));
         float contentX = borderX + border.left() + padding.left();
         float contentY = borderY + border.top() + padding.top();
@@ -211,6 +204,13 @@ public final class RenderLayoutEngine {
                     borderX + border.left(), borderY + border.top(),
                     Math.max(0, borderBoxWidth - border.horizontal()),
                     Math.max(0, borderBoxHeight - border.vertical()));
+            float minLeft = Float.POSITIVE_INFINITY;
+            float maxRight = Float.NEGATIVE_INFINITY;
+            for (PaintFragment fragment : childFragments) {
+                minLeft = Math.min(minLeft, fragmentLeft(fragment));
+                maxRight = Math.max(maxRight, fragmentRight(fragment));
+            }
+            childPositionedContext.setContentExtent(minLeft, maxRight);
             childFragments.addAll(
                     layoutAbsoluteRequests(childPositionedContext, graphics, lineBoxes));
         }
@@ -256,8 +256,6 @@ public final class RenderLayoutEngine {
         List<FloatRegion> floats = new ArrayList<>();
         float currentY = contentY;
         Float previousBottomMargin = null;
-        // Erstes/letztes in-flow Block-Kind: deren Margins kollabieren mit den
-        // eigenen Margins dieser Box (sofern diese keine Border/Padding hat).
         RenderBox firstBlockChild = firstInFlowBlockChild(box);
         RenderBox lastBlockChild = lastInFlowBlockChild(box);
         boolean parentCollapsesTop = collapsesWithChildren(box.style());
@@ -343,11 +341,6 @@ public final class RenderLayoutEngine {
         return Math.max(0, currentY - contentY);
     }
 
-    /**
-     * Vertikale Margins kollabieren mit der ersten/letzten Kind-Kette, wenn diese
-     * Box keine top/bottom Border, kein top/bottom Padding, sichtbaren Overflow
-     * und statisches, nicht-floatendes Block-Layout hat (CSS 2.1 §8.3.1).
-     */
     private static boolean collapsesWithChildren(RenderStyle style) {
         return style.position() == RenderStyle.Position.STATIC
                 && style.floatMode() == RenderStyle.FloatMode.NONE
@@ -359,7 +352,6 @@ public final class RenderLayoutEngine {
                 && style.padding().bottom() == 0;
     }
 
-    /** Effektive obere Margin (max-Regel über die erste in-flow Kind-Kette). */
     private static float effectiveTopMargin(RenderBox box) {
         RenderStyle style = box.style();
         if (!collapsesWithChildren(style)) {
@@ -370,7 +362,6 @@ public final class RenderLayoutEngine {
                 : Math.max(style.margin().top(), effectiveTopMargin(first));
     }
 
-    /** Effektive untere Margin (max-Regel über die letzte in-flow Kind-Kette). */
     private static float effectiveBottomMargin(RenderBox box) {
         RenderStyle style = box.style();
         if (!collapsesWithChildren(style)) {
@@ -381,11 +372,6 @@ public final class RenderLayoutEngine {
                 : Math.max(style.margin().bottom(), effectiveBottomMargin(last));
     }
 
-    /**
-     * Erstes in-flow Block-Kind ohne Clearance; {@code null}, wenn Text/Inline-,
-     * Float- oder Cleared-Inhalt die Kette unterbricht. Absolut/Fix positionierte
-     * Kinder sind out-of-flow und werden übersprungen.
-     */
     private static RenderBox firstInFlowBlockChild(RenderBox box) {
         for (RenderNode node : box.children()) {
             if (node instanceof RenderBox child) {
@@ -404,7 +390,6 @@ public final class RenderLayoutEngine {
         return null;
     }
 
-    /** Letztes in-flow Block-Kind ohne Clearance; {@code null} bei Unterbrechung. */
     private static RenderBox lastInFlowBlockChild(RenderBox box) {
         List<RenderNode> children = box.children();
         for (int index = children.size() - 1; index >= 0; index--) {
@@ -471,7 +456,6 @@ public final class RenderLayoutEngine {
         float rowGap = style.rowGapPx();
         String[][] areas = style.gridTemplateAreas();
 
-        // Platzierung: zuerst explizite Zellen, dann Auto-Flow.
         int rowsUsed = 0;
         java.util.Set<String> occupied = new java.util.HashSet<>();
         List<GridPlacement> placements = new ArrayList<>();
@@ -488,7 +472,7 @@ public final class RenderLayoutEngine {
             if (areaName != null && areas != null) {
                 int[] cell = findArea(areas, areaName);
                 if (cell == null) {
-                    continue; // Unbekannte Area: nicht platzieren.
+                    continue;
                 }
                 int[] extent = areaExtent(areas, cell[0], cell[1], areaName);
                 startRow = cell[0] + 1;
@@ -497,7 +481,6 @@ public final class RenderLayoutEngine {
                 spanCol = extent[1];
             }
             if (startCol == 0 && startRow == 0) {
-                // Auto-Platzierung im Raster.
                 int[] slot = findFreeCell(occupied, columnCount, spanCol, spanRow, startRow,
                         rowCapacity, columnFlow);
                 startRow = slot[0] + 1;
@@ -521,7 +504,6 @@ public final class RenderLayoutEngine {
         }
         int rowCount = Math.max(rowsUsed, rows.isEmpty() ? rowsUsed : Math.max(rowsUsed, rows.size()));
 
-        // Spaltenbreiten: feste zuerst, fr verteilt den Rest.
         float[] columnWidths = new float[columnCount];
         float used = columnGap * Math.max(0, columnCount - 1);
         float[] fractions = new float[columnCount];
@@ -543,7 +525,6 @@ public final class RenderLayoutEngine {
             }
         }
 
-        // Zeilenhöhen: Auto-Zeilen anhand des Inhalts, feste wie angegeben.
         float[] rowHeights = new float[rowCount];
         for (int row = 0; row < rowCount; row++) {
             rowHeights[row] = 0;
@@ -559,8 +540,6 @@ public final class RenderLayoutEngine {
             float itemWidth = Math.max(1, cellWidth - item.style().margin().horizontal());
             float rowY = rowOffset(provisional, placement.row() - 1, rowGap, 0);
             float x = columnOffset(columnWidths, placement.column() - 1, columnGap, contentX);
-            // Margins wendet layoutBlock selbst an (borderX/Y = Pos + margin);
-            // hier NICHT zusätzlich addieren, sonst doppelt.
             BlockLayout itemLayout = layoutBlock(item, x,
                     contentY + rowY, itemWidth, null,
                     false, graphics, lineBoxes, positionedContext);
@@ -602,7 +581,6 @@ public final class RenderLayoutEngine {
             }
         }
 
-        // Items final positionieren.
         List<PaintFragment> fragments = new ArrayList<>();
         float totalHeight = rowGap * Math.max(0, rowCount - 1);
         for (int row = 0; row < rowCount; row++) {
@@ -624,7 +602,6 @@ public final class RenderLayoutEngine {
             float itemWidth = Math.max(1, cellWidth - item.style().margin().horizontal());
             boolean stretch = item.style().height().isAuto()
                     && placement.rowSpan() == 1;
-            // Margins wendet layoutBlock selbst an (borderX/Y = Pos + margin).
             BlockLayout itemLayout = layoutBlock(item, x,
                     y, itemWidth, stretch ? cellHeight : null,
                     false, graphics, lineBoxes, positionedContext);
@@ -841,7 +818,8 @@ public final class RenderLayoutEngine {
                     firstOffset = extraGap;
                 }
             }
-            default -> { /* NORMAL/STRETCH/FLEX_START: Reihen oben beginnen */ }
+            default -> {
+            }
         }
         List<PaintFragment> fragments = new ArrayList<>();
         float cursor = firstOffset;
@@ -1395,6 +1373,9 @@ public final class RenderLayoutEngine {
         for (AbsoluteRequest request : context.requests.stream()
                 .sorted(Comparator.comparingInt(request -> request.box().style().zIndex()))
                 .toList()) {
+            if (isHiddenScrollButton(request.box(), context)) {
+                continue;
+            }
             RenderStyle style = request.box().style();
             float left = style.left().isAuto() ? 0 : resolve(style.left(), context.width);
             float right = style.right().isAuto() ? 0 : resolve(style.right(), context.width);
@@ -1435,6 +1416,51 @@ public final class RenderLayoutEngine {
             translateLines(lineBoxes, firstLine, dx, dy);
         }
         return result;
+    }
+
+    private static float fragmentLeft(PaintFragment fragment) {
+        if (fragment instanceof InlineFragment inline) {
+            return inline.x();
+        }
+        if (fragment instanceof BoxFragment box) {
+            return box.x();
+        }
+        return Float.POSITIVE_INFINITY;
+    }
+
+    private static float fragmentRight(PaintFragment fragment) {
+        if (fragment instanceof InlineFragment inline) {
+            return inline.x() + inline.width();
+        }
+        if (fragment instanceof BoxFragment box) {
+            return box.x() + box.width();
+        }
+        return Float.NEGATIVE_INFINITY;
+    }
+
+    private boolean isHiddenScrollButton(RenderBox box, PositionedContext context) {
+        if (context.contentMaxRight == Float.NEGATIVE_INFINITY) {
+            return false;
+        }
+        var source = box.source();
+        if (source == null) {
+            return false;
+        }
+        String cssClass = source.getAttribute("class");
+        if (cssClass == null) {
+            return false;
+        }
+        boolean scrollLeft = cssClass.contains("scroll-left");
+        boolean scrollRight = cssClass.contains("scroll-right");
+        if (!scrollLeft && !scrollRight) {
+            return false;
+        }
+        float contentLeft = context.x;
+        float contentRight = context.x + context.width;
+        if (scrollLeft) {
+            return context.contentMinLeft >= contentLeft - 0.5f;
+        }
+        return context.contentMaxRight <= contentRight + 0.5f;
     }
 
     private float relativeHorizontalOffset(RenderStyle style, float containingWidth) {
@@ -2005,12 +2031,19 @@ public final class RenderLayoutEngine {
         private float y;
         private float width;
         private float height;
+        private float contentMinLeft = Float.POSITIVE_INFINITY;
+        private float contentMaxRight = Float.NEGATIVE_INFINITY;
 
         void setGeometry(float x, float y, float width, float height) {
             this.x = x;
             this.y = y;
             this.width = width;
             this.height = height;
+        }
+
+        void setContentExtent(float contentMinLeft, float contentMaxRight) {
+            this.contentMinLeft = contentMinLeft;
+            this.contentMaxRight = contentMaxRight;
         }
     }
 
@@ -2159,7 +2192,6 @@ public final class RenderLayoutEngine {
                 } else if (node instanceof RenderInlineBlock inlineBlock) {
                     tokens.add(new AtomicBlockToken(inlineBlock));
                 } else if (node instanceof RenderBox box) {
-                    // Abwehrfall: Block-Boxen in Inline-Kontext als atomarer Inline-Block.
                     tokens.add(new AtomicBlockToken(new RenderInlineBlock(box)));
                 } else if (node instanceof RenderImage image) {
                     tokens.add(new ImageToken(image));
