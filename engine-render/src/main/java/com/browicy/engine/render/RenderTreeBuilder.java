@@ -98,7 +98,7 @@ public final class RenderTreeBuilder {
                 BoxEdges.ZERO,
                 BoxColors.CURRENT_COLOR,
                 BoxBorders.NONE,
-                0,
+                CornerRadii.ZERO,
                 0,
                 DEFAULT_COLOR,
                 false,
@@ -617,7 +617,7 @@ public final class RenderTreeBuilder {
                 BoxEdges.ZERO,
                 BoxColors.CURRENT_COLOR,
                 BoxBorders.NONE,
-                0,
+                CornerRadii.ZERO,
                 0,
                 inherited.color(),
                 false,
@@ -690,7 +690,7 @@ public final class RenderTreeBuilder {
         BoxEdges borderWidth = BoxEdges.ZERO;
         BoxColors borderColor = BoxColors.CURRENT_COLOR;
         BoxBorders borderStyle = BoxBorders.NONE;
-        float borderRadius = 0;
+        CornerRadii borderRadius = CornerRadii.ZERO;
         float outlineWidth = 0;
         CssColor outlineColor = color;
         boolean outlineVisible = false;
@@ -923,8 +923,7 @@ public final class RenderTreeBuilder {
         borderColor = resolveBorderColors(declarations, color);
         borderStyle = resolveBorderStyles(declarations);
         borderWidth = effectiveBorderWidths(borderWidth, borderStyle);
-        borderRadius = Math.max(0, resolveLength(
-                declarations.get("border-radius"), fontSize, rootFontSizePx, 0));
+        borderRadius = resolveCornerRadii(declarations, fontSize, rootFontSizePx);
         outlineWidth = Math.max(0, resolveLength(
                 declarations.get("outline-width"), fontSize, rootFontSizePx, 0));
         outlineColor = colorOrCurrent(declarations.get("outline-color"), color);
@@ -1081,6 +1080,27 @@ public final class RenderTreeBuilder {
                 "solid".equals(declarations.get("border-right-style")),
                 "solid".equals(declarations.get("border-bottom-style")),
                 "solid".equals(declarations.get("border-left-style")));
+    }
+
+    private CornerRadii resolveCornerRadii(Map<String, String> declarations,
+                                           float emBase, float remBase) {
+        return new CornerRadii(
+                resolveCornerRadius(declarations.get("border-top-left-radius"), emBase, remBase),
+                resolveCornerRadius(declarations.get("border-top-right-radius"), emBase, remBase),
+                resolveCornerRadius(declarations.get("border-bottom-right-radius"), emBase, remBase),
+                resolveCornerRadius(declarations.get("border-bottom-left-radius"), emBase, remBase));
+    }
+
+    private float resolveCornerRadius(String value, float emBase, float remBase) {
+        if (value == null) {
+            return 0;
+        }
+        String normalized = value.strip().toLowerCase(Locale.ROOT);
+        if (normalized.endsWith("%")) {
+            // Prozentradien werden vom Painter auf die halbe Boxkante begrenzt.
+            return Float.POSITIVE_INFINITY;
+        }
+        return Math.max(0, resolveLength(normalized, emBase, remBase, 0));
     }
 
     private float resolveLength(String value, float emBase, float remBase, float fallback) {

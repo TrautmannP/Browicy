@@ -23,6 +23,9 @@ public final class CssParser {
     private static final String LENGTH_UNIT = "(?:px|em|rem|vw|vh)";
     private static final Pattern POSITIVE_LENGTH = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)" + LENGTH_UNIT + "|0)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RADIUS_LENGTH = Pattern.compile(
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:" + LENGTH_UNIT + "|%)|0)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern MARGIN_LENGTH = Pattern.compile(
             "(?:(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)" + LENGTH_UNIT + "|0)|auto)",
             Pattern.CASE_INSENSITIVE);
@@ -512,6 +515,9 @@ public final class CssParser {
             case "vertical-align" -> supports(normalized, "baseline");
             case "border-collapse" -> supports(normalized, "separate");
             case "border-radius" -> supports(normalized, "4px");
+            case "border-top-left-radius", "border-top-right-radius",
+                 "border-bottom-right-radius", "border-bottom-left-radius" ->
+                    supports(normalized, "4px");
             case "outline" -> supports(normalized, "1px solid black");
             case "outline-width" -> supports(normalized, "1px");
             case "outline-color" -> supports(normalized, "black");
@@ -711,7 +717,10 @@ public final class CssParser {
             case "border-color" -> expandColors(target, value);
             case "border-style" -> expandBorderStyles(target, value);
             case "border" -> expandBorder(target, null, value);
-            case "border-radius" -> putIfMatches(target, property, value, POSITIVE_LENGTH);
+            case "border-radius" -> putBorderRadius(target, value);
+            case "border-top-left-radius", "border-top-right-radius",
+                 "border-bottom-right-radius", "border-bottom-left-radius" ->
+                    putIfMatches(target, property, value, RADIUS_LENGTH);
             case "outline" -> expandOutline(target, value);
             case "outline-width" -> putIfMatches(target, property, value, POSITIVE_LENGTH);
             case "outline-color" -> putColor(target, property, value);
@@ -720,6 +729,57 @@ public final class CssParser {
             }
             default -> parseLonghand(target, property, value);
         }
+    }
+
+    private static void putBorderRadius(Map<String, String> target, String value) {
+        String horizontal = value;
+        int slash = value.indexOf('/');
+        if (slash >= 0) {
+            horizontal = value.substring(0, slash).strip();
+        }
+        String[] parts = horizontal.trim().split("\\s+");
+        if (parts.length < 1 || parts.length > 4) {
+            return;
+        }
+        for (String part : parts) {
+            if (!RADIUS_LENGTH.matcher(part).matches()) {
+                return;
+            }
+        }
+        String topLeft;
+        String topRight;
+        String bottomRight;
+        String bottomLeft;
+        switch (parts.length) {
+            case 1 -> {
+                topLeft = parts[0];
+                topRight = parts[0];
+                bottomRight = parts[0];
+                bottomLeft = parts[0];
+            }
+            case 2 -> {
+                topLeft = parts[0];
+                bottomRight = parts[0];
+                topRight = parts[1];
+                bottomLeft = parts[1];
+            }
+            case 3 -> {
+                topLeft = parts[0];
+                topRight = parts[1];
+                bottomLeft = parts[1];
+                bottomRight = parts[2];
+            }
+            default -> {
+                topLeft = parts[0];
+                topRight = parts[1];
+                bottomRight = parts[2];
+                bottomLeft = parts[3];
+            }
+        }
+        target.put("border-top-left-radius", topLeft);
+        target.put("border-top-right-radius", topRight);
+        target.put("border-bottom-right-radius", bottomRight);
+        target.put("border-bottom-left-radius", bottomLeft);
     }
 
     private static void putBackgroundImage(Map<String, String> target, String value) {

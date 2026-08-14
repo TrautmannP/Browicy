@@ -81,10 +81,25 @@ public class RenderTreeBuilderTest {
                 <body><div style="border-radius:8px;outline:blue 2px solid">x</div></body>
                 """).root()).getFirst();
 
-        assertEquals(8f, box.style().borderRadius(), 0.001f);
+        assertEquals(8f, box.style().borderRadius().topLeft(), 0.001f);
+        assertEquals(8f, box.style().borderRadius().bottomRight(), 0.001f);
         assertEquals(2f, box.style().outlineWidth(), 0.001f);
         assertEquals(CssColor.parse("blue"), box.style().outlineColor());
         assertTrue(box.style().outlineVisible());
+    }
+
+    @Test
+    public void resolvesPerCornerBorderRadiiAndPercentageAsUnbounded() {
+        RenderBox box = boxChildren(build("""
+                <body><div style="border-top-left-radius:10px;
+                  border-top-right-radius:50%;border-bottom-right-radius:4px;
+                  border-bottom-left-radius:0">x</div></body>
+                """).root()).getFirst();
+
+        assertEquals(10f, box.style().borderRadius().topLeft(), 0.001f);
+        assertEquals(Float.POSITIVE_INFINITY, box.style().borderRadius().topRight(), 0.001f);
+        assertEquals(4f, box.style().borderRadius().bottomRight(), 0.001f);
+        assertEquals(0f, box.style().borderRadius().bottomLeft(), 0.001f);
     }
 
     @Test

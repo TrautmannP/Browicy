@@ -45,7 +45,7 @@ public record RenderStyle(
         BoxEdges borderWidth,
         BoxColors borderColor,
         BoxBorders borderStyle,
-        float borderRadius,
+        CornerRadii borderRadius,
         float outlineWidth,
         CssColor outlineColor,
         boolean outlineVisible,

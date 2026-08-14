@@ -9,6 +9,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class CssParserTest {
@@ -378,11 +379,13 @@ public class CssParserTest {
         Map<String, String> declarations = parser.parseDeclarations(
                 "border-radius:6px;outline:black 2px solid");
 
-        assertEquals("6px", declarations.get("border-radius"));
+        assertEquals("6px", declarations.get("border-top-left-radius"));
+        assertEquals("6px", declarations.get("border-top-right-radius"));
         assertEquals("2px", declarations.get("outline-width"));
         assertEquals("solid", declarations.get("outline-style"));
         assertEquals("black", declarations.get("outline-color"));
         assertTrue(parser.supportsProperty("border-radius"));
+        assertTrue(parser.supportsProperty("border-top-left-radius"));
         assertTrue(parser.supportsProperty("outline"));
     }
 
@@ -562,6 +565,48 @@ public class CssParserTest {
         assertEquals(2, rules.size());
         assertTrue(rules.get(1).mediaCondition().matches(800, 600));
         assertFalse(rules.get(1).mediaCondition().matches(500, 600));
+    }
+
+    @Test
+    public void expandsBorderRadiusShorthandIntoPerCornerLonghands() {
+        CssParser parser = new CssParser();
+        Map<String, String> single = parser.parseDeclarations("border-radius:6px");
+        assertEquals("6px", single.get("border-top-left-radius"));
+        assertEquals("6px", single.get("border-top-right-radius"));
+        assertEquals("6px", single.get("border-bottom-right-radius"));
+        assertEquals("6px", single.get("border-bottom-left-radius"));
+
+        Map<String, String> mixed = parser.parseDeclarations(
+                "border-radius:8px 50% 4px");
+        assertEquals("8px", mixed.get("border-top-left-radius"));
+        assertEquals("50%", mixed.get("border-top-right-radius"));
+        assertEquals("4px", mixed.get("border-bottom-right-radius"));
+        assertEquals("50%", mixed.get("border-bottom-left-radius"));
+
+        Map<String, String> four = parser.parseDeclarations(
+                "border-radius:1px 2px 3px 4px");
+        assertEquals("1px", four.get("border-top-left-radius"));
+        assertEquals("2px", four.get("border-top-right-radius"));
+        assertEquals("3px", four.get("border-bottom-right-radius"));
+        assertEquals("4px", four.get("border-bottom-left-radius"));
+    }
+
+    @Test
+    public void parsesBorderRadiusLonghandsAndRejectsInvalidValues() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                border-top-left-radius:50%;border-top-right-radius:12px;
+                border-bottom-left-radius:0
+                """);
+        assertEquals("50%", declarations.get("border-top-left-radius"));
+        assertEquals("12px", declarations.get("border-top-right-radius"));
+        assertEquals("0", declarations.get("border-bottom-left-radius"));
+        assertNull(declarations.get("border-bottom-right-radius"));
+        assertTrue(parser.supportsProperty("border-top-left-radius"));
+        assertTrue(parser.supports("border-radius", "50%"));
+        assertFalse(parser.supports("border-radius", "solid"));
+        assertTrue(parser.parseDeclarations("border-radius:5px/50%")
+                .containsKey("border-top-left-radius"));
     }
 
     @Test

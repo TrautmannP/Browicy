@@ -13,6 +13,7 @@ import com.browicy.engine.dom.Event;
 import com.browicy.engine.js.PageRuntime;
 import com.browicy.engine.render.BoxBorders;
 import com.browicy.engine.render.BoxEdges;
+import com.browicy.engine.render.CornerRadii;
 import com.browicy.engine.render.CssColor;
 import com.browicy.engine.render.RenderLength;
 import com.browicy.engine.render.RenderStyle;
@@ -47,6 +48,7 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.geom.Path2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
@@ -719,32 +721,33 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                                        boolean paintLeft,
                                        boolean paintRight) {
         CssColor background = style.backgroundColor();
-        float radius = Math.min(style.borderRadius(), Math.min(width, height) / 2f);
-        var boxShape = radius > 0
-                ? new RoundRectangle2D.Float(x, y, width, height, radius * 2, radius * 2)
-                : new Rectangle2D.Float(x, y, width, height);
+        CornerRadii radii = style.borderRadius();
+        boolean rounded = radii.topLeft() > 0 || radii.topRight() > 0
+                || radii.bottomRight() > 0 || radii.bottomLeft() > 0;
+        var boxShape = boxPath(x, y, width, height, radii);
         if (background != null && !background.isTransparent()) {
             graphics.setColor(toAwtColor(background));
             graphics.fill(boxShape);
         }
         var oldClip = graphics.getClip();
-        if (radius > 0) graphics.clip(boxShape);
+        if (rounded) graphics.clip(boxShape);
         paintBackgroundImage(graphics, style, x, y, width, height);
         graphics.setClip(oldClip);
 
         BoxEdges widths = style.borderWidth();
         BoxBorders borders = style.borderStyle();
-        if (radius > 0 && (borders.top() || borders.right() || borders.bottom() || borders.left())) {
+        if (rounded
+                && (borders.top() || borders.right() || borders.bottom() || borders.left())) {
             float strokeWidth = Math.max(Math.max(widths.top(), widths.right()),
                     Math.max(widths.bottom(), widths.left()));
             if (strokeWidth > 0) {
                 graphics.setColor(toAwtColor(style.borderColor().top()));
                 graphics.setStroke(new BasicStroke(strokeWidth));
                 float inset = strokeWidth / 2f;
-                graphics.draw(new RoundRectangle2D.Float(x + inset, y + inset,
+                float shrink = Math.max(0, strokeWidth / 2f);
+                graphics.draw(boxPath(x + inset, y + inset,
                         Math.max(0, width - strokeWidth), Math.max(0, height - strokeWidth),
-                        Math.max(0, radius * 2 - strokeWidth),
-                        Math.max(0, radius * 2 - strokeWidth)));
+                        shrunk(radii, shrink)));
                 graphics.setStroke(new BasicStroke());
             }
         } else {
@@ -772,11 +775,56 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             graphics.setColor(toAwtColor(style.outlineColor()));
             graphics.setStroke(new BasicStroke(outline));
             float inset = outline / 2f;
-            graphics.draw(new RoundRectangle2D.Float(x - inset, y - inset,
+            graphics.draw(boxPath(x - inset, y - inset,
                     width + outline, height + outline,
-                    Math.max(0, radius * 2 + outline), Math.max(0, radius * 2 + outline)));
+                    grown(radii, outline / 2f)));
             graphics.setStroke(new BasicStroke());
         }
+    }
+
+    private static CornerRadii shrunk(CornerRadii radii, float amount) {
+        return new CornerRadii(
+                Math.max(0, radii.topLeft() - amount),
+                Math.max(0, radii.topRight() - amount),
+                Math.max(0, radii.bottomRight() - amount),
+                Math.max(0, radii.bottomLeft() - amount));
+    }
+
+    private static CornerRadii grown(CornerRadii radii, float amount) {
+        return new CornerRadii(
+                radii.topLeft() + amount,
+                radii.topRight() + amount,
+                radii.bottomRight() + amount,
+                radii.bottomLeft() + amount);
+    }
+
+    private static java.awt.Shape boxPath(float x, float y, float width, float height,
+                                          CornerRadii radii) {
+        if (width <= 0 || height <= 0) {
+            return new Rectangle2D.Float(x, y, Math.max(0, width), Math.max(0, height));
+        }
+        float maxRadius = Math.min(width, height) / 2f;
+        float topLeft = Math.min(radii.topLeft(), maxRadius);
+        float topRight = Math.min(radii.topRight(), maxRadius);
+        float bottomRight = Math.min(radii.bottomRight(), maxRadius);
+        float bottomLeft = Math.min(radii.bottomLeft(), maxRadius);
+        if (topLeft == topRight && topRight == bottomRight && bottomRight == bottomLeft) {
+            return topLeft > 0
+                    ? new RoundRectangle2D.Float(x, y, width, height, topLeft * 2, topLeft * 2)
+                    : new Rectangle2D.Float(x, y, width, height);
+        }
+        Path2D.Float path = new Path2D.Float();
+        path.moveTo(x + topLeft, y);
+        path.lineTo(x + width - topRight, y);
+        path.quadTo(x + width, y, x + width, y + topRight);
+        path.lineTo(x + width, y + height - bottomRight);
+        path.quadTo(x + width, y + height, x + width - bottomRight, y + height);
+        path.lineTo(x + bottomLeft, y + height);
+        path.quadTo(x, y + height, x, y + height - bottomLeft);
+        path.lineTo(x, y + topLeft);
+        path.quadTo(x, y, x + topLeft, y);
+        path.closePath();
+        return path;
     }
 
     private void paintBackgroundImage(Graphics2D graphics,
