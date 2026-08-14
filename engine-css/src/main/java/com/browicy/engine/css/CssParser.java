@@ -159,18 +159,22 @@ public final class CssParser {
                 continue;
             }
             String prelude = source.substring(offset, open).strip();
-            boolean media = prelude.toLowerCase(Locale.ROOT).startsWith("@media");
-            int close = media ? matchingBrace(source, open) : source.indexOf('}', open + 1);
+            String preludeLower = prelude.toLowerCase(Locale.ROOT);
+            boolean media = preludeLower.startsWith("@media");
+            boolean supports = preludeLower.startsWith("@supports");
+            boolean nestedAtRule = media || supports;
+            int close = nestedAtRule ? matchingBrace(source, open)
+                    : source.indexOf('}', open + 1);
             if (close < 0) {
                 int nested = source.indexOf('{', open + 1);
-                if (!media && nested >= 0) {
+                if (!nestedAtRule && nested >= 0) {
                     offset = selectorStart(source, nested, open + 1);
                     continue;
                 }
                 return;
             }
             int nested = source.indexOf('{', open + 1);
-            if (!media && nested >= 0 && nested < close) {
+            if (!nestedAtRule && nested >= 0 && nested < close) {
                 offset = selectorStart(source, nested, open + 1);
                 continue;
             }
@@ -178,6 +182,14 @@ public final class CssParser {
             if (media) {
                 String query = prelude.substring(6).strip();
                 parseRuleList(body, condition.and(new MediaCondition(query)), sourceOrder, rules);
+                offset = close + 1;
+                continue;
+            }
+            if (supports) {
+                String conditionSource = prelude.substring(9).strip();
+                if (evaluateSupportsCondition(conditionSource)) {
+                    parseRuleList(body, condition, sourceOrder, rules);
+                }
                 offset = close + 1;
                 continue;
             }
@@ -232,13 +244,77 @@ public final class CssParser {
             if (close < 0) return;
             String prelude = source.substring(offset, open).strip();
             String body = source.substring(open + 1, close);
-            if (prelude.toLowerCase(Locale.ROOT).startsWith("@media")) {
+            String preludeLower = prelude.toLowerCase(Locale.ROOT);
+            if (preludeLower.startsWith("@media") || preludeLower.startsWith("@supports")) {
                 collectRuleSources(body, result);
             } else {
                 result.add(source.substring(offset, close + 1).strip());
             }
             offset = close + 1;
         }
+    }
+
+    private boolean evaluateSupportsCondition(String condition) {
+        String text = condition.strip();
+        if (text.isEmpty()) {
+            return false;
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("not ")) {
+            return !evaluateSupportsCondition(text.substring(4));
+        }
+        int depth = 0;
+        boolean quoted = false;
+        char quote = 0;
+        for (int index = 0; index < text.length(); index++) {
+            char current = text.charAt(index);
+            if (quoted) {
+                if (current == quote && (index == 0 || text.charAt(index - 1) != '\\')) {
+                    quoted = false;
+                }
+                continue;
+            }
+            if (current == '\'' || current == '"') {
+                quoted = true;
+                quote = current;
+            } else if (current == '(') {
+                depth++;
+            } else if (current == ')') {
+                depth--;
+            } else if (depth == 0 && index > 0
+                    && Character.isWhitespace(text.charAt(index - 1))) {
+                if (text.regionMatches(true, index, "and ", 0, 4)) {
+                    return evaluateSupportsCondition(text.substring(0, index))
+                            && evaluateSupportsCondition(text.substring(index + 4));
+                }
+                if (text.regionMatches(true, index, "or ", 0, 3)) {
+                    return evaluateSupportsCondition(text.substring(0, index))
+                            || evaluateSupportsCondition(text.substring(index + 3));
+                }
+            }
+        }
+        text = text.strip();
+        if (text.startsWith("(") && text.endsWith(")")) {
+            String declaration = text.substring(1, text.length() - 1).strip();
+            int colon = declaration.indexOf(':');
+            if (colon <= 0) {
+                return false;
+            }
+            String property = declaration.substring(0, colon).strip().toLowerCase(Locale.ROOT);
+            String value = declaration.substring(colon + 1).strip()
+                    .replaceFirst("(?is)\\s*!important\\s*$", "").strip();
+            return supports(property, value);
+        }
+        if (lower.startsWith("selector(") && text.endsWith(")")) {
+            String selectorSource = text.substring(9, text.length() - 1).strip();
+            try {
+                SELECTOR_PARSER.parse(selectorSource);
+                return true;
+            } catch (SelectorParseException ignored) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private static boolean isNamespaceStatement(String statement) {

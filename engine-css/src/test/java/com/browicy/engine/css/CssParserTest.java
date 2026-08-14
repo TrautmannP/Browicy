@@ -565,6 +565,66 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesRulesInsideTrueSupportsConditionsAndSkipsFalseOnes() {
+        List<CssRule> rules = new CssParser().parse("""
+                .base { color: black }
+                @supports (display: flex) {
+                  .flexed { color: green }
+                }
+                @supports (display: grid) {
+                  .gridded { color: red }
+                }
+                """);
+
+        assertEquals(2, rules.size());
+        assertEquals(".base", rules.get(0).selector().toString());
+        assertEquals(".flexed", rules.get(1).selector().toString());
+    }
+
+    @Test
+    public void evaluatesSupportsNotAndOrConditions() {
+        List<CssRule> rules = new CssParser().parse("""
+                @supports not (display: grid) {
+                  .noGrid { color: blue }
+                }
+                @supports (color: red) or (display: grid) {
+                  .orMatch { color: green }
+                }
+                @supports (display: grid) and (color: red) {
+                  .andMiss { color: red }
+                }
+                @supports (color: red) and (display: flex) {
+                  .andHit { color: green }
+                }
+                """);
+
+        assertEquals(List.of(".noGrid", ".orMatch", ".andHit"),
+                rules.stream().map(rule -> rule.selector().toString()).toList());
+    }
+
+    @Test
+    public void evaluatesSupportsSelectorConditionsAndNestedMedia() {
+        List<CssRule> rules = new CssParser().parse("""
+                @supports selector(:has(.a)) {
+                  .hasStyle { color: green }
+                }
+                @supports selector(:nope) {
+                  .bad { color: red }
+                }
+                @supports (display: flex) {
+                  @media (min-width: 500px) {
+                    .nested { color: green }
+                  }
+                }
+                """);
+
+        assertEquals(List.of(".hasStyle", ".nested"),
+                rules.stream().map(rule -> rule.selector().toString()).toList());
+        assertTrue(rules.getLast().mediaCondition().matches(800, 600));
+        assertFalse(rules.getLast().mediaCondition().matches(400, 600));
+    }
+
+    @Test
     public void expandsBackgroundShorthandWithEdgeOffsetAndSize() {
         CssParser parser = new CssParser();
         Map<String, String> declarations = parser.parseDeclarations(
