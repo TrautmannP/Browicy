@@ -685,6 +685,17 @@ public class CssParserTest {
                 "background-image:url(\"data:image/svg+xml,%3csvg%3e\")");
         assertTrue(dataUri.containsKey("background-image"));
 
+        Map<String, String> svgData = parser.parseDeclarations(
+                "background-image:url(\"data:image/svg+xml;charset=utf-8,"
+                        + "%3Csvg xmlns='http://www.w3.org/2000/svg' width='16'%3E%3C/svg%3E\")");
+        assertTrue("Data-URI mit Semikolon und Spaces muss akzeptiert werden",
+                svgData.containsKey("background-image"));
+
+        Map<String, String> linkText = parser.parseDeclarations("background:linktext");
+        assertEquals("#0000ee", linkText.get("background-color"));
+        assertTrue(parser.parseDeclarations("background:inherit")
+                .containsKey("background-color"));
+
         assertFalse(parser.parseDeclarations(
                 "background-image:linear-gradient()").containsKey("background-image"));
         assertFalse(parser.parseDeclarations(

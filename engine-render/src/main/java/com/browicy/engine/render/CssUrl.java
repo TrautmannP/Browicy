@@ -126,11 +126,15 @@ public final class CssUrl {
 
     private static boolean hasSafeScheme(String source) {
         if (source.isBlank()) return false;
+        if (source.toLowerCase(Locale.ROOT).startsWith("data:")) {
+            // Data-URIs können Literal-Spaces und ' enthalten, die URI.create ablehnt.
+            return true;
+        }
         try {
             URI uri = URI.create(source);
             if (!uri.isAbsolute()) return true;
             String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
-            return scheme.equals("http") || scheme.equals("https") || scheme.equals("data");
+            return scheme.equals("http") || scheme.equals("https");
         } catch (IllegalArgumentException invalid) {
             return false;
         }

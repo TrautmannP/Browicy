@@ -396,7 +396,7 @@ public final class CssParser {
             return new ParsedDeclarationBlock(declarations, importantProperties);
         }
         source = COMMENTS.matcher(source).replaceAll("");
-        for (String declaration : source.split(";")) {
+        for (String declaration : splitTopLevel(source, ';')) {
             int separator = declaration.indexOf(':');
             if (separator < 1) {
                 continue;
@@ -1299,6 +1299,11 @@ public final class CssParser {
 
     private static void putBackground(Map<String, String> target, String value) {
         String stripped = value.strip();
+        if (stripped.equals("inherit")) {
+            target.put("background-color", "transparent");
+            target.put("background-image", "none");
+            return;
+        }
         List<com.browicy.engine.render.CssUrl.Token> urls =
                 com.browicy.engine.render.CssUrl.tokens(stripped);
         if (urls.size() > 1) return;
@@ -1332,6 +1337,7 @@ public final class CssParser {
             String normalized = token.toLowerCase(Locale.ROOT);
             if (isBackgroundRepeat(normalized)) repeat = normalized;
             else if (isColorValue(normalized)) color = normalized;
+            else if (normalized.equals("linktext")) color = "#0000ee";
             else position.add(normalized);
         }
 
