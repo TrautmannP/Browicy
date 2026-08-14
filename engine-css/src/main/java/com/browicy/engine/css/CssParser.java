@@ -600,6 +600,14 @@ public final class CssParser {
             case "resize" -> supports(normalized, "vertical");
             case "scroll-margin-top" -> supports(normalized, "0");
             case "table-layout" -> supports(normalized, "fixed");
+            case "backdrop-filter" -> supports(normalized, "none");
+            case "fill-opacity", "stop-opacity" -> supports(normalized, "1");
+            case "mask-image" -> supports(normalized, "none");
+            case "text-indent" -> supports(normalized, "0");
+            case "contain" -> supports(normalized, "layout");
+            case "font-stretch" -> supports(normalized, "normal");
+            case "stop-color" -> supports(normalized, "#fff");
+            case "touch-action" -> supports(normalized, "manipulation");
             case "align-self" -> supports(normalized, "stretch");
             case "align-content" -> supports(normalized, "stretch");
             case "order" -> supports(normalized, "0");
@@ -729,15 +737,29 @@ public final class CssParser {
             case "background-color" -> {
                 if (value.equals("initial")) {
                     target.put(property, "transparent");
+                } else if (SYSTEM_COLORS.contains(value)) {
+                    target.put(property, value);
                 } else {
                     putColor(target, property, value);
                 }
             }
             case "background" -> putBackground(target, value);
             case "background-repeat" -> {
-                if (value.equals("repeat") || value.equals("repeat-x")
-                        || value.equals("repeat-y") || value.equals("no-repeat")) {
-                    target.put(property, value);
+                String first = null;
+                boolean valid = true;
+                for (String part : splitTopLevel(value, ',')) {
+                    String candidate = part.strip();
+                    if (!candidate.equals("repeat") && !candidate.equals("repeat-x")
+                            && !candidate.equals("repeat-y") && !candidate.equals("no-repeat")) {
+                        valid = false;
+                        break;
+                    }
+                    if (first == null) {
+                        first = candidate;
+                    }
+                }
+                if (valid && first != null) {
+                    target.put(property, first);
                 }
             }
             case "background-position" -> putBackgroundPosition(target, value);
@@ -1010,8 +1032,13 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
-            case "top", "right", "bottom", "left" ->
+            case "top", "right", "bottom", "left" -> {
+                if (isMathFunctionValue(value)) {
+                    target.put(property, value);
+                } else {
                     putIfMatches(target, property, value, POSITION_OFFSET);
+                }
+            }
             case "width", "height", "min-width", "min-height" -> {
                 if (value.equals("max-content") || value.equals("min-content")
                         || value.equals("fit-content") || value.equals("unset")
@@ -1075,7 +1102,8 @@ public final class CssParser {
                 }
             }
             case "letter-spacing" -> {
-                if (value.equals("normal")) {
+                if (value.equals("normal") || value.equals("inherit")
+                        || value.equals("unset")) {
                     target.put(property, value);
                 } else if (LETTER_SPACING.matcher(value).matches()) {
                     target.put(property, value);
@@ -1159,8 +1187,50 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
-            case "filter" -> {
+            case "filter", "backdrop-filter" -> {
                 if (value.equals("none") || isFilterFunctionList(value)) {
+                    target.put(property, value);
+                }
+            }
+            case "fill-opacity", "stop-opacity", "flood-opacity",
+                 "stroke-opacity" -> putUnitInterval(target, property, value);
+            case "mask-image" -> {
+                if (value.equals("none") || value.startsWith("linear-gradient(")
+                        || com.browicy.engine.render.CssUrl.parseSingle(value) != null) {
+                    target.put(property, value);
+                }
+            }
+            case "text-indent" -> putIfMatches(target, property, value, POSITION_OFFSET);
+            case "contain" -> {
+                if (value.equals("none") || value.equals("strict")
+                        || value.equals("content") || value.equals("layout")
+                        || value.equals("paint") || value.equals("size")
+                        || value.equals("layout paint") || value.equals("layout style")
+                        || value.equals("layout paint size")) {
+                    target.put(property, value);
+                }
+            }
+            case "font-stretch" -> {
+                if (value.equals("unset") || value.equals("normal")
+                        || value.equals("condensed") || value.equals("expanded")
+                        || value.equals("semi-condensed") || value.equals("semi-expanded")
+                        || value.equals("extra-condensed") || value.equals("extra-expanded")
+                        || value.equals("ultra-condensed") || value.equals("ultra-expanded")
+                        || value.matches("[0-9]*\\.?[0-9]+%")) {
+                    target.put(property, value);
+                }
+            }
+            case "stop-color", "flood-color", "lighting-color" -> {
+                if (isColorValue(value)) {
+                    target.put(property, value);
+                }
+            }
+            case "touch-action" -> {
+                if (value.equals("auto") || value.equals("none")
+                        || value.equals("manipulation") || value.equals("pan-x")
+                        || value.equals("pan-y") || value.equals("pan-left")
+                        || value.equals("pan-right") || value.equals("pan-up")
+                        || value.equals("pan-down") || value.equals("pinch-zoom")) {
                     target.put(property, value);
                 }
             }
@@ -1594,6 +1664,8 @@ public final class CssParser {
         }
         if (lower.matches("[-+]?[0-9.]+% [-+]?[0-9.]+% at [-+]?[0-9.]+% [-+]?[0-9.]+%")
                 || lower.matches("[-+]?[0-9.]+% at [-+]?[0-9.]+% [-+]?[0-9.]+%")
+                || lower.matches("at [-+]?[0-9.]+(px|%)? [-+]?[0-9.]+(px|%)")
+                || lower.matches("(circle|ellipse) at [-+]?[0-9.]+(px|%)? [-+]?[0-9.]+(px|%)")
                 || lower.equals("ellipse") || lower.equals("circle")
                 || lower.equals("closest-side") || lower.equals("closest-corner")
                 || lower.equals("farthest-side") || lower.equals("farthest-corner")) {
@@ -2277,7 +2349,28 @@ public final class CssParser {
     }
 
     private static void putGridArea(Map<String, String> target, String value) {
-        String[] tokens = value.strip().split("\\s+");
+        String normalized = value.strip();
+        if (normalized.contains("/")) {
+            String[] parts = normalized.split("/");
+            if (parts.length < 2 || parts.length > 4) {
+                return;
+            }
+            for (String part : parts) {
+                if (!isGridLineValue(part.strip())) {
+                    return;
+                }
+            }
+            target.put("grid-row-start", parts[0].strip());
+            target.put("grid-column-start", parts[1].strip());
+            if (parts.length >= 3) {
+                target.put("grid-row-end", parts[2].strip());
+            }
+            if (parts.length == 4) {
+                target.put("grid-column-end", parts[3].strip());
+            }
+            return;
+        }
+        String[] tokens = normalized.split("\\s+");
         if (tokens.length == 1) {
             if (tokens[0].matches("[-_a-zA-Z][-_a-zA-Z0-9]*")) {
                 target.put("grid-area", tokens[0]);
@@ -2350,6 +2443,12 @@ public final class CssParser {
         }
         return true;
     }
+
+    private static final java.util.Set<String> SYSTEM_COLORS = java.util.Set.of(
+            "canvas", "canvastext", "linktext", "visitedtext", "activetext",
+            "buttonface", "buttontext", "field", "fieldtext", "highlight",
+            "highlighttext", "mark", "marktext", "graytext", "accentcolor",
+            "accentcolortext", "selecteditem", "selecteditemtext");
 
     private static boolean isTextShadow(String value) {
         String[] tokens = value.strip().split("\\s+");

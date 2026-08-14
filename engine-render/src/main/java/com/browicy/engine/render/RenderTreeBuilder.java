@@ -1040,6 +1040,12 @@ public final class RenderTreeBuilder {
             background = declaredBackground;
         } else if ("currentcolor".equals(declarations.get("background-color"))) {
             background = color;
+        } else if ("canvastext".equals(declarations.get("background-color"))) {
+            background = color;
+        } else if ("canvas".equals(declarations.get("background-color"))) {
+            background = CssColor.rgb(0xffffff);
+        } else if ("linktext".equals(declarations.get("background-color"))) {
+            background = CssColor.rgb(0x0000ee);
         }
         backgroundImageUrl = backgroundImageUrl(declarations.get("background-image"));
         backgroundRepeat = switch (declarations.getOrDefault("background-repeat", "repeat")) {

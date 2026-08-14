@@ -1270,4 +1270,42 @@ public class CssParserTest {
         assertEquals(1, rules.size());
         assertEquals(".kept", rules.get(0).selector().toString());
     }
+
+    @Test
+    public void acceptsSvgFiltersSystemColorsAndMaskValues() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                backdrop-filter:blur(5px);fill-opacity:1;stop-color:#fff;stop-opacity:.5;
+                mask-image:url("data:image/svg+xml;base64,AAAA");
+                text-indent:-3000px;contain:content;font-stretch:100%;
+                touch-action:manipulation;background-color:canvastext;
+                background-repeat:repeat-x,repeat-x;letter-spacing:inherit;
+                grid-area:1/1/auto/-1;top:calc(50% - 12px)
+                """);
+
+        assertEquals("blur(5px)", declarations.get("backdrop-filter"));
+        assertEquals("1", declarations.get("fill-opacity"));
+        assertEquals("#fff", declarations.get("stop-color"));
+        assertEquals(".5", declarations.get("stop-opacity"));
+        assertEquals("-3000px", declarations.get("text-indent"));
+        assertEquals("content", declarations.get("contain"));
+        assertEquals("100%", declarations.get("font-stretch"));
+        assertEquals("manipulation", declarations.get("touch-action"));
+        assertEquals("canvastext", declarations.get("background-color"));
+        assertEquals("repeat-x", declarations.get("background-repeat"));
+        assertEquals("inherit", declarations.get("letter-spacing"));
+        assertEquals("1", declarations.get("grid-row-start"));
+        assertEquals("auto", declarations.get("grid-row-end"));
+        assertEquals("-1", declarations.get("grid-column-end"));
+        assertEquals("calc(50% - 12px)", declarations.get("top"));
+
+        assertEquals("radial-gradient(circle at 0 100%,#e6b7fe 10%,#5049c2 20%,#574eff00 60%)",
+                parser.parseDeclarations(
+                        "background:radial-gradient(circle at 0 100%,#e6b7fe 10%,#5049c2 20%,#574eff00 60%)")
+                        .get("background-image"));
+
+        assertTrue(parser.supportsProperty("backdrop-filter"));
+        assertTrue(parser.supports("grid-area", "1/2"));
+        assertFalse(parser.parseDeclarations("mask-image:garbage").containsKey("mask-image"));
+    }
 }
