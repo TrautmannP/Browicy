@@ -31,6 +31,14 @@ public class TransformTest {
     }
 
     @Test
+    public void acceptsUnitlessZeroTranslations() {
+        Transform transform = Transform.parse("translate(0)", 16);
+        assertEquals(1, transform.operations().size());
+        AffineTransform matrix = transform.matrix(0, 0, 40, 40, 16, 800, 600);
+        assertEquals(0, matrix.getTranslateX(), 0.001);
+    }
+
+    @Test
     public void translatesPercentagesAgainstOwnSizeAboutTheOrigin() {
         Transform transform = Transform.parse("translate(50%) translateY(-50%)", 16);
         // Box bei (100, 200), 40x60; Default-Origin (50%, 50%) = (120, 230).

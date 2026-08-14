@@ -173,7 +173,7 @@ public record Transform(List<Operation> operations, RenderOffset originX, Render
             case "rem" -> RenderOffset.Unit.REM;
             case "vw" -> RenderOffset.Unit.VW;
             case "vh" -> RenderOffset.Unit.VH;
-            default -> RenderOffset.Unit.PX;
+            case null, default -> RenderOffset.Unit.PX;
         };
         return new RenderOffset(number, offsetUnit);
     }
