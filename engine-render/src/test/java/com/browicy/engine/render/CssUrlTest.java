@@ -13,7 +13,8 @@ public class CssUrlTest {
         assertEquals("https://example.test/a.png",
                 CssUrl.parseSingle(" URL(https://example.test/a.png) "));
         assertNull(CssUrl.parseSingle("url(javascript:alert(1))"));
-        assertNull(CssUrl.parseSingle("url(data:image/png;base64,AAAA)"));
+        assertEquals("data:image/png;base64,AAAA",
+                CssUrl.parseSingle("url(data:image/png;base64,AAAA)"));
         assertNull(CssUrl.parseSingle("url(a.png) trailing"));
     }
 

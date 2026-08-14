@@ -1563,6 +1563,9 @@ public final class RenderTreeBuilder {
 
     private static String backgroundImageUrl(String value) {
         if (value == null || value.equalsIgnoreCase("none")) return null;
+        if (value.toLowerCase(Locale.ROOT).startsWith("linear-gradient(")) {
+            return value;
+        }
         return CssUrl.parseSingle(value);
     }
 

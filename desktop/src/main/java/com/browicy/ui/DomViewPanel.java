@@ -64,6 +64,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Locale;
 import javax.swing.BorderFactory;
 import javax.swing.JViewport;
 import javax.swing.JPanel;
@@ -975,7 +976,12 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                                       float y,
                                       float width,
                                       float height) {
-        BufferedImage image = decodedBackground(style.backgroundImageUrl());
+        String source = style.backgroundImageUrl();
+        if (source != null && source.startsWith("linear-gradient(")) {
+            paintLinearGradient(graphics, source, x, y, width, height);
+            return;
+        }
+        BufferedImage image = decodedBackground(source);
         if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) return;
         float imageWidth = image.getWidth();
         float imageHeight = image.getHeight();
@@ -1027,6 +1033,130 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         } finally {
             clipped.dispose();
         }
+    }
+
+    private void paintLinearGradient(Graphics2D graphics, String source,
+                                     float x, float y, float width, float height) {
+        String body = source.substring("linear-gradient(".length(),
+                source.length() - 1);
+        List<String> parts = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int index = 0; index < body.length(); index++) {
+            char current = body.charAt(index);
+            if (current == '(') {
+                depth++;
+            } else if (current == ')') {
+                depth--;
+            } else if (current == ',' && depth == 0) {
+                parts.add(body.substring(start, index).strip());
+                start = index + 1;
+            }
+        }
+        parts.add(body.substring(start).strip());
+
+        float angleDeg = 180;
+        int firstStop = 0;
+        String first = parts.isEmpty() ? "" : parts.get(0).toLowerCase(Locale.ROOT);
+        if (first.equals("to top") || first.equals("to bottom") || first.equals("to left")
+                || first.equals("to right") || first.equals("to top left")
+                || first.equals("to top right") || first.equals("to bottom left")
+                || first.equals("to bottom right")) {
+            angleDeg = switch (first) {
+                case "to top" -> 0;
+                case "to right" -> 90;
+                case "to bottom" -> 180;
+                case "to left" -> 270;
+                case "to top right" -> 45;
+                case "to top left" -> 315;
+                case "to bottom right" -> 135;
+                default -> 225;
+            };
+            firstStop = 1;
+        } else if (!parts.isEmpty() && parts.get(0).matches("[-+]?[0-9]*\\.?[0-9]+(deg|turn|rad|grad)")) {
+            String angle = parts.get(0);
+            if (angle.endsWith("turn")) {
+                angleDeg = Float.parseFloat(angle.replace("turn", "")) * 360;
+            } else if (angle.endsWith("rad")) {
+                angleDeg = (float) Math.toDegrees(Float.parseFloat(angle.replace("rad", "")));
+            } else if (angle.endsWith("grad")) {
+                angleDeg = Float.parseFloat(angle.replace("grad", "")) * 0.9f;
+            } else {
+                angleDeg = Float.parseFloat(angle.replace("deg", ""));
+            }
+            firstStop = 1;
+        }
+
+        List<CssColor> colors = new ArrayList<>();
+        List<Float> positions = new ArrayList<>();
+        int stops = parts.size() - firstStop;
+        for (int index = firstStop; index < parts.size(); index++) {
+            String[] tokens = parts.get(index).split("\\s+");
+            CssColor color = CssColor.parse(tokens[0]);
+            if (color == null) {
+                return;
+            }
+            colors.add(color);
+            if (tokens.length == 2 && tokens[1].endsWith("%")) {
+                positions.add(Float.parseFloat(tokens[1].replace("%", "")) / 100f);
+            } else {
+                positions.add(null);
+            }
+        }
+        if (colors.size() < 2) {
+            if (colors.size() == 1) {
+                graphics.setColor(toAwtColor(colors.get(0)));
+                graphics.fill(new Rectangle2D.Float(x, y, width, height));
+            }
+            return;
+        }
+        for (int index = 0; index < positions.size(); index++) {
+            if (positions.get(index) == null) {
+                int previous = index;
+                while (previous >= 0 && positions.get(previous) == null) previous--;
+                int next = index;
+                while (next < positions.size() && positions.get(next) == null) next++;
+                float before = previous < 0 ? 0 : positions.get(previous);
+                float after = next >= positions.size() ? 1 : positions.get(next);
+                int span = next - previous - 1;
+                float step = (after - before) / (span + 1);
+                positions.set(index, before + step * (index - previous));
+            }
+        }
+
+        float cx = x + width / 2f;
+        float cy = y + height / 2f;
+        double radians = Math.toRadians(angleDeg);
+        float vx = (float) Math.sin(radians);
+        float vy = (float) -Math.cos(radians);
+        float half = (Math.abs(vx) * width + Math.abs(vy) * height) / 2f;
+        java.awt.Paint paint = new java.awt.LinearGradientPaint(
+                cx - vx * half, cy - vy * half, cx + vx * half, cy + vy * half,
+                toFloatArray(positions), toAwtColors(colors));
+        Graphics2D gradientGraphics = (Graphics2D) graphics.create();
+        try {
+            gradientGraphics.clip(new Rectangle2D.Float(x, y, width, height));
+            gradientGraphics.setPaint(paint);
+            gradientGraphics.fill(new Rectangle2D.Float(x, y, width, height));
+        } finally {
+            gradientGraphics.dispose();
+        }
+    }
+
+    private static float[] toFloatArray(List<Float> values) {
+        float[] result = new float[values.size()];
+        for (int index = 0; index < values.size(); index++) {
+            result[index] = values.get(index);
+        }
+        return result;
+    }
+
+    private static java.awt.Color[] toAwtColors(List<CssColor> colors) {
+        java.awt.Color[] result = new java.awt.Color[colors.size()];
+        for (int index = 0; index < colors.size(); index++) {
+            result[index] = toAwtColor(colors.get(index));
+        }
+        return result;
     }
 
     private float resolveBackgroundLength(RenderLength length, float percentageBase) {

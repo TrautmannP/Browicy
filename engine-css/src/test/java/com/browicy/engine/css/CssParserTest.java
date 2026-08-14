@@ -664,6 +664,36 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesLinearGradientBackgroundsAndDataUris() {
+        CssParser parser = new CssParser();
+        Map<String, String> shorthand = parser.parseDeclarations("""
+                background:linear-gradient(#ffffff26,#fff0)
+                """);
+        assertEquals("linear-gradient(#ffffff26,#fff0)", shorthand.get("background-image"));
+
+        Map<String, String> withColor = parser.parseDeclarations(
+                "background:linear-gradient(#34b75926,#2ea44f00),#2ea44f");
+        assertEquals("linear-gradient(#34b75926,#2ea44f00)", withColor.get("background-image"));
+        assertEquals("#2ea44f", withColor.get("background-color"));
+
+        Map<String, String> image = parser.parseDeclarations(
+                "background-image:linear-gradient(45deg, red 0%, blue 100%)");
+        assertEquals("linear-gradient(45deg, red 0%, blue 100%)",
+                image.get("background-image"));
+
+        Map<String, String> dataUri = parser.parseDeclarations(
+                "background-image:url(\"data:image/svg+xml,%3csvg%3e\")");
+        assertTrue(dataUri.containsKey("background-image"));
+
+        assertFalse(parser.parseDeclarations(
+                "background-image:linear-gradient()").containsKey("background-image"));
+        assertFalse(parser.parseDeclarations(
+                "background-image:linear-gradient(red, notacolor)")
+                .containsKey("background-image"));
+        assertTrue(parser.supports("background-image", "linear-gradient(#fff, #000)"));
+    }
+
+    @Test
     public void parsesWordBreakAppearanceFontSizeInheritAndRadiusInherit() {
         CssParser parser = new CssParser();
         Map<String, String> batch = parser.parseDeclarations("""

@@ -51,6 +51,10 @@ public final class CssParser {
     private static final Pattern INTEGER = Pattern.compile("-?\\d+");
     private static final Pattern LETTER_SPACING = Pattern.compile(
             "[-+]?[0-9]*\\.?[0-9]+(px|em|rem)?");
+    private static final Pattern GRADIENT_ANGLE = Pattern.compile(
+            "[-+]?[0-9]*\\.?[0-9]+(deg|turn|rad|grad)");
+    private static final Pattern GRADIENT_POSITION = Pattern.compile(
+            "[0-9]*\\.?[0-9]+%");
     private static final Pattern NON_NEGATIVE_NUMBER = Pattern.compile(
             "(?:\\d+(?:\\.\\d+)?|\\.\\d+)");
     private static final Pattern ASPECT_RATIO = Pattern.compile(
@@ -1226,9 +1230,71 @@ public final class CssParser {
             target.put("background-image", "none");
             return;
         }
-        if (com.browicy.engine.render.CssUrl.parseSingle(stripped) != null) {
+        if (isLinearGradient(stripped) || com.browicy.engine.render.CssUrl.parseSingle(stripped) != null) {
             target.put("background-image", stripped);
         }
+    }
+
+    private static String extractTopLevelGradient(String value) {
+        int start = value.toLowerCase(Locale.ROOT).indexOf("linear-gradient(");
+        if (start < 0) {
+            return null;
+        }
+        int depth = 0;
+        for (int index = start; index < value.length(); index++) {
+            char current = value.charAt(index);
+            if (current == '(') {
+                depth++;
+            } else if (current == ')') {
+                depth--;
+                if (depth == 0) {
+                    String candidate = value.substring(start, index + 1);
+                    return isLinearGradient(candidate) ? candidate : null;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean isLinearGradient(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (!normalized.startsWith("linear-gradient(")) {
+            return false;
+        }
+        String body = value.substring("linear-gradient(".length(), value.length() - 1);
+        if (body.isEmpty()) {
+            return false;
+        }
+        for (String part : splitTopLevel(body, ',')) {
+            if (!isGradientStop(part.strip())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isGradientStop(String part) {
+        if (part.isEmpty()) {
+            return false;
+        }
+        String lower = part.toLowerCase(Locale.ROOT);
+        if (lower.equals("to top") || lower.equals("to bottom") || lower.equals("to left")
+                || lower.equals("to right") || lower.equals("to top left")
+                || lower.equals("to top right") || lower.equals("to bottom left")
+                || lower.equals("to bottom right")) {
+            return true;
+        }
+        if (GRADIENT_ANGLE.matcher(part).matches()) {
+            return true;
+        }
+        String[] tokens = part.split("\\s+");
+        if (tokens.length < 1 || tokens.length > 2) {
+            return false;
+        }
+        if (!isColorValue(tokens[0])) {
+            return false;
+        }
+        return tokens.length == 1 || GRADIENT_POSITION.matcher(tokens[1]).matches();
     }
 
     private static void putBackground(Map<String, String> target, String value) {
@@ -1244,6 +1310,14 @@ public final class CssParser {
             image = stripped.substring(token.start(), token.end());
             withoutUrl = (stripped.substring(0, token.start())
                     + " " + stripped.substring(token.end())).strip();
+        } else {
+            String gradient = extractTopLevelGradient(stripped);
+            if (gradient != null) {
+                image = gradient;
+                withoutUrl = (stripped.substring(0, stripped.indexOf(gradient))
+                        + " " + stripped.substring(stripped.indexOf(gradient) + gradient.length()))
+                        .replace(',', ' ').strip();
+            }
         }
 
         int slash = topLevelSlash(withoutUrl);

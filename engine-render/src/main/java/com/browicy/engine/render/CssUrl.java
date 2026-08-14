@@ -130,7 +130,7 @@ public final class CssUrl {
             URI uri = URI.create(source);
             if (!uri.isAbsolute()) return true;
             String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
-            return scheme.equals("http") || scheme.equals("https");
+            return scheme.equals("http") || scheme.equals("https") || scheme.equals("data");
         } catch (IllegalArgumentException invalid) {
             return false;
         }

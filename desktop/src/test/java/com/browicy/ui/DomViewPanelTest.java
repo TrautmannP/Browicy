@@ -1608,6 +1608,24 @@ public class DomViewPanelTest {
     }
 
     @Test
+    public void paintsLinearGradientBackgroundsTopToBottom() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <body style="background-color:white"><div id="box" style="width:40px;
+                  height:40px;background-image:linear-gradient(#ff0000, #0000ff)"></div></body>
+                """));
+        panel.setSize(100, 1);
+        BoxFragment box = boxById(panel.layoutForTesting(100), "box");
+        BufferedImage image = paint(panel);
+
+        java.awt.Color top = new java.awt.Color(image.getRGB(
+                Math.round(box.x() + 20), Math.round(box.y() + 2)), true);
+        java.awt.Color bottom = new java.awt.Color(image.getRGB(
+                Math.round(box.x() + 20), Math.round(box.y() + box.height() - 3)), true);
+        assertTrue("Oben muss rot dominieren", top.getRed() > top.getBlue());
+        assertTrue("Unten muss blau dominieren", bottom.getBlue() > bottom.getRed());
+    }
+
+    @Test
     public void wrapsTextWithinShrunkFlexItems() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body><div style="display:flex;width:180px">
