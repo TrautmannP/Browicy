@@ -13,6 +13,28 @@ import java.util.Objects;
  * und sonst das Präfix aus {@code prefix|E} (matcht nur Namespace-Elemente;
  * die Präfix-auflösung über {@code @namespace} ist nicht implementiert).</p>
  */
+final class PseudoElementSupport {
+    private PseudoElementSupport() {
+    }
+
+    static boolean isSupported(String name) {
+        return name.equals("before") || name.equals("after")
+                || name.equals("first-letter") || name.equals("first-line")
+                || name.equals("placeholder") || name.equals("selection")
+                || name.equals("-moz-selection") || name.equals("backdrop")
+                || name.equals("-webkit-scrollbar")
+                || name.equals("-webkit-scrollbar-thumb")
+                || name.equals("-webkit-scrollbar-track")
+                || name.equals("-webkit-scrollbar-track-piece")
+                || name.equals("-webkit-details-marker") || name.equals("-ms-expand")
+                || name.equals("-ms-clear")
+                || name.equals("-webkit-calendar-picker-indicator")
+                || name.equals("-webkit-inner-spin-button")
+                || name.equals("-webkit-outer-spin-button")
+                || name.equals("-webkit-contacts-auto-fill-button")
+                || name.equals("-webkit-file-upload-button");
+    }
+}
 public record CompoundSelector(String typeNamespace, String typeName, String id,
                                List<String> classes,
                                List<AttributeSelector> attributes,
@@ -38,10 +60,7 @@ public record CompoundSelector(String typeNamespace, String typeName, String id,
         statePseudoClasses = List.copyOf(
                 Objects.requireNonNull(statePseudoClasses, "statePseudoClasses"));
         functions = List.copyOf(Objects.requireNonNull(functions, "functions"));
-        if (pseudoElement != null && !pseudoElement.equals("before")
-                && !pseudoElement.equals("after")
-                && !pseudoElement.equals("first-letter")
-                && !pseudoElement.equals("first-line")) {
+        if (pseudoElement != null && !PseudoElementSupport.isSupported(pseudoElement)) {
             throw new IllegalArgumentException("Nicht unterstütztes Pseudoelement: " + pseudoElement);
         }
         if (typeNamespace != null && !typeNamespace.isEmpty() && typeNamespace.isBlank()) {

@@ -8,9 +8,10 @@ public record SelectorList(List<ComplexSelector> selectors) {
 
     public SelectorList {
         selectors = List.copyOf(Objects.requireNonNull(selectors, "selectors"));
-        if (selectors.isEmpty()) {
-            throw new IllegalArgumentException("Eine Selektorliste darf nicht leer sein");
-        }
+    }
+
+    public boolean isEmpty() {
+        return selectors.isEmpty();
     }
 
     public <N> boolean matchesAny(N element, SelectorNodeAdapter<N> adapter) {

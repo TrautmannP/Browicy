@@ -622,7 +622,6 @@ public final class CssParser {
             case "backface-visibility" -> supports(normalized, "hidden");
             case "background-attachment" -> supports(normalized, "fixed");
             case "caret-color" -> supports(normalized, "auto");
-            case "-webkit-text-decoration-color" -> supports(normalized, "blue");
             case "border-end-end-radius", "border-end-start-radius",
                  "border-start-end-radius", "border-start-start-radius" ->
                     supports(normalized, "4px");

@@ -574,9 +574,36 @@ public class SelectorParserTest {
     }
 
     @Test
+    public void acceptsPlaceholderSelectionBackdropAndScrollbarPseudos() {
+        for (String selector : List.of(
+                "input::placeholder",
+                "::selection",
+                ".CodeMirror-line::-moz-selection",
+                "dialog::backdrop",
+                "::-webkit-scrollbar-thumb",
+                ".form-control:-webkit-autofill:focus",
+                ".Overlay:modal",
+                "query-builder:not(:defined)",
+                "ul:is(:lang(ae),:lang(ar)) li",
+                ":is(.FormControl-input,.FormControl-select)::placeholder",
+                ".select-menu-button:after:active",
+                "[popover]:not(.\\:popover-open)",
+                "\uFEFF.min-height-full")) {
+            assertTrue(selector, parser.parse(selector).selectors().size() >= 1);
+        }
+    }
+
+    @Test
+    public void acceptsEmptyIsAndNotArgumentLists() {
+        assertTrue(parser.parse("[data-direction=left] :is()").selectors().size() >= 1);
+        assertTrue(parser.parse("x:not()").selectors().size() >= 1);
+        assertEquals("div :is()", parser.parse("div :is()").selectors().getFirst().toString());
+    }
+
+    @Test
     public void rejectsInvalidAndUnsupportedSelectorsWithPositions() {
         for (String source : List.of("", "div,",
-                ":nth-child(2n+)", ":nth-of-type()", ":not()", ":is()", ":where()",
+                ":nth-child(2n+)", ":nth-of-type()",
                 ":is(.a,)", "div > > p")) {
             SelectorParseException exception = assertThrows(
                     SelectorParseException.class, () -> parser.parse(source));

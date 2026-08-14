@@ -9,6 +9,9 @@ public final class SelectorParser {
         if (source == null || source.isBlank()) {
             throw new SelectorParseException(source, 0);
         }
+        if (source.charAt(0) == '\uFEFF') {
+            source = source.substring(1);
+        }
 
         Parser parser = new Parser(source);
         List<ComplexSelector> selectors = new ArrayList<>();
@@ -124,7 +127,8 @@ public final class SelectorParser {
                         if (!isPseudoElementName(pseudoElement)) {
                             throw error();
                         }
-                        if (!atEnd() && peek() != ',' && !Character.isWhitespace(peek())
+                        if (!atEnd() && peek() != ',' && peek() != ':'
+                                && !Character.isWhitespace(peek())
                                 && !isCombinator(peek())) throw error();
                     } else {
                         int start = position;
@@ -133,7 +137,8 @@ public final class SelectorParser {
                         if (isPseudoElementName(name)) {
                             if (pseudoElement != null) throw error();
                             pseudoElement = name;
-                            if (!atEnd() && peek() != ',' && !Character.isWhitespace(peek())
+                            if (!atEnd() && peek() != ',' && peek() != ':'
+                                    && !Character.isWhitespace(peek())
                                     && !isCombinator(peek())) throw error();
                         } else {
                             position = start;
@@ -270,8 +275,27 @@ public final class SelectorParser {
                     || "link".equals(name) || "visited".equals(name)
                     || "target".equals(name) || "indeterminate".equals(name)
                     || "focus-visible".equals(name) || "focus-within".equals(name)
-                    || "placeholder-shown".equals(name)) {
+                    || "placeholder-shown".equals(name) || "modal".equals(name)
+                    || "defined".equals(name) || "popover-open".equals(name)
+                    || "invalid".equals(name) || "valid".equals(name)
+                    || "-webkit-autofill".equals(name)) {
                 statePseudoClasses.add(name);
+                return;
+            }
+            if ("lang".equals(name)) {
+                statePseudoClasses.add(name);
+                if (peek() == '(') {
+                    int depth = 0;
+                    do {
+                        char current = peek();
+                        position++;
+                        if (current == '(') {
+                            depth++;
+                        } else if (current == ')') {
+                            depth--;
+                        }
+                    } while (!atEnd() && depth > 0);
+                }
                 return;
             }
             if ("first-child".equals(name)) {
@@ -318,6 +342,12 @@ public final class SelectorParser {
                     throw error();
                 }
                 skipWhitespace();
+                if (peek() == ')' && kind != PseudoClassFunction.Kind.HAS) {
+                    position++;
+                    functions.add(new PseudoClassFunction(
+                            kind, new SelectorList(List.of())));
+                    return;
+                }
                 if (kind == PseudoClassFunction.Kind.HAS) {
                     List<RelativeSelector> relatives = new ArrayList<>();
                     relatives.add(parseRelativeSelector());
@@ -452,18 +482,26 @@ public final class SelectorParser {
         }
 
         private String readIdentifier() {
-            if (atEnd() || !isIdentifierStart(peek())) {
+            if (atEnd() || !isIdentifierStart(peek()) && peek() != '\\') {
                 throw error();
             }
-            int start = position++;
-            while (!atEnd() && isIdentifierPart(peek())) {
-                position++;
+            StringBuilder result = new StringBuilder();
+            while (!atEnd()) {
+                char current = peek();
+                if (current == '\\' && position + 1 < source.length()) {
+                    position += 2;
+                    result.append(source.charAt(position - 1));
+                } else if (isIdentifierPart(current)) {
+                    position++;
+                    result.append(current);
+                } else {
+                    break;
+                }
             }
-            String result = source.substring(start, position);
-            if ("-".equals(result)) {
+            if ("-".equals(result.toString())) {
                 throw error();
             }
-            return result;
+            return result.toString();
         }
 
         private boolean skipWhitespace() {            int start = position;
@@ -506,8 +544,7 @@ public final class SelectorParser {
         }
 
         private static boolean isPseudoElementName(String name) {
-            return name.equals("before") || name.equals("after")
-                    || name.equals("first-letter") || name.equals("first-line");
+            return PseudoElementSupport.isSupported(name);
         }
 
         private static boolean isCombinator(char value) {
