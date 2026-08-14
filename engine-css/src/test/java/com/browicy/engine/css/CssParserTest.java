@@ -664,6 +664,25 @@ public class CssParserTest {
     }
 
     @Test
+    public void parsesVisibilityPointerEventsAndOutlineOffset() {
+        CssParser parser = new CssParser();
+        assertEquals("hidden", parser.parseDeclarations("visibility:hidden")
+                .get("visibility"));
+        assertEquals("collapse", parser.parseDeclarations("visibility:collapse")
+                .get("visibility"));
+        assertEquals("none", parser.parseDeclarations("pointer-events:none")
+                .get("pointer-events"));
+        assertEquals("3px", parser.parseDeclarations("outline-offset:3px")
+                .get("outline-offset"));
+        assertEquals("-2px", parser.parseDeclarations("outline-offset:-2px")
+                .get("outline-offset"));
+        assertTrue(parser.supports("visibility", "hidden"));
+        assertTrue(parser.supports("pointer-events", "none"));
+        assertTrue(parser.supportsProperty("outline-offset"));
+        assertFalse(parser.supports("visibility", "invisible"));
+    }
+
+    @Test
     public void parsesPercentageMarginsStickyFixedOverflowLonghandsAndCursors() {
         CssParser parser = new CssParser();
         assertEquals("8.33333%", parser.parseDeclarations("margin-left:8.33333%")

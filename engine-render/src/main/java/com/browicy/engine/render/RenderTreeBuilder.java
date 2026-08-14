@@ -103,6 +103,9 @@ public final class RenderTreeBuilder {
                 0,
                 DEFAULT_COLOR,
                 false,
+                0,
+                true,
+                true,
                 RenderStyle.BorderCollapse.SEPARATE,
                 RenderStyle.TextAlign.LEFT,
                 RenderStyle.TextTransform.NONE,
@@ -624,6 +627,9 @@ public final class RenderTreeBuilder {
                 0,
                 inherited.color(),
                 false,
+                0,
+                true,
+                true,
                 inherited.borderCollapse(),
                 inherited.textAlign(),
                 inherited.textTransform(),
@@ -697,6 +703,9 @@ public final class RenderTreeBuilder {
         CornerRadii borderRadius = CornerRadii.ZERO;
         java.util.List<BoxShadow> boxShadows = java.util.List.of();
         float outlineWidth = 0;
+        float outlineOffset = 0;
+        boolean visible = true;
+        boolean pointerEvents = true;
         CssColor outlineColor = color;
         boolean outlineVisible = false;
         RenderStyle.BorderCollapse borderCollapse = RenderStyle.BorderCollapse.SEPARATE;
@@ -943,6 +952,11 @@ public final class RenderTreeBuilder {
                 declarations.get("outline-width"), fontSize, rootFontSizePx, 0));
         outlineColor = colorOrCurrent(declarations.get("outline-color"), color);
         outlineVisible = "solid".equals(declarations.get("outline-style")) && outlineWidth > 0;
+        outlineOffset = resolveLength(declarations.get("outline-offset"),
+                fontSize, rootFontSizePx, 0);
+        visible = !"hidden".equals(declarations.get("visibility"))
+                && !"collapse".equals(declarations.get("visibility"));
+        pointerEvents = !"none".equals(declarations.get("pointer-events"));
         whiteSpace = switch (declarations.getOrDefault("white-space", "normal")) {
             case "nowrap" -> RenderStyle.WhiteSpace.NOWRAP;
             case "pre" -> RenderStyle.WhiteSpace.PRE;
@@ -962,6 +976,7 @@ public final class RenderTreeBuilder {
                 aspectRatio, objectFit, boxSizing, margin,
                 autoMargins, padding, borderWidth, borderColor, borderStyle, borderRadius,
                 boxShadows, outlineWidth, outlineColor, outlineVisible,
+                outlineOffset, visible, pointerEvents,
                 borderCollapse, textAlign, textTransform,
                 whiteSpace, overflow, verticalAlign, flexDirection, flexWrap, justifyContent,
                 alignItems, rowGapPx, columnGapPx, flexGrow,

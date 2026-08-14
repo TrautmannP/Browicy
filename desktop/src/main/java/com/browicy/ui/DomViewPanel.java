@@ -395,7 +395,11 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             }
             if (source != null && x >= left && x < left + width
                     && y >= fragment.top() && y < fragment.bottom()) {
-                return source;
+                if (source instanceof Element element
+                        && !element.getComputedStyles().getOrDefault(
+                                "pointer-events", "auto").equals("none")) {
+                    return element;
+                }
             }
         }
         return document.getBody();
@@ -722,6 +726,9 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                                        float height,
                                        boolean paintLeft,
                                        boolean paintRight) {
+        if (!style.visible()) {
+            return;
+        }
         CssColor background = style.backgroundColor();
         CornerRadii radii = style.borderRadius();
         boolean rounded = radii.topLeft() > 0 || radii.topRight() > 0
@@ -784,12 +791,13 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         }
         if (style.outlineVisible()) {
             float outline = style.outlineWidth();
+            float offset = style.outlineOffset();
             graphics.setColor(toAwtColor(style.outlineColor()));
             graphics.setStroke(new BasicStroke(outline));
-            float inset = outline / 2f;
+            float inset = outline / 2f + offset;
             graphics.draw(boxPath(x - inset, y - inset,
-                    width + outline, height + outline,
-                    grown(radii, outline / 2f)));
+                    width + outline + 2 * offset, height + outline + 2 * offset,
+                    grown(radii, outline / 2f + offset)));
             graphics.setStroke(new BasicStroke());
         }
     }

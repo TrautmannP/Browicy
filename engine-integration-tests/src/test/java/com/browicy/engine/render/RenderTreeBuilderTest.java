@@ -107,6 +107,25 @@ public class RenderTreeBuilderTest {
     }
 
     @Test
+    public void resolvesVisibilityPointerEventsAndOutlineOffset() {
+        RenderBox hidden = boxChildren(build("""
+                <body><div style="visibility:hidden">x</div></body>
+                """).root()).getFirst();
+        assertFalse(hidden.style().visible());
+
+        RenderBox inert = boxChildren(build("""
+                <body><div style="pointer-events:none">x</div></body>
+                """).root()).getFirst();
+        assertFalse(inert.style().pointerEvents());
+
+        RenderBox offset = boxChildren(build("""
+                <body><div style="outline:2px solid blue;outline-offset:4px">x</div></body>
+                """).root()).getFirst();
+        assertEquals(4f, offset.style().outlineOffset(), 0.001f);
+        assertTrue(offset.style().outlineVisible());
+    }
+
+    @Test
     public void resolvesStickyFixedAndOverflowLonghands() {
         RenderBox sticky = boxChildren(build("""
                 <body><div style="position:sticky;top:4px">x</div></body>

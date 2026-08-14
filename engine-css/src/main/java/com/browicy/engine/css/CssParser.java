@@ -26,6 +26,9 @@ public final class CssParser {
     private static final Pattern RADIUS_LENGTH = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:" + LENGTH_UNIT + "|%)|0)",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern LENGTH_OR_ZERO = Pattern.compile(
+            "(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh)|0)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern MARGIN_LENGTH = Pattern.compile(
             "(?:(?:-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:px|em|rem|vw|vh|%)|0)|auto)",
             Pattern.CASE_INSENSITIVE);
@@ -520,8 +523,11 @@ public final class CssParser {
             case "border-top-left-radius", "border-top-right-radius",
                  "border-bottom-right-radius", "border-bottom-left-radius" ->
                     supports(normalized, "4px");
-            case "outline" -> supports(normalized, "1px solid black");
-            case "outline-width" -> supports(normalized, "1px");
+            case "outline" -> supports(normalized, "2px solid black");
+            case "outline-width" -> supports(normalized, "2px");
+            case "outline-offset" -> supports(normalized, "2px");
+            case "visibility" -> supports(normalized, "visible");
+            case "pointer-events" -> supports(normalized, "auto");
             case "outline-color" -> supports(normalized, "black");
             case "outline-style" -> supports(normalized, "solid");
             case "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
@@ -702,6 +708,20 @@ public final class CssParser {
                     target.put(property, value);
                 }
             }
+            case "visibility" -> {
+                if (value.equals("visible") || value.equals("hidden")
+                        || value.equals("collapse")) {
+                    target.put(property, value);
+                }
+            }
+            case "pointer-events" -> {
+                if (value.equals("auto") || value.equals("none")
+                        || value.equals("all") || value.equals("visible")
+                        || value.equals("painted") || value.equals("fill")
+                        || value.equals("stroke")) {
+                    target.put(property, value);
+                }
+            }
             case "white-space" -> {
                 if (value.equals("normal") || value.equals("nowrap") || value.equals("pre")
                         || value.equals("pre-wrap") || value.equals("pre-line")
@@ -745,6 +765,7 @@ public final class CssParser {
                     putIfMatches(target, property, value, RADIUS_LENGTH);
             case "outline" -> expandOutline(target, value);
             case "outline-width" -> putIfMatches(target, property, value, POSITIVE_LENGTH);
+            case "outline-offset" -> putIfMatches(target, property, value, LENGTH_OR_ZERO);
             case "outline-color" -> putColor(target, property, value);
             case "outline-style" -> {
                 if (value.equals("none") || value.equals("solid")) target.put(property, value);
