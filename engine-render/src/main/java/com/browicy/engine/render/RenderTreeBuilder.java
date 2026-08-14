@@ -779,7 +779,10 @@ public final class RenderTreeBuilder {
         float opacity = parent.opacity();
 
         if (declarations.containsKey("display")) {
-            display = switch (declarations.get("display")) {
+            String displayValue = declarations.get("display");
+            display = switch (displayValue) {
+                case "inherit" -> parent.display();
+                case "-webkit-box" -> RenderStyle.Display.FLEX;
                 case "block" -> RenderStyle.Display.BLOCK;
                 case "inline-block" -> RenderStyle.Display.INLINE_BLOCK;
                 case "flex" -> RenderStyle.Display.FLEX;
@@ -815,6 +818,27 @@ public final class RenderTreeBuilder {
                 cursor.name().toLowerCase(Locale.ROOT))) {
             case "pointer" -> RenderStyle.Cursor.POINTER;
             case "text" -> RenderStyle.Cursor.TEXT;
+            case "grab", "grabbing" -> RenderStyle.Cursor.GRABBING;
+            case "crosshair" -> RenderStyle.Cursor.CROSSHAIR;
+            case "help" -> RenderStyle.Cursor.HELP;
+            case "move", "all-scroll" -> RenderStyle.Cursor.MOVE;
+            case "not-allowed" -> RenderStyle.Cursor.NOT_ALLOWED;
+            case "wait" -> RenderStyle.Cursor.WAIT;
+            case "progress" -> RenderStyle.Cursor.PROGRESS;
+            case "zoom-in" -> RenderStyle.Cursor.ZOOM_IN;
+            case "zoom-out" -> RenderStyle.Cursor.ZOOM_OUT;
+            case "cell" -> RenderStyle.Cursor.CELL;
+            case "copy" -> RenderStyle.Cursor.COPY;
+            case "no-drop" -> RenderStyle.Cursor.NO_DROP;
+            case "alias" -> RenderStyle.Cursor.ALIAS;
+            case "context-menu" -> RenderStyle.Cursor.CONTEXT_MENU;
+            case "vertical-text" -> RenderStyle.Cursor.VERTICAL_TEXT;
+            case "col-resize" -> RenderStyle.Cursor.COL_RESIZE;
+            case "row-resize", "ns-resize", "n-resize", "s-resize"
+                    -> RenderStyle.Cursor.NS_RESIZE;
+            case "ew-resize", "e-resize", "w-resize" -> RenderStyle.Cursor.EW_RESIZE;
+            case "ne-resize", "nw-resize", "se-resize", "sw-resize"
+                    -> RenderStyle.Cursor.MOVE;
             default -> RenderStyle.Cursor.DEFAULT;
         };
         floatMode = switch (declarations.getOrDefault("float", "none")) {
@@ -1089,8 +1113,11 @@ public final class RenderTreeBuilder {
         letterSpacingPx = "normal".equals(declarations.getOrDefault("letter-spacing", "normal"))
                 ? 0 : resolveLength(declarations.get("letter-spacing"), fontSize,
                         rootFontSizePx, 0);
-        textOverflow = "ellipsis".equals(declarations.get("text-overflow"))
-                ? RenderStyle.TextOverflow.ELLIPSIS : RenderStyle.TextOverflow.CLIP;
+        textOverflow = switch (declarations.getOrDefault("text-overflow", "clip")) {
+            case "ellipsis" -> RenderStyle.TextOverflow.ELLIPSIS;
+            case "inherit" -> parent.textOverflow();
+            default -> RenderStyle.TextOverflow.CLIP;
+        };
 
         return new RenderStyle(display, position, zIndex, floatMode, clear, top, right, bottom, left,
                 fontSize, fontFamily, fontWeight, italic, lineHeight, color, listStyleType,
@@ -1743,6 +1770,25 @@ public final class RenderTreeBuilder {
         String math = value.toLowerCase(Locale.ROOT).strip();
         if (math.startsWith("min(") || math.startsWith("max(")) {
             Float evaluated = evaluateMathFunction(math, emBase);
+            if (evaluated != null) {
+                return new RenderLength(Math.max(0, evaluated), RenderLength.Unit.PX);
+            }
+        }
+        if (math.startsWith("calc(") && math.endsWith(")")) {
+            // %-haltige Ausdrücke bleiben als PERCENT + px-Offset erhalten.
+            java.util.regex.Matcher percentCalc = java.util.regex.Pattern.compile(
+                    "calc\\(\\s*([0-9]*\\.?[0-9]+)%\\s*([+-])\\s*"
+                            + "([0-9]*\\.?[0-9]+)px\\s*\\)",
+                    java.util.regex.Pattern.CASE_INSENSITIVE).matcher(value);
+            if (percentCalc.matches()) {
+                float offset = Float.parseFloat(percentCalc.group(3));
+                if ("-".equals(percentCalc.group(2))) {
+                    offset = -offset;
+                }
+                return new RenderLength(Float.parseFloat(percentCalc.group(1)),
+                        RenderLength.Unit.PERCENT, offset);
+            }
+            Float evaluated = evaluateMathArg(math.substring(5, math.length() - 1), emBase);
             if (evaluated != null) {
                 return new RenderLength(Math.max(0, evaluated), RenderLength.Unit.PX);
             }

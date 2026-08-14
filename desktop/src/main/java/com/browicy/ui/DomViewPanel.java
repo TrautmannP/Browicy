@@ -515,7 +515,16 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         }
         int type = switch (cursor == null ? "default" : cursor) {
             case "pointer" -> Cursor.HAND_CURSOR;
-            case "text" -> Cursor.TEXT_CURSOR;
+            case "text", "vertical-text" -> Cursor.TEXT_CURSOR;
+            case "crosshair" -> Cursor.CROSSHAIR_CURSOR;
+            case "move", "all-scroll" -> Cursor.MOVE_CURSOR;
+            case "wait", "progress" -> Cursor.WAIT_CURSOR;
+            case "n-resize", "s-resize", "ns-resize", "row-resize"
+                    -> Cursor.N_RESIZE_CURSOR;
+            case "e-resize", "w-resize", "ew-resize", "col-resize"
+                    -> Cursor.E_RESIZE_CURSOR;
+            case "ne-resize", "sw-resize" -> Cursor.NE_RESIZE_CURSOR;
+            case "nw-resize", "se-resize" -> Cursor.NW_RESIZE_CURSOR;
             default -> Cursor.DEFAULT_CURSOR;
         };
         setCursor(Cursor.getPredefinedCursor(type));

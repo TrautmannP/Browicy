@@ -95,14 +95,14 @@ public class CssParserTest {
     @Test
     public void ignoresUnknownPropertiesInvalidValuesAndMalformedRules() {
         List<CssRule> rules = new CssParser().parse("""
-                h1 { filter: blur(5px); color: definitely-not-a-color; font-size: huge; }
+                h1 { font-size: huge; color: definitely-not-a-color; }
                 p { color: red; }
                 broken rule
                 """);
 
         assertEquals(1, rules.size());
         assertEquals("p", rules.getFirst().selector().toString());
-        assertFalse(rules.getFirst().declarations().containsKey("filter"));
+        assertFalse(rules.getFirst().declarations().containsKey("font-size"));
     }
 
     @Test
@@ -1230,5 +1230,44 @@ public class CssParserTest {
         assertFalse(parser.parseDeclarations("flex:1 2 3 4").containsKey("flex-grow"));
         assertFalse(parser.parseDeclarations("shape-rendering:bogus")
                 .containsKey("shape-rendering"));
+    }
+
+    @Test
+    public void acceptsFiltersCalcCustomMediaAndSmallProperties() {
+        CssParser parser = new CssParser();
+        Map<String, String> declarations = parser.parseDeclarations("""
+                filter:brightness(.85);vertical-align:-.075em;color-scheme:light dark;
+                isolation:isolate;mix-blend-mode:plus-lighter;resize:vertical;
+                scroll-margin-top:64px;table-layout:fixed;cursor:grabbing;
+                display:inherit;max-height:calc(100vh - 2rem);
+                text-overflow:inherit
+                """);
+
+        assertEquals("brightness(.85)", declarations.get("filter"));
+        assertEquals("-.075em", declarations.get("vertical-align"));
+        assertEquals("light dark", declarations.get("color-scheme"));
+        assertEquals("isolate", declarations.get("isolation"));
+        assertEquals("plus-lighter", declarations.get("mix-blend-mode"));
+        assertEquals("vertical", declarations.get("resize"));
+        assertEquals("64px", declarations.get("scroll-margin-top"));
+        assertEquals("fixed", declarations.get("table-layout"));
+        assertEquals("grabbing", declarations.get("cursor"));
+        assertEquals("inherit", declarations.get("display"));
+        assertEquals("calc(100vh - 2rem)", declarations.get("max-height"));
+        assertEquals("inherit", declarations.get("text-overflow"));
+
+        assertTrue(parser.supportsProperty("filter"));
+        assertTrue(parser.supports("filter", "grayscale()"));
+        assertTrue(parser.supports("display", "-webkit-box"));
+        assertFalse(parser.parseDeclarations("filter:drop-shadow(0 0 2px red)")
+                .containsKey("filter"));
+        assertFalse(parser.parseDeclarations("cursor:bogus").containsKey("cursor"));
+
+        List<CssRule> rules = parser.parse("""
+                @custom-media --narrow (max-width: 600px);
+                .kept { color: green }
+                """);
+        assertEquals(1, rules.size());
+        assertEquals(".kept", rules.get(0).selector().toString());
     }
 }

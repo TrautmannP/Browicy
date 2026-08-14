@@ -107,7 +107,12 @@ public record RenderStyle(
     public enum BackgroundPositionX { LEFT, CENTER, RIGHT }
     public enum BackgroundPositionY { TOP, CENTER, BOTTOM }
     public enum Position { STATIC, RELATIVE, ABSOLUTE, STICKY, FIXED }
-    public enum Cursor { DEFAULT, POINTER, TEXT }
+    public enum Cursor {
+        DEFAULT, POINTER, TEXT, GRABBING, NS_RESIZE, EW_RESIZE, N_RESIZE, S_RESIZE,
+        E_RESIZE, W_RESIZE, NE_RESIZE, NW_RESIZE, SE_RESIZE, SW_RESIZE, CROSSHAIR,
+        HELP, MOVE, NOT_ALLOWED, WAIT, PROGRESS, ZOOM_IN, ZOOM_OUT, CELL, COPY,
+        NO_DROP, ALIAS, CONTEXT_MENU, VERTICAL_TEXT, ALL_SCROLL, COL_RESIZE, ROW_RESIZE
+    }
     public enum FloatMode { NONE, LEFT, RIGHT }
     public enum Clear { NONE, LEFT, RIGHT, BOTH }
     public enum TextAlign { LEFT, CENTER, RIGHT }

@@ -210,6 +210,14 @@ public final class CssParser {
             }
             String prelude = source.substring(offset, open).strip();
             String preludeLower = prelude.toLowerCase(Locale.ROOT);
+            if (preludeLower.startsWith("@custom-media")
+                    || preludeLower.startsWith("@custom-selector")) {
+                int statementEnd = source.indexOf(';', offset);
+                if (statementEnd >= 0 && (open < 0 || statementEnd < open)) {
+                    offset = statementEnd + 1;
+                    continue;
+                }
+            }
             if (preludeLower.startsWith("@layer")) {
                 int statementEnd = source.indexOf(';', offset);
                 if (statementEnd >= 0 && (open < 0 || statementEnd < open)) {
@@ -585,6 +593,13 @@ public final class CssParser {
             case "place-content" -> supports(normalized, "center");
             case "text-shadow" -> supports(normalized, "none");
             case "shape-rendering" -> supports(normalized, "crispedges");
+            case "filter" -> supports(normalized, "none");
+            case "color-scheme" -> supports(normalized, "light");
+            case "isolation" -> supports(normalized, "isolate");
+            case "mix-blend-mode" -> supports(normalized, "normal");
+            case "resize" -> supports(normalized, "vertical");
+            case "scroll-margin-top" -> supports(normalized, "0");
+            case "table-layout" -> supports(normalized, "fixed");
             case "align-self" -> supports(normalized, "stretch");
             case "align-content" -> supports(normalized, "stretch");
             case "order" -> supports(normalized, "0");
@@ -771,7 +786,8 @@ public final class CssParser {
                         || value.equals("table-row-group") || value.equals("table-header-group")
                         || value.equals("table-footer-group") || value.equals("table-row")
                         || value.equals("table-cell") || value.equals("table-column-group")
-                        || value.equals("table-column") || value.equals("table-caption")) {
+                        || value.equals("table-column") || value.equals("table-caption")
+                        || value.equals("inherit") || value.equals("-webkit-box")) {
                     target.put(property, value);
                 }
             }
@@ -967,9 +983,19 @@ public final class CssParser {
                         || value.equals("pointer") || value.equals("text")
                         || value.equals("crosshair") || value.equals("help")
                         || value.equals("move") || value.equals("grab")
-                        || value.equals("not-allowed") || value.equals("wait")
-                        || value.equals("progress") || value.equals("zoom-in")
-                        || value.equals("zoom-out") || value.equals("cell")) {
+                        || value.equals("grabbing") || value.equals("not-allowed")
+                        || value.equals("wait") || value.equals("progress")
+                        || value.equals("zoom-in") || value.equals("zoom-out")
+                        || value.equals("cell") || value.equals("alias")
+                        || value.equals("copy") || value.equals("no-drop")
+                        || value.equals("context-menu") || value.equals("vertical-text")
+                        || value.equals("all-scroll") || value.equals("col-resize")
+                        || value.equals("row-resize") || value.equals("ns-resize")
+                        || value.equals("ew-resize") || value.equals("n-resize")
+                        || value.equals("s-resize") || value.equals("e-resize")
+                        || value.equals("w-resize") || value.equals("ne-resize")
+                        || value.equals("nw-resize") || value.equals("se-resize")
+                        || value.equals("sw-resize")) {
                     target.put(property, value);
                 }
             }
@@ -1017,7 +1043,8 @@ public final class CssParser {
             case "vertical-align" -> {
                 if (value.equals("baseline") || value.equals("top") || value.equals("middle")
                         || value.equals("bottom") || value.equals("text-top")
-                        || value.equals("text-bottom")) {
+                        || value.equals("text-bottom")
+                        || POSITION_OFFSET.matcher(value).matches()) {
                     target.put(property, value);
                 }
             }
@@ -1055,7 +1082,9 @@ public final class CssParser {
                 }
             }
             case "text-overflow" -> {
-                if (value.equals("clip") || value.equals("ellipsis")) {
+                if (value.equals("clip") || value.equals("ellipsis")
+                        || value.equals("inherit") || value.equals("unset")
+                        || value.equals("revert")) {
                     target.put(property, value);
                 }
             }
@@ -1127,6 +1156,54 @@ public final class CssParser {
                         || value.equals("geometricprecision")
                         || value.equals("optimizespeed")
                         || value.equals("optimizequality")) {
+                    target.put(property, value);
+                }
+            }
+            case "filter" -> {
+                if (value.equals("none") || isFilterFunctionList(value)) {
+                    target.put(property, value);
+                }
+            }
+            case "color-scheme" -> {
+                if (value.equals("normal") || value.equals("light")
+                        || value.equals("dark") || value.equals("light dark")
+                        || value.equals("only light") || value.equals("only dark")) {
+                    target.put(property, value);
+                }
+            }
+            case "isolation" -> {
+                if (value.equals("auto") || value.equals("isolate")) {
+                    target.put(property, value);
+                }
+            }
+            case "mix-blend-mode" -> {
+                if (value.equals("normal") || value.equals("multiply")
+                        || value.equals("screen") || value.equals("overlay")
+                        || value.equals("darken") || value.equals("lighten")
+                        || value.equals("color-dodge") || value.equals("color-burn")
+                        || value.equals("hard-light") || value.equals("soft-light")
+                        || value.equals("difference") || value.equals("exclusion")
+                        || value.equals("hue") || value.equals("saturation")
+                        || value.equals("color") || value.equals("luminosity")
+                        || value.equals("plus-lighter") || value.equals("plus-darker")) {
+                    target.put(property, value);
+                }
+            }
+            case "resize" -> {
+                if (value.equals("none") || value.equals("both")
+                        || value.equals("horizontal") || value.equals("vertical")
+                        || value.equals("block") || value.equals("inline")) {
+                    target.put(property, value);
+                }
+            }
+            case "scroll-margin", "scroll-margin-top", "scroll-margin-right",
+                 "scroll-margin-bottom", "scroll-margin-left",
+                 "scroll-margin-block", "scroll-margin-inline",
+                 "scroll-margin-block-start", "scroll-margin-block-end",
+                 "scroll-margin-inline-start", "scroll-margin-inline-end" ->
+                    putIfMatches(target, property, value, POSITION_OFFSET);
+            case "table-layout" -> {
+                if (value.equals("auto") || value.equals("fixed")) {
                     target.put(property, value);
                 }
             }
@@ -1204,6 +1281,9 @@ public final class CssParser {
 
     private static boolean isMathFunctionValue(String value) {
         String normalized = value.toLowerCase(Locale.ROOT).strip();
+        if (normalized.startsWith("calc(") && normalized.endsWith(")")) {
+            return !normalized.substring(5, normalized.length() - 1).isEmpty();
+        }
         if (!(normalized.startsWith("min(") || normalized.startsWith("max("))
                 || !normalized.endsWith(")")) {
             return false;
@@ -2251,6 +2331,24 @@ public final class CssParser {
             value = value.substring(5).strip();
         }
         return value.matches("[-+]?[0-9]+");
+    }
+
+    private static boolean isFilterFunctionList(String value) {
+        for (String part : splitTopLevel(value, ' ')) {
+            String lower = part.strip().toLowerCase(Locale.ROOT);
+            if (lower.startsWith("grayscale(") || lower.startsWith("brightness(")
+                    || lower.startsWith("invert(") || lower.startsWith("contrast(")
+                    || lower.startsWith("opacity(") || lower.startsWith("saturate(")
+                    || lower.startsWith("sepia(") || lower.startsWith("blur(")
+                    || lower.startsWith("hue-rotate(")) {
+                if (!lower.endsWith(")")) {
+                    return false;
+                }
+                continue;
+            }
+            return false;
+        }
+        return true;
     }
 
     private static boolean isTextShadow(String value) {

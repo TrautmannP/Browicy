@@ -23,7 +23,8 @@ final class CompatibilityReport {
     private static final int MAX_EXAMPLES = 3;
     private static final java.util.Set<String> SUPPORTED_AT_RULES = java.util.Set.of(
             "font-face", "media", "supports", "namespace",
-            "keyframes", "container", "layer", "position-try", "property");
+            "keyframes", "container", "layer", "position-try", "property",
+            "custom-media", "custom-selector");
     private static final Pattern JS_REFERENCE_ERROR = Pattern.compile(
             "(?:ReferenceError:\\s*)?([A-Za-z_$][\\w$]*) is not defined");
     private static final Pattern JS_MISSING_FUNCTION = Pattern.compile(
