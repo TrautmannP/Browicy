@@ -15,6 +15,7 @@ public final class CssStyleSheet {
     private final String href;
     private final List<String> ruleTexts = new ArrayList<>();
     private List<CssFontFace> fontFaces = List.of();
+    private List<CssKeyframes> keyframes = List.of();
     private String sourceText;
     private volatile long generation;
     private List<CssRule> cachedParsedRules;
@@ -27,7 +28,7 @@ public final class CssStyleSheet {
         this.sourceText = css == null ? "" : css;
         ruleTexts.addAll(parser.ruleSources(css));
         fontFaces = parser.fontFaces(css);
-        cachedParsedRules = parseRules();
+        reparse();
         generation = 1;
     }
 
@@ -60,12 +61,19 @@ public final class CssStyleSheet {
         ruleTexts.clear();
         ruleTexts.addAll(parser.ruleSources(css));
         fontFaces = parser.fontFaces(css);
-        cachedParsedRules = parseRules();
+        CssParser.ParsedSheet parsedSheet = parser.parseSheet(
+                sourceText, Math.multiplyExact((long) sourceOrder, RULE_ORDER_RANGE));
+        keyframes = parsedSheet.keyframes();
+        cachedParsedRules = parsedSheet.rules();
         generation++;
     }
 
     public synchronized List<CssFontFace> fontFaces() {
         return fontFaces;
+    }
+
+    public synchronized List<CssKeyframes> keyframes() {
+        return keyframes;
     }
 
     public synchronized int insertRule(String rule, int index) {
@@ -79,7 +87,7 @@ public final class CssStyleSheet {
         }
         ruleTexts.add(index, parsed.getFirst());
         sourceText = String.join(System.lineSeparator(), ruleTexts);
-        cachedParsedRules = parseRules();
+        reparse();
         generation++;
         return index;
     }
@@ -90,13 +98,15 @@ public final class CssStyleSheet {
         }
         ruleTexts.remove(index);
         sourceText = String.join(System.lineSeparator(), ruleTexts);
-        cachedParsedRules = parseRules();
+        reparse();
         generation++;
     }
 
-    private List<CssRule> parseRules() {
+    private void reparse() {
         long nextOrder = Math.multiplyExact((long) sourceOrder, RULE_ORDER_RANGE);
-        return List.copyOf(parser.parse(sourceText, nextOrder));
+        CssParser.ParsedSheet parsedSheet = parser.parseSheet(sourceText, nextOrder);
+        keyframes = List.copyOf(parsedSheet.keyframes());
+        cachedParsedRules = List.copyOf(parsedSheet.rules());
     }
 
     synchronized List<CssRule> parsedRules() {

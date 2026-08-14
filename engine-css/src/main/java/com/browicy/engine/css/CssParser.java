@@ -149,19 +149,55 @@ public final class CssParser {
     }
 
     List<CssRule> parse(String css, long sourceOrderStart) {
+        return parseSheet(css, sourceOrderStart).rules();
+    }
+
+    ParsedSheet parseSheet(String css, long sourceOrderStart) {
         List<CssRule> rules = new ArrayList<>();
+        List<CssKeyframes> keyframes = new ArrayList<>();
         if (css == null || css.isBlank()) {
-            return rules;
+            return new ParsedSheet(rules, keyframes);
         }
 
         long[] sourceOrder = {sourceOrderStart};
         parseRuleList(COMMENTS.matcher(css).replaceAll(""), MediaCondition.ALL,
-                sourceOrder, rules);
-        return rules;
+                sourceOrder, rules, keyframes);
+        return new ParsedSheet(rules, keyframes);
+    }
+
+    record ParsedSheet(List<CssRule> rules, List<CssKeyframes> keyframes) {
+    }
+
+    private CssKeyframes parseKeyframes(String name, String body) {
+        if (name.isEmpty()) {
+            return null;
+        }
+        List<CssKeyframes.Block> blocks = new ArrayList<>();
+        int offset = 0;
+        while (offset < body.length()) {
+            int open = body.indexOf('{', offset);
+            if (open < 0) {
+                break;
+            }
+            int close = body.indexOf('}', open + 1);
+            if (close < 0) {
+                return null;
+            }
+            String selector = body.substring(offset, open).strip().toLowerCase(Locale.ROOT);
+            if (selector.equals("from") || selector.equals("to")
+                    || selector.matches("[0-9]*\\.?[0-9]+%")) {
+                Map<String, String> declarations =
+                        parseDeclarationBlock(body.substring(open + 1, close)).declarations();
+                blocks.add(new CssKeyframes.Block(selector, declarations));
+            }
+            offset = close + 1;
+        }
+        return blocks.isEmpty() ? null : new CssKeyframes(name, blocks);
     }
 
     private void parseRuleList(String source, MediaCondition condition,
-                               long[] sourceOrder, List<CssRule> rules) {
+                               long[] sourceOrder, List<CssRule> rules,
+                               List<CssKeyframes> keyframes) {
         int offset = 0;
         while (offset < source.length()) {
             int open = source.indexOf('{', offset);
@@ -174,9 +210,20 @@ public final class CssParser {
             }
             String prelude = source.substring(offset, open).strip();
             String preludeLower = prelude.toLowerCase(Locale.ROOT);
+            if (preludeLower.startsWith("@layer")) {
+                int statementEnd = source.indexOf(';', offset);
+                if (statementEnd >= 0 && (open < 0 || statementEnd < open)) {
+                    offset = statementEnd + 1;
+                    continue;
+                }
+            }
             boolean media = preludeLower.startsWith("@media");
             boolean supports = preludeLower.startsWith("@supports");
-            boolean nestedAtRule = media || supports;
+            boolean keyframesAtRule = preludeLower.startsWith("@keyframes");
+            boolean container = preludeLower.startsWith("@container");
+            boolean layer = preludeLower.startsWith("@layer");
+            boolean nestedAtRule = media || supports || keyframesAtRule
+                    || container || layer;
             int close = nestedAtRule ? matchingBrace(source, open)
                     : source.indexOf('}', open + 1);
             if (close < 0) {
@@ -195,14 +242,31 @@ public final class CssParser {
             String body = source.substring(open + 1, close);
             if (media) {
                 String query = prelude.substring(6).strip();
-                parseRuleList(body, condition.and(new MediaCondition(query)), sourceOrder, rules);
+                parseRuleList(body, condition.and(new MediaCondition(query)),
+                        sourceOrder, rules, keyframes);
                 offset = close + 1;
                 continue;
             }
             if (supports) {
                 String conditionSource = prelude.substring(9).strip();
                 if (evaluateSupportsCondition(conditionSource)) {
-                    parseRuleList(body, condition, sourceOrder, rules);
+                    parseRuleList(body, condition, sourceOrder, rules, keyframes);
+                }
+                offset = close + 1;
+                continue;
+            }
+            if (container || layer) {
+                // Container- und Layer-Blöcke halten ihre Regeln; Queries werden
+                // als immer-wahr angenähert, Layer als ungruppiert.
+                parseRuleList(body, condition, sourceOrder, rules, keyframes);
+                offset = close + 1;
+                continue;
+            }
+            if (keyframesAtRule) {
+                String name = prelude.substring("@keyframes".length()).strip();
+                CssKeyframes parsed = parseKeyframes(name, body);
+                if (parsed != null) {
+                    keyframes.add(parsed);
                 }
                 offset = close + 1;
                 continue;
@@ -421,6 +485,23 @@ public final class CssParser {
                 putBackground(parsed, rawValue);
             } else if (property.equals("background-image")) {
                 putBackgroundImage(parsed, rawValue);
+            } else if (property.equals("animation")) {
+                putAnimationShorthand(parsed, rawValue);
+            } else if (property.equals("transition")) {
+                putTransitionShorthand(parsed, rawValue);
+            } else if (property.equals("animation-name")
+                    || property.equals("animation-duration")
+                    || property.equals("animation-timing-function")
+                    || property.equals("animation-delay")
+                    || property.equals("animation-iteration-count")
+                    || property.equals("animation-direction")
+                    || property.equals("animation-fill-mode")) {
+                putAnimationLonghand(parsed, property, rawValue);
+            } else if (property.equals("transition-property")
+                    || property.equals("transition-duration")
+                    || property.equals("transition-timing-function")
+                    || property.equals("transition-delay")) {
+                putTransitionLonghand(parsed, property, rawValue);
             } else {
                 parseDeclaration(parsed, property, value);
             }
@@ -555,6 +636,20 @@ public final class CssParser {
             case "stroke" -> supports(normalized, "black");
             case "stroke-width" -> supports(normalized, "1px");
             case "scrollbar-width" -> supports(normalized, "auto");
+            case "animation" -> supports(normalized, "1s linear none");
+            case "animation-name" -> supports(normalized, "fade-in");
+            case "animation-duration" -> supports(normalized, "1s");
+            case "animation-timing-function" -> supports(normalized, "linear");
+            case "animation-delay" -> supports(normalized, "0s");
+            case "animation-iteration-count" -> supports(normalized, "infinite");
+            case "animation-direction" -> supports(normalized, "normal");
+            case "animation-fill-mode" -> supports(normalized, "none");
+            case "transition" -> supports(normalized, "all 80ms ease-out");
+            case "transition-property" -> supports(normalized, "all");
+            case "transition-duration" -> supports(normalized, "80ms");
+            case "transition-timing-function" -> supports(normalized, "ease-out");
+            case "transition-delay" -> supports(normalized, "0s");
+            case "clip-path" -> supports(normalized, "none");
             case "flex-flow" -> supports(normalized, "row wrap");
             case "transform" -> supports(normalized, "none");
             case "transform-origin" -> supports(normalized, "50% 50%");
@@ -745,6 +840,18 @@ public final class CssParser {
             case "flex-basis" -> putIfMatches(target, property, value, DIMENSION);
             case "flex" -> expandFlex(target, value);
             case "opacity" -> putUnitInterval(target, property, value);
+            case "animation" -> putAnimationShorthand(target, value);
+            case "animation-name", "animation-duration", "animation-timing-function",
+                 "animation-delay", "animation-iteration-count", "animation-direction",
+                 "animation-fill-mode" -> putAnimationLonghand(target, property, value);
+            case "transition" -> putTransitionShorthand(target, value);
+            case "transition-property", "transition-duration", "transition-timing-function",
+                 "transition-delay" -> putTransitionLonghand(target, property, value);
+            case "clip-path" -> {
+                if (value.equals("none") || isClipPathFunction(value)) {
+                    target.put(property, value);
+                }
+            }
             case "user-select" -> {
                 if (value.equals("none") || value.equals("all") || value.equals("text")
                         || value.equals("auto")) {
@@ -1518,6 +1625,246 @@ public final class CssParser {
         }
         target.put("row-gap", tokens[0]);
         target.put("column-gap", tokens.length == 1 ? tokens[0] : tokens[1]);
+    }
+
+    private static final Pattern TIME_VALUE =
+            Pattern.compile("[-+]?[0-9]*\\.?[0-9]+(ms|s)");
+    private static final Pattern ITERATION_COUNT = Pattern.compile(
+            "[0-9]*\\.?[0-9]+");
+
+    private static boolean isTimingFunction(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (normalized.equals("ease") || normalized.equals("linear")
+                || normalized.equals("ease-in") || normalized.equals("ease-out")
+                || normalized.equals("ease-in-out") || normalized.equals("step-start")
+                || normalized.equals("step-end")) {
+            return true;
+        }
+        return normalized.startsWith("cubic-bezier(") && normalized.endsWith(")")
+                || normalized.startsWith("steps(") && normalized.endsWith(")");
+    }
+
+    private static boolean isAnimationNameToken(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (TIME_VALUE.matcher(normalized).matches()
+                || isTimingFunction(normalized) || ITERATION_COUNT.matcher(normalized).matches()
+                || normalized.equals("infinite") || normalized.equals("normal")
+                || normalized.equals("reverse") || normalized.equals("alternate")
+                || normalized.equals("alternate-reverse") || normalized.equals("forwards")
+                || normalized.equals("backwards") || normalized.equals("both")
+                || normalized.equals("none") || normalized.equals("running")
+                || normalized.equals("paused")) {
+            return false;
+        }
+        return value.matches("[-_a-zA-Z][-_a-zA-Z0-9]*");
+    }
+
+    private static void putAnimationShorthand(Map<String, String> target, String value) {
+        List<String> names = new ArrayList<>();
+        List<String> durations = new ArrayList<>();
+        List<String> timings = new ArrayList<>();
+        List<String> delays = new ArrayList<>();
+        List<String> iterations = new ArrayList<>();
+        for (String layer : splitTopLevel(value, ',')) {
+            String currentName = null;
+            String duration = null;
+            String timing = "ease";
+            String delay = null;
+            String iteration = null;
+            for (String token : layer.strip().split("\\s+")) {
+                if (token.isBlank()) {
+                    continue;
+                }
+                String normalized = token.toLowerCase(Locale.ROOT);
+                if (TIME_VALUE.matcher(normalized).matches()) {
+                    if (duration == null && delay == null) {
+                        duration = token;
+                    } else if (delay == null) {
+                        delay = token;
+                    } else {
+                        return;
+                    }
+                } else if (isTimingFunction(normalized)) {
+                    if (timing.equals("ease") && duration != null) {
+                        timing = token;
+                    } else if (timing.equals("ease")) {
+                        timing = token;
+                    } else {
+                        return;
+                    }
+                } else if (normalized.equals("infinite")) {
+                    if (iteration == null) {
+                        iteration = token;
+                    } else {
+                        return;
+                    }
+                } else if (ITERATION_COUNT.matcher(normalized).matches()
+                        && !normalized.matches(".*[a-z].*")) {
+                    if (iteration == null) {
+                        iteration = token;
+                    } else {
+                        return;
+                    }
+                } else if (normalized.equals("none")) {
+                    if (currentName == null) {
+                        currentName = "none";
+                    } else {
+                        return;
+                    }
+                } else if (isAnimationNameToken(token)) {
+                    if (currentName == null) {
+                        currentName = token;
+                    } else {
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
+            if (currentName == null) {
+                return;
+            }
+            names.add(currentName);
+            durations.add(duration == null ? "0s" : duration);
+            timings.add(timing);
+            delays.add(delay == null ? "0s" : delay);
+            iterations.add(iteration == null ? "1" : iteration);
+        }
+        target.put("animation-name", String.join(",", names));
+        target.put("animation-duration", String.join(",", durations));
+        target.put("animation-timing-function", String.join(",", timings));
+        target.put("animation-delay", String.join(",", delays));
+        target.put("animation-iteration-count", String.join(",", iterations));
+    }
+
+    private static void putAnimationLonghand(Map<String, String> target,
+                                             String property, String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (property.equals("animation-name")) {
+            for (String name : splitTopLevel(value, ',')) {
+                if (!name.strip().equals("none") && !isAnimationNameToken(name.strip())) {
+                    return;
+                }
+            }
+            target.put(property, value);
+        } else if (property.equals("animation-duration")
+                || property.equals("animation-delay")) {
+            for (String part : splitTopLevel(value, ',')) {
+                if (!TIME_VALUE.matcher(part.strip()).matches()) {
+                    return;
+                }
+            }
+            target.put(property, value);
+        } else if (property.equals("animation-iteration-count")) {
+            for (String part : splitTopLevel(value, ',')) {
+                String token = part.strip().toLowerCase(Locale.ROOT);
+                if (!token.equals("infinite") && !ITERATION_COUNT.matcher(token).matches()) {
+                    return;
+                }
+            }
+            target.put(property, value);
+        } else if (property.equals("animation-timing-function")) {
+            for (String part : splitTopLevel(value, ',')) {
+                if (!isTimingFunction(part.strip())) {
+                    return;
+                }
+            }
+            target.put(property, value);
+        } else {
+            // direction/fill-mode: normale Werte reichen
+            target.put(property, value);
+        }
+    }
+
+    private static void putTransitionShorthand(Map<String, String> target, String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (normalized.equals("none")) {
+            target.put("transition-property", "none");
+            target.put("transition-duration", "0s");
+            return;
+        }
+        List<String> properties = new ArrayList<>();
+        List<String> durations = new ArrayList<>();
+        List<String> timings = new ArrayList<>();
+        List<String> delays = new ArrayList<>();
+        for (String layer : splitTopLevel(value, ',')) {
+            String property = null;
+            String duration = null;
+            String timing = "ease";
+            String delay = null;
+            for (String token : layer.strip().split("\\s+")) {
+                if (token.isBlank()) {
+                    continue;
+                }
+                String tokenLower = token.toLowerCase(Locale.ROOT);
+                if (TIME_VALUE.matcher(tokenLower).matches()) {
+                    if (duration == null && delay == null) {
+                        duration = token;
+                    } else if (delay == null) {
+                        delay = token;
+                    } else {
+                        return;
+                    }
+                } else if (isTimingFunction(tokenLower)) {
+                    if (timing.equals("ease")) {
+                        timing = token;
+                    } else {
+                        return;
+                    }
+                } else if (property == null) {
+                    property = token;
+                } else {
+                    return;
+                }
+            }
+            if (property == null) {
+                return;
+            }
+            properties.add(property);
+            durations.add(duration == null ? "0s" : duration);
+            timings.add(timing);
+            delays.add(delay == null ? "0s" : delay);
+        }
+        target.put("transition-property", String.join(",", properties));
+        target.put("transition-duration", String.join(",", durations));
+        target.put("transition-timing-function", String.join(",", timings));
+        target.put("transition-delay", String.join(",", delays));
+    }
+
+    private static void putTransitionLonghand(Map<String, String> target,
+                                              String property, String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (property.equals("transition-duration")
+                || property.equals("transition-delay")) {
+            for (String part : splitTopLevel(value, ',')) {
+                if (!TIME_VALUE.matcher(part.strip()).matches()) {
+                    return;
+                }
+            }
+            target.put(property, value);
+        } else if (property.equals("transition-timing-function")) {
+            for (String part : splitTopLevel(value, ',')) {
+                if (!isTimingFunction(part.strip())) {
+                    return;
+                }
+            }
+            target.put(property, value);
+        } else {
+            target.put(property, value);
+        }
+    }
+
+    private static boolean isClipPathFunction(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT).strip();
+        if (normalized.equals("none")) {
+            return true;
+        }
+        for (String name : List.of("inset", "circle", "ellipse", "polygon", "path", "url")) {
+            if (normalized.startsWith(name + "(") && normalized.endsWith(")")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void putUnitInterval(Map<String, String> target, String property, String value) {

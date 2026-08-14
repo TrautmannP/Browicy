@@ -87,6 +87,8 @@ public class CompatibilityReportTest {
         String issues = report.get("issues").toString();
         assertTrue(!issues.contains("at-rule:@supports"));
         assertTrue(!issues.contains("at-rule:@namespace"));
-        assertTrue(issues.contains("at-rule:@keyframes"));
+        assertTrue("Keyframes und ihre Deklarationen müssen als unterstützt gelten",
+                !issues.contains("at-rule:@keyframes"));
+        assertTrue(!issues.contains("property:opacity"));
     }
 }

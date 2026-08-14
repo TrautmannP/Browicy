@@ -95,14 +95,14 @@ public class CssParserTest {
     @Test
     public void ignoresUnknownPropertiesInvalidValuesAndMalformedRules() {
         List<CssRule> rules = new CssParser().parse("""
-                h1 { animation: spin 1s; color: definitely-not-a-color; font-size: huge; }
+                h1 { filter: blur(5px); color: definitely-not-a-color; font-size: huge; }
                 p { color: red; }
                 broken rule
                 """);
 
         assertEquals(1, rules.size());
         assertEquals("p", rules.getFirst().selector().toString());
-        assertFalse(rules.getFirst().declarations().containsKey("animation"));
+        assertFalse(rules.getFirst().declarations().containsKey("filter"));
     }
 
     @Test
@@ -661,6 +661,79 @@ public class CssParserTest {
         assertFalse(parser.supports("box-shadow", "1px"));
         assertFalse(parser.supports("box-shadow", "red blue"));
         assertFalse(parser.supports("box-shadow", "0 1px solid"));
+    }
+
+    @Test
+    public void parsesAnimationAndTransitionShorthands() {
+        CssParser parser = new CssParser();
+        Map<String, String> animation = parser.parseDeclarations("""
+                animation:1s linear infinite rotate-keyframes
+                """);
+        assertEquals("rotate-keyframes", animation.get("animation-name"));
+        assertEquals("1s", animation.get("animation-duration"));
+        assertEquals("linear", animation.get("animation-timing-function"));
+        assertEquals("infinite", animation.get("animation-iteration-count"));
+        assertEquals("0s", animation.get("animation-delay"));
+
+        Map<String, String> animationShort = parser.parseDeclarations(
+                "animation:.2s ease-out AppFrame-a11yLink-focus");
+        assertEquals("AppFrame-a11yLink-focus", animationShort.get("animation-name"));
+        assertEquals(".2s", animationShort.get("animation-duration"));
+
+        Map<String, String> transition = parser.parseDeclarations("""
+                transition:color 80ms cubic-bezier(.33,1,.68,1),background-color 80ms ease-out
+                """);
+        assertEquals("color,background-color", transition.get("transition-property"));
+        assertEquals("80ms,80ms", transition.get("transition-duration"));
+        assertEquals("cubic-bezier(.33,1,.68,1),ease-out",
+                transition.get("transition-timing-function"));
+
+        assertEquals("none", parser.parseDeclarations("transition:none")
+                .get("transition-property"));
+        assertFalse(parser.parseDeclarations("animation:1s 2s 3s").containsKey("animation-name"));
+        assertTrue(parser.supportsProperty("animation"));
+        assertTrue(parser.supports("animation", "2s linear spin"));
+        assertTrue(parser.supports("transition", "all 100ms ease-in"));
+        assertTrue(parser.supports("clip-path", "polygon(0 0, 100% 0, 50% 100%)"));
+    }
+
+    @Test
+    public void parsesKeyframesIntoRegistry() {
+        StyleSheetRegistry registry = new StyleSheetRegistry();
+        CssStyleSheet sheet = registry.register(0, """
+                @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    50% { opacity: .5; }
+                    to { transform: rotate(360deg); }
+                }
+                p { color: red; }
+                """);
+
+        assertEquals(1, sheet.keyframes().size());
+        CssKeyframes keyframes = sheet.keyframes().getFirst();
+        assertEquals("spin", keyframes.name());
+        assertEquals(3, keyframes.blocks().size());
+        assertEquals("from", keyframes.blocks().getFirst().selector());
+        assertEquals("rotate(0deg)", keyframes.blocks().getFirst()
+                .declarations().get("transform"));
+        // Die normalen Regeln bleiben erhalten.
+        assertEquals(1, sheet.parsedRules().size());
+        assertEquals("p", sheet.parsedRules().getFirst().selector().toString());
+    }
+
+    @Test
+    public void parsesLayerAndContainerBlocks() {
+        List<CssRule> rules = new CssParser().parse("""
+                @layer primer {
+                    .box { color: red; }
+                }
+                @container (min-width: 400px) {
+                    .card { display: block; }
+                }
+                """);
+        assertEquals(2, rules.size());
+        assertEquals(".box", rules.get(0).selector().toString());
+        assertEquals(".card", rules.get(1).selector().toString());
     }
 
     @Test
