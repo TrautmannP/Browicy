@@ -170,14 +170,15 @@ public abstract class Node implements EventTarget {
     }
 
     public void insertBefore(Node child, Node reference) {
-        insertBeforeInternal(child, reference, true);
+        insertBeforeInternal(child, reference, true, true);
     }
 
     void insertBeforeWithoutRangeAdjustment(Node child, Node reference) {
-        insertBeforeInternal(child, reference, false);
+        insertBeforeInternal(child, reference, false, true);
     }
 
-    private void insertBeforeInternal(Node child, Node reference, boolean updateRanges) {
+    private void insertBeforeInternal(Node child, Node reference,
+                                      boolean updateRanges, boolean notifyObservers) {
         Objects.requireNonNull(child, "child");
         if (this instanceof TextNode || this instanceof CommentNode) {
             throw DomException.hierarchyRequest("Dieser Knotentyp kann keine Kinder enthalten");
@@ -187,7 +188,7 @@ public abstract class Node implements EventTarget {
         }
         if (child instanceof DocumentFragment fragment) {
             for (Node fragmentChild : List.copyOf(fragment.getChildren())) {
-                insertBeforeInternal(fragmentChild, reference, updateRanges);
+                insertBeforeInternal(fragmentChild, reference, updateRanges, notifyObservers);
             }
             return;
         }
@@ -205,7 +206,7 @@ public abstract class Node implements EventTarget {
             if (child.parent == this && children.indexOf(child) < index) {
                 index--;
             }
-            child.parent.removeChild(child);
+            child.parent.removeChildInternal(child, notifyObservers);
         }
         child.parent = this;
         Document newOwner = this instanceof Document document ? document : ownerDocument;
@@ -214,13 +215,19 @@ public abstract class Node implements EventTarget {
         if (updateRanges) {
             Range.nodeInserted(this, index, 1);
         }
-        Node previousSibling = index > 0 ? children.get(index - 1) : null;
-        Node nextSibling = index + 1 < children.size() ? children.get(index + 1) : null;
-        notifyMutation(new DomMutation.ChildListChanged(
-                this, List.of(child), List.of(), previousSibling, nextSibling));
+        if (notifyObservers) {
+            Node previousSibling = index > 0 ? children.get(index - 1) : null;
+            Node nextSibling = index + 1 < children.size() ? children.get(index + 1) : null;
+            notifyMutation(new DomMutation.ChildListChanged(
+                    this, List.of(child), List.of(), previousSibling, nextSibling));
+        }
     }
 
     public void removeChild(Node child) {
+        removeChildInternal(child, true);
+    }
+
+    private void removeChildInternal(Node child, boolean notifyObservers) {
         int index = children.indexOf(child);
         if (index < 0) {
             throw DomException.notFound("Node ist kein Kind dieses Knotens");
@@ -230,13 +237,176 @@ public abstract class Node implements EventTarget {
         Range.nodeRemoved(this, index, child);
         children.remove(index);
         child.parent = null;
-        notifyMutation(new DomMutation.ChildListChanged(
-                this, List.of(), List.of(child), previousSibling, nextSibling));
+        if (notifyObservers) {
+            notifyMutation(new DomMutation.ChildListChanged(
+                    this, List.of(), List.of(child), previousSibling, nextSibling));
+        }
     }
 
     public void replaceChild(Node replacement, Node oldChild) {
         insertBefore(replacement, oldChild);
         removeChild(oldChild);
+    }
+
+    public void before(Object... nodesOrStrings) {
+        if (parent == null) {
+            return;
+        }
+        parent.insertNodesBefore(this, convertNodesIntoNode(this, nodesOrStrings));
+    }
+
+    public void after(Object... nodesOrStrings) {
+        if (parent == null) {
+            return;
+        }
+        parent.insertNodesAfter(this, convertNodesIntoNode(this, nodesOrStrings));
+    }
+
+    public void replaceWith(Object... nodesOrStrings) {
+        if (parent == null) {
+            return;
+        }
+        parent.replaceNodeWith(this, convertNodesIntoNode(this, nodesOrStrings));
+    }
+
+    public void remove() {
+        if (parent == null) {
+            return;
+        }
+        parent.removeChild(this);
+    }
+
+    static List<Node> convertNodesIntoNode(Node context, Object... nodesOrStrings) {
+        List<Node> result = new ArrayList<>();
+        if (nodesOrStrings == null) {
+            return result;
+        }
+        for (Object value : nodesOrStrings) {
+            if (value == null) {
+                continue;
+            }
+            if (value instanceof Node node) {
+                if (node instanceof DocumentFragment fragment) {
+                    result.addAll(fragment.getChildren());
+                } else {
+                    result.add(node);
+                }
+            } else {
+                result.add(textNodeFor(context, String.valueOf(value)));
+            }
+        }
+        return result;
+    }
+
+    private static TextNode textNodeFor(Node context, String data) {
+        Document owner = context instanceof Document document ? document : context.getOwnerDocument();
+        return owner == null ? new TextNode(data) : owner.createTextNode(data);
+    }
+
+    final void appendNodes(List<Node> nodes) {
+        if (nodes.isEmpty()) {
+            return;
+        }
+        validateBatchInsertable(nodes);
+        Node previousSibling = getLastChild();
+        for (Node node : nodes) {
+            insertBeforeInternal(node, null, true, false);
+        }
+        notifyMutation(new DomMutation.ChildListChanged(
+                this, nodes, List.of(), previousSibling, null));
+    }
+
+    final void prependNodes(List<Node> nodes) {
+        if (nodes.isEmpty()) {
+            return;
+        }
+        validateBatchInsertable(nodes);
+        Node reference = getFirstChild();
+        for (Node node : nodes) {
+            insertBeforeInternal(node, reference, true, false);
+        }
+        notifyMutation(new DomMutation.ChildListChanged(
+                this, nodes, List.of(), null, reference));
+    }
+
+    final void replaceAllChildren(List<Node> nodes) {
+        List<Node> removed = new ArrayList<>(children);
+        validateBatchSequence(nodes);
+        Node previousSibling = removed.isEmpty() ? null : removed.get(removed.size() - 1);
+        for (Node child : removed) {
+            removeChildInternal(child, false);
+        }
+        for (Node node : nodes) {
+            insertBeforeInternal(node, null, true, false);
+        }
+        if (!removed.isEmpty() || !nodes.isEmpty()) {
+            notifyMutation(new DomMutation.ChildListChanged(
+                    this, nodes, removed, previousSibling, null));
+        }
+    }
+
+    void validateBatchSequence(List<Node> nodes) {
+    }
+
+    final void insertNodesBefore(Node reference, List<Node> nodes) {
+        if (nodes.isEmpty()) {
+            return;
+        }
+        if (children.indexOf(reference) < 0) {
+            throw DomException.notFound("Node ist kein Kind dieses Knotens");
+        }
+        validateBatchInsertable(nodes);
+        Node previousSibling = reference.getPreviousSibling();
+        for (Node node : nodes) {
+            insertBeforeInternal(node, reference, true, false);
+        }
+        notifyMutation(new DomMutation.ChildListChanged(
+                this, nodes, List.of(), previousSibling, reference));
+    }
+
+    final void insertNodesAfter(Node reference, List<Node> nodes) {
+        if (nodes.isEmpty()) {
+            return;
+        }
+        if (children.indexOf(reference) < 0) {
+            throw DomException.notFound("Node ist kein Kind dieses Knotens");
+        }
+        validateBatchInsertable(nodes);
+        Node nextSibling = reference.getNextSibling();
+        for (Node node : nodes) {
+            insertBeforeInternal(node, nextSibling, true, false);
+        }
+        notifyMutation(new DomMutation.ChildListChanged(
+                this, nodes, List.of(), reference, nextSibling));
+    }
+
+    final void replaceNodeWith(Node oldChild, List<Node> nodes) {
+        if (children.indexOf(oldChild) < 0) {
+            throw DomException.notFound("Node ist kein Kind dieses Knotens");
+        }
+        validateBatchInsertable(nodes);
+        Node previousSibling = oldChild.getPreviousSibling();
+        Node nextSibling = oldChild.getNextSibling();
+        for (Node node : nodes) {
+            insertBeforeInternal(node, oldChild, true, false);
+        }
+        removeChildInternal(oldChild, false);
+        notifyMutation(new DomMutation.ChildListChanged(
+                this, nodes, List.of(oldChild), previousSibling, nextSibling));
+    }
+
+    private void validateBatchInsertable(List<Node> nodes) {
+        for (Node node : nodes) {
+            if (node instanceof Document) {
+                throw DomException.hierarchyRequest("Ein Document kann nicht eingefügt werden");
+            }
+            for (Node ancestor = this; ancestor != null; ancestor = ancestor.parent) {
+                if (ancestor == node) {
+                    throw DomException.hierarchyRequest(
+                            "Node kann nicht in einen eigenen Nachfahren eingefügt werden");
+                }
+            }
+        }
     }
 
     protected void validateChildInsertion(Node child) {

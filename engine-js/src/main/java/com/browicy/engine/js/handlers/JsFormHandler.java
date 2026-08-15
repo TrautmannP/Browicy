@@ -57,8 +57,8 @@ public final class JsFormHandler implements JsMemberHandler {
                 return null;
             };
             case "remove" -> (ProxyExecutable) args -> {
-                if (args.length == 0 && el.getParent() != null) {
-                    el.getParent().removeChild(el);
+                if (args.length == 0) {
+                    el.remove();
                 } else {
                     removeOption(el, args);
                 }

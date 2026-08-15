@@ -754,7 +754,7 @@ public class JavaScriptEngineTest {
 
         assertFalse(String.valueOf(result.errors()), result.hasErrors());
         assertEquals(List.of("log: true", "log: true", "log: true false true", "log: false",
-                        "log: true 0"), result.consoleMessages());
+                "log: true 0"), result.consoleMessages());
     }
 
     @Test
@@ -1160,7 +1160,7 @@ public class JavaScriptEngineTest {
 
         assertFalse(String.valueOf(result.errors()), result.hasErrors());
         assertEquals(List.of("log: function function false true false false true "
-                        + "http://www.w3.org/2000/svg http://www.w3.org/1998/Math/MathML",
+                                + "http://www.w3.org/2000/svg http://www.w3.org/1998/Math/MathML",
                         "log: TypeError"),
                 result.consoleMessages());
     }
@@ -1289,16 +1289,17 @@ public class JavaScriptEngineTest {
         };
         try (PageRuntime runtime = engine.createPageRuntime(
                 document, PageRuntimeObserver.NO_OP, null, null,
-                new StyleSheetRegistry(), () -> { }, handler)) {
+                new StyleSheetRegistry(), () -> {
+                }, handler)) {
             JsExecutionResult result = runtime.execute(new JavaScriptSource(
                     document.getElementsByTagName("script").get(0).getTextContent(),
                     null, "nav-test.js"));
 
             assertFalse(String.valueOf(result.errors()), result.hasErrors());
             assertEquals(List.of(
-                    "log: function function function true true "
-                            + "http: example.test 8080 /pfad/index.html ?x=1 "
-                            + "http://example.test:8080"),
+                            "log: function function function true true "
+                                    + "http: example.test 8080 /pfad/index.html ?x=1 "
+                                    + "http://example.test:8080"),
                     result.consoleMessages());
         }
 
@@ -1324,7 +1325,8 @@ public class JavaScriptEngineTest {
         PageNavigationHandler handler = (url, replace) -> navigated.add(url);
         try (PageRuntime runtime = engine.createPageRuntime(
                 document, PageRuntimeObserver.NO_OP, null, null,
-                new StyleSheetRegistry(), () -> { }, handler)) {
+                new StyleSheetRegistry(), () -> {
+                }, handler)) {
             JsExecutionResult result = runtime.execute(new JavaScriptSource(
                     document.getElementsByTagName("script").get(0).getTextContent(),
                     null, "hash-test.js"));
@@ -1559,7 +1561,8 @@ public class JavaScriptEngineTest {
 
         try (PageRuntime runtime = engine.createPageRuntime(
                 document, PageRuntimeObserver.NO_OP, null, null,
-                new StyleSheetRegistry(), () -> { })) {
+                new StyleSheetRegistry(), () -> {
+                })) {
             JsExecutionResult result = runtime.execute(new JavaScriptSource("""
                     const script = document.getElementById('s');
                     const div = document.getElementById('d');
@@ -1590,6 +1593,58 @@ public class JavaScriptEngineTest {
                             + "function function x 3 function"),
                     result.consoleMessages());
         }
+    }
+
+    @Test
+    public void supportsLivingStandardNodeAndParentNodeMutations() {
+        Document document = parse("""
+                <html><body><div id="host"><span id="old"></span></div>
+                <script>
+                  const host = document.getElementById('host');
+                  const old = document.getElementById('old');
+                  const observer = new MutationObserver(() => {});
+                  observer.observe(host, { childList: true });
+                  const div1 = document.createElement('div');
+                  const div2 = document.createElement('div');
+                  host.replaceChildren(div1, 'Text', div2);
+                  let records = observer.takeRecords();
+                  console.log(records.length, records[0].addedNodes.length,
+                              records[0].addedNodes[1].nodeType, records[0].removedNodes.length,
+                              records[0].removedNodes[0] === old, records[0].previousSibling === old,
+                              records[0].nextSibling === null, host.childNodes.length,
+                              host.childNodes[0] === div1, host.childNodes[1].textContent,
+                              host.childNodes[2] === div2, old.parentNode === null);
+                  const em = document.createElement('em');
+                  const textNode = host.childNodes[1];
+                  div2.before(em);
+                  records = observer.takeRecords();
+                  console.log(records.length, records[0].addedNodes[0] === em,
+                              records[0].previousSibling === textNode,
+                              records[0].nextSibling === div2);
+                  div1.remove();
+                  console.log(host.childNodes.length, div1.parentNode === null);
+                  host.append('tail', null);
+                  host.prepend(div1);
+                  console.log(host.firstChild === div1, host.lastChild.textContent,
+                              host.children.length);
+                  const fragment = document.createDocumentFragment();
+                  fragment.append(document.createElement('p'));
+                  host.replaceChildren(fragment);
+                  console.log(host.childNodes.length, host.firstChild.tagName,
+                              fragment.childNodes.length);
+                </script></body></html>
+                """);
+
+        JsExecutionResult result = engine.runScripts(document);
+
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                        "log: 1 3 3 1 true true true 3 true Text true true",
+                        "log: 1 true true true",
+                        "log: 3 true",
+                        "log: true tail 3",
+                        "log: 1 P 0"),
+                result.consoleMessages());
     }
 
 }
