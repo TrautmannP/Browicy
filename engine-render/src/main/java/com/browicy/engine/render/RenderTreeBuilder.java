@@ -127,12 +127,11 @@ public final class RenderTreeBuilder {
                 java.util.List.of(),
                 java.util.List.of(),
                 null,
-                null,
                 RenderStyle.GridAutoFlow.ROW,
-                0,
-                0,
-                0,
-                0,
+                RenderStyle.GridLine.AUTO,
+                RenderStyle.GridLine.AUTO,
+                RenderStyle.GridLine.AUTO,
+                RenderStyle.GridLine.AUTO,
                 0,
                 0,
                 null,
@@ -211,6 +210,17 @@ public final class RenderTreeBuilder {
             RenderStyle style = resolveStyle(element, parentStyle);
             if (style.display() == RenderStyle.Display.NONE) {
                 continue;
+            }
+            if (style.display() == RenderStyle.Display.CONTENTS) {
+                if (style.position() == RenderStyle.Position.STATIC) {
+                    // display:contents erzeugt keine Box; Kinder nehmen direkt am Layout
+                    // des umgebenden Containers teil (Block-, Flex- oder Grid-Kontext).
+                    collectChildren(element, parentStyle, output);
+                    continue;
+                }
+                // Positioniertes display:contents erzeugt gemäß CSS-Transform-Regel
+                // eine Box; display wird zu block aufgelöst.
+                style = copyWithDisplay(style, RenderStyle.Display.BLOCK);
             }
             if (style.position() == RenderStyle.Position.ABSOLUTE
                     && style.display() == RenderStyle.Display.INLINE_FLEX) {
@@ -707,12 +717,11 @@ public final class RenderTreeBuilder {
                 java.util.List.of(),
                 java.util.List.of(),
                 null,
-                null,
                 RenderStyle.GridAutoFlow.ROW,
-                0,
-                0,
-                0,
-                0,
+                RenderStyle.GridLine.AUTO,
+                RenderStyle.GridLine.AUTO,
+                RenderStyle.GridLine.AUTO,
+                RenderStyle.GridLine.AUTO,
                 0,
                 0,
                 inherited.textShadow(),
@@ -778,7 +787,10 @@ public final class RenderTreeBuilder {
         java.util.List<BoxShadow> boxShadows = java.util.List.of();
         float outlineWidth = 0;
         float outlineOffset = 0;
-        boolean visible = true;
+        boolean visible = parent.visible();
+        if (declarations.containsKey("visibility")) {
+            visible = !"hidden".equals(declarations.get("visibility"));
+        }
         boolean pointerEvents = true;
         CssColor outlineColor = color;
         boolean outlineVisible = false;
@@ -802,12 +814,11 @@ public final class RenderTreeBuilder {
         java.util.List<RenderStyle.GridTrack> gridAutoColumns = java.util.List.of();
         java.util.List<RenderStyle.GridTrack> gridAutoRows = java.util.List.of();
         String[][] gridTemplateAreas = null;
-        String gridAreaName = null;
         RenderStyle.GridAutoFlow gridAutoFlow = RenderStyle.GridAutoFlow.ROW;
-        int gridColumnStart = 0;
-        int gridColumnEnd = 0;
-        int gridRowStart = 0;
-        int gridRowEnd = 0;
+        RenderStyle.GridLine gridColumnStart = RenderStyle.GridLine.AUTO;
+        RenderStyle.GridLine gridColumnEnd = RenderStyle.GridLine.AUTO;
+        RenderStyle.GridLine gridRowStart = RenderStyle.GridLine.AUTO;
+        RenderStyle.GridLine gridRowEnd = RenderStyle.GridLine.AUTO;
         float rowGapPx = 0;
         float columnGapPx = 0;
         float flexGrow = 0;
@@ -820,7 +831,7 @@ public final class RenderTreeBuilder {
             display = switch (displayValue) {
                 case "inherit" -> parent.display();
                 case "-webkit-box" -> RenderStyle.Display.FLEX;
-                case "contents" -> RenderStyle.Display.BLOCK;
+                case "contents" -> RenderStyle.Display.CONTENTS;
                 case "block", "flow-root" -> RenderStyle.Display.BLOCK;
                 case "inline-block" -> RenderStyle.Display.INLINE_BLOCK;
                 case "none" -> RenderStyle.Display.NONE;
@@ -1028,7 +1039,12 @@ public final class RenderTreeBuilder {
         gridTemplateRows = parseGridTracks(
                 declarations.get("grid-template-rows"), fontSize, rootFontSizePx);
         gridTemplateAreas = parseGridAreas(declarations.get("grid-template-areas"));
-        gridAreaName = declarations.get("grid-area");
+        // grid-area ist eine Kurzform und wird vom Parser in die vier
+        // Langformen expandiert; hier werden nur die Langformen gelesen.
+        gridColumnStart = parseGridLine(declarations.get("grid-column-start"));
+        gridColumnEnd = parseGridLine(declarations.get("grid-column-end"));
+        gridRowStart = parseGridLine(declarations.get("grid-row-start"));
+        gridRowEnd = parseGridLine(declarations.get("grid-row-end"));
         gridAutoFlow = switch (declarations.getOrDefault("grid-auto-flow", "row")) {
             case "column" -> RenderStyle.GridAutoFlow.COLUMN;
             case "row dense" -> RenderStyle.GridAutoFlow.ROW_DENSE;
@@ -1039,10 +1055,6 @@ public final class RenderTreeBuilder {
                 declarations.get("grid-auto-columns"), fontSize, rootFontSizePx);
         gridAutoRows = parseGridTracks(
                 declarations.get("grid-auto-rows"), fontSize, rootFontSizePx);
-        gridColumnStart = parseGridLine(declarations.get("grid-column-start"));
-        gridColumnEnd = parseGridLine(declarations.get("grid-column-end"));
-        gridRowStart = parseGridLine(declarations.get("grid-row-start"));
-        gridRowEnd = parseGridLine(declarations.get("grid-row-end"));
         RenderStyle.TextShadow textShadow = parseTextShadow(
                 declarations.get("text-shadow"), fontSize);
         rowGapPx = Math.max(0, resolveLength(
@@ -1160,8 +1172,11 @@ public final class RenderTreeBuilder {
                 transform = transform.withOrigin(origin[0], origin[1]);
             }
         }
-        visible = !"hidden".equals(declarations.get("visibility"))
-                && !"collapse".equals(declarations.get("visibility"));
+        String visibilityValue = declarations.get("visibility");
+        if (visibilityValue != null) {
+            visible = !"hidden".equals(visibilityValue)
+                    && !"collapse".equals(visibilityValue);
+        }
         pointerEvents = !"none".equals(declarations.get("pointer-events"));
         whiteSpace = switch (declarations.getOrDefault("white-space", "normal")) {
             case "nowrap" -> RenderStyle.WhiteSpace.NOWRAP;
@@ -1196,7 +1211,7 @@ public final class RenderTreeBuilder {
                 overflow, verticalAlign, flexDirection, flexWrap, justifyContent,
                 alignItems, alignSelf, alignContent, order,
                 gridTemplateColumns, gridTemplateRows, gridAutoColumns, gridAutoRows,
-                gridTemplateAreas, gridAreaName,
+                gridTemplateAreas,
                 gridAutoFlow, gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd,
                 rowGapPx, columnGapPx, textShadow,
                 flexGrow, flexShrink, flexBasis,
@@ -1226,13 +1241,14 @@ public final class RenderTreeBuilder {
         String lower = token.toLowerCase(Locale.ROOT);
         if (lower.equals("auto")) {
             tracks.add(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.AUTO,
-                    0, 0, 0, 0));
+                    0, 0, 0, 0, false, false));
             return true;
         }
         if (lower.endsWith("fr")) {
             try {
                 tracks.add(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.FRACTION,
-                        0, Float.parseFloat(token.substring(0, token.length() - 2)), 0, 0));
+                        0, Float.parseFloat(token.substring(0, token.length() - 2)), 0, 0,
+                        false, false));
                 return true;
             } catch (NumberFormatException ignored) {
                 return false;
@@ -1248,20 +1264,23 @@ public final class RenderTreeBuilder {
             if (min.equals("0") || min.equals("auto")) {
                 min = "0px";
             }
+            float minFixed = resolveGridTrackLength(min, fontSize, rootFontSizePx);
+            boolean minPercent = isPercentToken(min);
             if (max.endsWith("fr")) {
                 try {
                     // Negatives maxFixed kennzeichnet einen fr-Anteil.
                     tracks.add(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.MINMAX,
-                            0, 0, resolveLength(min, fontSize, rootFontSizePx, 0),
-                            -Float.parseFloat(max.substring(0, max.length() - 2))));
+                            0, 0, minFixed,
+                            -Float.parseFloat(max.substring(0, max.length() - 2)),
+                            minPercent, false));
                     return true;
                 } catch (NumberFormatException ignored) {
                     return false;
                 }
             }
             tracks.add(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.MINMAX,
-                    0, 0, resolveLength(min, fontSize, rootFontSizePx, 0),
-                    resolveLength(max, fontSize, rootFontSizePx, 0)));
+                    0, 0, minFixed, resolveGridTrackLength(max, fontSize, rootFontSizePx),
+                    minPercent, isPercentToken(max)));
             return true;
         }
         if (lower.startsWith("repeat(") && lower.endsWith(")")) {
@@ -1307,26 +1326,41 @@ public final class RenderTreeBuilder {
         if (lower.startsWith("fit-content(") && lower.endsWith(")")) {
             String inner = token.substring(12, token.length() - 1);
             tracks.add(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.MINMAX,
-                    0, 0, 0, -resolveLength(inner, fontSize, rootFontSizePx, 0)));
+                    0, 0, 0, -resolveLength(inner, fontSize, rootFontSizePx, 0),
+                    false, false));
             return true;
         }
         try {
             if (lower.equals("0")) {
                 tracks.add(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.FIXED,
-                        0, 0, 0, 0));
+                        0, 0, 0, 0, false, false));
                 return true;
             }
             if (lower.endsWith("%")) {
                 tracks.add(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.PERCENT,
-                        0, 0, Float.parseFloat(token.substring(0, token.length() - 1)), 0));
+                        0, 0, Float.parseFloat(token.substring(0, token.length() - 1)), 0,
+                        false, false));
                 return true;
             }
             tracks.add(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.FIXED,
-                    resolveLength(token, fontSize, rootFontSizePx, 0), 0, 0, 0));
+                    resolveLength(token, fontSize, rootFontSizePx, 0), 0, 0, 0,
+                    false, false));
             return true;
         } catch (RuntimeException ignored) {
             return false;
         }
+    }
+
+    private boolean isPercentToken(String token) {
+        return token.endsWith("%");
+    }
+
+    private float resolveGridTrackLength(String token, float fontSize,
+                                         float rootFontSizePx) {
+        if (isPercentToken(token)) {
+            return Float.parseFloat(token.substring(0, token.length() - 1));
+        }
+        return resolveLength(token, fontSize, rootFontSizePx, 0);
     }
 
     private RenderStyle.TextShadow parseTextShadow(String value, float fontSize) {
@@ -1404,17 +1438,27 @@ public final class RenderTreeBuilder {
         return areas;
     }
 
-    private static int parseGridLine(String value) {
+    private static RenderStyle.GridLine parseGridLine(String value) {
         if (value == null || value.isBlank() || value.equals("auto")) {
-            return 0;
+            return RenderStyle.GridLine.AUTO;
         }
-        if (value.startsWith("span ")) {
-            value = value.substring(5).strip();
+        String stripped = value.strip();
+        if (stripped.startsWith("span ")) {
+            try {
+                return new RenderStyle.GridLine(0,
+                        Integer.parseInt(stripped.substring(5).strip()), null);
+            } catch (NumberFormatException ignored) {
+                return RenderStyle.GridLine.AUTO;
+            }
         }
         try {
-            return Integer.parseInt(value);
+            return new RenderStyle.GridLine(Integer.parseInt(stripped), 0, null);
         } catch (NumberFormatException ignored) {
-            return 0;
+            // Benannter Linien- bzw. Bereichsname (z. B. "mediaLeft").
+            if (stripped.matches("[-_a-zA-Z][-_a-zA-Z0-9]*")) {
+                return new RenderStyle.GridLine(0, 0, stripped);
+            }
+            return RenderStyle.GridLine.AUTO;
         }
     }
 

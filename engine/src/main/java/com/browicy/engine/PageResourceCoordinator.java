@@ -351,6 +351,15 @@ final class PageResourceCoordinator {
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
         if (pageUri == null) return List.of();
         for (ImageResource image : resources.images()) {
+            if ("data".equalsIgnoreCase(image.uri().getScheme())) {
+                byte[] payload = decodeDataUri(image.uri());
+                if (payload != null) {
+                    images.register(image.element(), new BinaryResource(
+                            image.uri(), 200, payload, NetworkResourceType.IMAGE));
+                    updates.invalidate(InvalidationType.RENDER_TREE);
+                }
+                continue;
+            }
             CompletableFuture<BinaryResource> shared = loadsByUri.get(image.uri());
             if (shared == null) {
                 if (loadsByUri.size() >= MAX_IMAGE_LOADS_PER_PAGE) {
@@ -533,6 +542,29 @@ final class PageResourceCoordinator {
             return Font.createFont(Font.TRUETYPE_FONT,
                     new ByteArrayInputStream(resource.content()));
         } catch (FontFormatException | IOException | RuntimeException invalidFont) {
+            return null;
+        }
+    }
+
+    /**
+     * Dekodiert eine data:-URI ({@code data:[mediatype][;base64],<payload>})
+     * in ihre Bytes. Liefert null bei ungültigen URIs.
+     */
+    static byte[] decodeDataUri(URI uri) {
+        String spec = uri.getSchemeSpecificPart();
+        int comma = spec.indexOf(',');
+        if (comma < 1) {
+            return null;
+        }
+        String meta = spec.substring(0, comma);
+        String payload = spec.substring(comma + 1);
+        try {
+            if (meta.regionMatches(true, meta.length() - 7, ";base64", 0, 7)) {
+                return java.util.Base64.getMimeDecoder().decode(payload);
+            }
+            return java.net.URLDecoder.decode(payload, java.nio.charset.StandardCharsets.UTF_8)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException invalidPayload) {
             return null;
         }
     }

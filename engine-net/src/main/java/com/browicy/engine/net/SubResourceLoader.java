@@ -192,18 +192,26 @@ public final class SubResourceLoader implements AutoCloseable {
         observers.remove(observer);
     }
 
+    private static final int MAX_RETRIES = 5;
+    private static final long RETRY_BASE_DELAY_MILLIS = 250;
+
     private void fetch(SubResourceLoad load) {
+        long timeout = fetchTimeoutMillis;
         try {
-            HttpResourceFetcher.FetchResult result = HttpResourceFetcher.fetch(
-                    client,
+            if (!fetchPermits.tryAcquire(timeout, TimeUnit.MILLISECONDS)) {
+                load.completeFailed(new IOException("Zeitüberschreitung: Warteschlange für "
+                        + load.uri() + " war nach " + timeout + " ms nicht frei"));
+                return;
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            load.completeFailed(new IOException("Laden unterbrochen: " + load.uri(), interrupted));
+            return;
+        }
+        try {
+            HttpResourceFetcher.FetchResult result = fetchWithRetry(load.id(), load.uri(),
                     withCookies(HttpRequest.get(load.uri(), acceptFor(load.resourceType()))),
-                    load::isCancelled,
-                    (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
-                            load.id(), Instant.now(), from, to, statusCode, load.resourceType())),
-                    true,
-                    null,
-                    ignored -> { },
-                    (int) fetchTimeoutMillis);
+                    load::isCancelled, load.resourceType(), null, ignored -> { }, (int) timeout);
             HttpResponse response = result.response();
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IOException("HTTP " + response.statusCode() + " für " + result.uri());
@@ -218,6 +226,50 @@ public final class SubResourceLoader implements AutoCloseable {
             load.cancel();
         } catch (Exception exception) {
             load.completeFailed(exception);
+        } finally {
+            fetchPermits.release();
+        }
+    }
+
+    /**
+     * Führt einen Subresource-Fetch aus und wiederholt vorübergehende
+     * Serverfehler (429/5xx) mit kurzem Backoff. Server wie der von
+     * sparkasse.de drosseln parallel eingehende Anfragen mit 503; ein
+     * erneuter Versuch liefert dann regulär 200.
+     */
+    private HttpResourceFetcher.FetchResult fetchWithRetry(long id,
+                                                           URI uri,
+                                                           HttpRequest request,
+                                                           java.util.function.BooleanSupplier cancelled,
+                                                           NetworkResourceType resourceType,
+                                                           DownloadBudget budget,
+                                                           HttpResourceFetcher.UriValidator validator,
+                                                           int timeout) throws IOException {
+        int attempt = 0;
+        while (true) {
+            HttpResourceFetcher.FetchResult result = HttpResourceFetcher.fetch(
+                    client,
+                    request,
+                    cancelled,
+                    (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
+                            id, Instant.now(), from, to, statusCode, resourceType)),
+                    true,
+                    budget,
+                    validator,
+                    timeout);
+            int status = result.response().statusCode();
+            boolean transientFailure = status == 429 || status == 500
+                    || status == 502 || status == 503 || status == 504;
+            if (!transientFailure || attempt >= MAX_RETRIES || cancelled.getAsBoolean()) {
+                return result;
+            }
+            attempt++;
+            try {
+                Thread.sleep(RETRY_BASE_DELAY_MILLIS * attempt);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Laden unterbrochen: " + uri, interrupted);
+            }
         }
     }
 
@@ -276,17 +328,10 @@ public final class SubResourceLoader implements AutoCloseable {
             return;
         }
         try {
-            HttpResourceFetcher.FetchResult result = HttpResourceFetcher.fetch(
-                    client,
+            HttpResourceFetcher.FetchResult result = fetchWithRetry(load.id(), load.uri(),
                     withCookies(HttpRequest.get(load.uri(), acceptFor(load.resourceType()))),
-                    load::isCancelled,
-                    (from, to, statusCode) -> emit(new NetworkRequestEvent.Redirected(
-                            load.id(), Instant.now(), from, to, statusCode,
-                            load.resourceType())),
-                    true,
-                    budget,
-                    uri -> SubresourceAccessPolicy.validate(uri, pageUri),
-                    (int) timeout);
+                    load::isCancelled, load.resourceType(), budget,
+                    uri -> SubresourceAccessPolicy.validate(uri, pageUri), (int) timeout);
             HttpResponse response = result.response();
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IOException("HTTP " + response.statusCode() + " für " + result.uri());

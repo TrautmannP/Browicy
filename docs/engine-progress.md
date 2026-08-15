@@ -93,3 +93,39 @@ box are not transformed (they are painted after their containing block's fragmen
 
 Known flaky test (snapshot-race family, passes isolated and on retry):
 `DomViewPanelTest.laysOutAndPaintsInlineBackgroundPaddingAndBorder`.
+
+## sparkasse.de-Rendering (2026-08-15)
+
+Entwicklungsziel: `www.sparkasse.de` (Next.js + MUI, CSS-in-JS) korrekt darstellen.
+Referenz-Rendering via Chromium, Vergleich über `browicy-inspect.jar`. Gefunden und
+behoben:
+
+- **`display: contents`** erzeugte fälschlich eine Block-Box; Kinder nehmen jetzt
+  direkt am umgebenden Block-/Flex-/Grid-Layout teil (Positioniertes `contents` wird
+  zu `block`). Neues `RenderStyle.Display.CONTENTS`.
+- **Grid-Platzierung**: unbekannte benannte Areas wurden fallengelassen (Item samt
+  Inhalt verschwand). Jetzt Auto-Placement-Fallback. Neu: Auflösung benannter Linien
+  (`grid-area: 1 / mediaLeft / auto / mediaRight`) gegen `grid-template-areas`
+  (Bereichsname → Start-/Endlinie, implizite `-start`/`-end`-Linien), negative
+  Liniennummern, `span` in `GridLine`-Record. `grid-area` wird im Parser in die vier
+  Langformen expandiert.
+- **Grid-Spuren**: `minmax(100%, 1600px)` behandelte den Prozent-Minwert als px;
+  Prozentwerte werden jetzt gegen die Containerbreite aufgelöst. Gestreckte Items
+  (align-items: stretch) erzwingen die Zellhöhe wie im Flex-Layout.
+- **`visibility`** ist vererbbar; Kinder von `visibility:hidden`-Boxen malen nicht
+  mehr (Text-/Bild-Fragmente prüfen `visible`).
+- **Paint-Reihenfolge (z-index)**: positionierte Boxen mit `z-index:0` (MUI-Scrims)
+  übermalten Flex-/Grid-Items mit `z-index>0`. Flex-/Grid-Item-Fragmente werden jetzt
+  nach z-index gruppiert, negative positionierte zuerst, z>0 zuletzt.
+- **Transiente HTTP-Fehler**: Script-/Style-/Bild-Loads wiederholen 429/5xx mit
+  Backoff (WAF-Rate-Limiting von sparkasse.de lieferte zwischenzeitlich 503) und teilen
+  sich den Fetch-Permit-Pool (begrenzte Parallelität).
+- **data:-URIs** für `<img>` werden dekodiert (base64 oder roh/URL-kodiert) statt
+  verworfen; SVG-Inhalte rendern über den bestehenden SVG-Pfad.
+
+Verifikation: `mvn verify` grün; neue Regressionstests in `GridConformanceTest`
+(Chromium-Vergleich für benannte Linien, `minmax(100%,…)`, `display:contents`-Items),
+`DomViewPanelTest` (z-Reihenfolge, negative z, `visibility`-Vererbung),
+`BrowicyEngineTest` (data:-URI-Loads) und `DocumentResourceScannerTest`. End-to-End:
+lokale Fixture mit dem Sparkasse-Hero-Muster (Grid + contents + Scrim + data:-SVG)
+rendert korrekt über den Inspector.

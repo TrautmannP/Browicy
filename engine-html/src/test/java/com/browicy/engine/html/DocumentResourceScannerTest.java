@@ -90,9 +90,13 @@ public class DocumentResourceScannerTest {
 
         DocumentResources resources = scanner.scan(document);
 
-        assertEquals(1, resources.images().size());
+        assertEquals(2, resources.images().size());
         assertEquals(document.getElementById("logo"), resources.images().getFirst().element());
         assertEquals(URI.create("https://example.test/assets/images/logo.png"),
                 resources.images().getFirst().uri());
+        // Data-URIs werden mit ihrem Roh-Payload übernommen (Scheme "data").
+        assertEquals("data", resources.images().get(1).uri().getScheme());
+        assertTrue(resources.images().get(1).uri().getSchemeSpecificPart()
+                .startsWith("image/png;base64,AAAA"));
     }
 }

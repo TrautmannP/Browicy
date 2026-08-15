@@ -2695,7 +2695,12 @@ public final class CssParser {
         String[] tokens = normalized.split("\\s+");
         if (tokens.length == 1) {
             if (tokens[0].matches("[-_a-zA-Z][-_a-zA-Z0-9]*")) {
-                target.put("grid-area", tokens[0]);
+                // Ein einzelner Name (Bereich oder Linie) setzt alle vier
+                // Linien; die Auflösung gegen grid-template-areas erfolgt im Layout.
+                target.put("grid-row-start", tokens[0]);
+                target.put("grid-column-start", tokens[0]);
+                target.put("grid-row-end", tokens[0]);
+                target.put("grid-column-end", tokens[0]);
             }
             return;
         }
@@ -2745,7 +2750,11 @@ public final class CssParser {
         if (value.startsWith("span ")) {
             value = value.substring(5).strip();
         }
-        return value.matches("[-+]?[0-9]+");
+        if (value.matches("[-+]?[0-9]+")) {
+            return true;
+        }
+        // Benannter Linienname oder Bereichsname (Custom-Ident).
+        return value.matches("[-_a-zA-Z][-_a-zA-Z0-9]*");
     }
 
     private static List<String> splitTopLevelWhitespace(String source) {

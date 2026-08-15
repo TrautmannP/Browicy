@@ -274,6 +274,29 @@ public class BrowicyEngineTest {
     }
 
     @Test
+    public void loadsDataUriImagesWithoutNetworkRequest() throws Exception {
+        server.serveHtml("/datauri", """
+                <html><body>
+                  <img id="icon" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'
+                       width='64' height='64'><rect width='64' height='64' fill='%23aa0000'/></svg>">
+                </body></html>
+                """);
+
+        try (PageSession session = engine.loadPageSession(
+                server.url("/datauri"), PageUpdateListener.NO_OP)) {
+            session.awaitResources();
+
+            byte[] content = session.images().find(
+                    session.document().getElementById("icon"))
+                    .orElseThrow().content();
+            String svg = new String(content, StandardCharsets.UTF_8);
+            assertTrue(svg.contains("<svg"));
+            assertTrue(svg.contains("#aa0000"));
+        }
+        assertTrue(events.stream().noneMatch(event -> event.url().toString().startsWith("data:")));
+    }
+
+    @Test
     public void loadsImagesInParallelAndExposesTheirBinaryPayloadInTheSession() {
         byte[] imageBytes = new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47};
         server.serveHtml("/images", """

@@ -603,23 +603,27 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                     } else if (fragment instanceof InlineBoxFragment inlineBox) {
                         paintInlineBox(fragmentGraphics, inlineBox);
                     } else if (fragment instanceof TextFragment text) {
-                        fragmentGraphics.setFont(text.font());
-                        fragmentGraphics.setColor(toAwtColor(text.color()));
-                        paintText(fragmentGraphics, text);
-                        if (text.underline()) {
-                            fragmentGraphics.setColor(toAwtColor(text.decorationColor()));
-                            float underlineY = text.baseline() + Math.max(1f, text.font().getSize2D() / 12f);
-                            fragmentGraphics.draw(new java.awt.geom.Line2D.Float(
-                                    text.x(), underlineY, text.x() + text.width(), underlineY));
-                        }
-                        if (text.lineThrough()) {
-                            fragmentGraphics.setColor(toAwtColor(text.decorationColor()));
-                            float strikeY = text.baseline() - text.font().getSize2D() * 0.3f;
-                            fragmentGraphics.draw(new java.awt.geom.Line2D.Float(
-                                    text.x(), strikeY, text.x() + text.width(), strikeY));
+                        if (text.visible()) {
+                            fragmentGraphics.setFont(text.font());
+                            fragmentGraphics.setColor(toAwtColor(text.color()));
+                            paintText(fragmentGraphics, text);
+                            if (text.underline()) {
+                                fragmentGraphics.setColor(toAwtColor(text.decorationColor()));
+                                float underlineY = text.baseline() + Math.max(1f, text.font().getSize2D() / 12f);
+                                fragmentGraphics.draw(new java.awt.geom.Line2D.Float(
+                                        text.x(), underlineY, text.x() + text.width(), underlineY));
+                            }
+                            if (text.lineThrough()) {
+                                fragmentGraphics.setColor(toAwtColor(text.decorationColor()));
+                                float strikeY = text.baseline() - text.font().getSize2D() * 0.3f;
+                                fragmentGraphics.draw(new java.awt.geom.Line2D.Float(
+                                        text.x(), strikeY, text.x() + text.width(), strikeY));
+                            }
                         }
                     } else if (fragment instanceof ImageFragment image) {
-                        paintImage(fragmentGraphics, image);
+                        if (image.image().style().visible()) {
+                            paintImage(fragmentGraphics, image);
+                        }
                     }
                 } finally {
                     fragmentGraphics.dispose();

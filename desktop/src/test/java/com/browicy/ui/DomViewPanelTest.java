@@ -33,6 +33,77 @@ import static org.junit.Assert.assertTrue;
 public class DomViewPanelTest {
 
     @Test
+    public void paintsFlexItemsWithPositiveZIndexAbovePositionedScrim() {
+        // MUI-Kartenmuster: positionierter Scrim mit z-index:0 unterhalb von
+        // Flex-Items mit z-index:1 (z-index gilt auch für statische Flex-Items).
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <html><head><style>html, body { margin: 0; padding: 0; }</style></head>
+                <body style="background: white">
+                  <div style="position:relative; width:300px; height:140px; margin:16px">
+                    <div style="position:absolute; top:0; left:0; right:0; bottom:0;
+                         z-index:0; background:#ffffff; border:1px solid #e3e3e3"></div>
+                    <div style="display:flex; flex-direction:column; position:relative">
+                      <div style="z-index:1; height:40px; background:#ee0000"></div>
+                      <div style="z-index:1; height:40px; background:#ee0000"></div>
+                    </div>
+                  </div>
+                </body>
+                """));
+        try {
+            BufferedImage image = panel.captureScreenshot(400, 300, false);
+            // Panel-Inset 16 + margin 16: rote Box bei (32,32).
+            assertEquals(new Color(238, 0, 0).getRGB(), image.getRGB(50, 50));
+            assertEquals(new Color(238, 0, 0).getRGB(), image.getRGB(50, 90));
+        } finally {
+            panel.dispose();
+        }
+    }
+
+    @Test
+    public void paintsNegativeZIndexBelowInFlowContent() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <html><head><style>html, body { margin: 0; padding: 0; }</style></head>
+                <body style="background: white">
+                  <div style="position:absolute; top:16px; left:16px; width:100px;
+                       height:100px; z-index:-1; background:#0000ff"></div>
+                  <div style="width:100px; height:100px; margin:16px; background:#ee0000"></div>
+                </body>
+                """));
+        try {
+            BufferedImage image = panel.captureScreenshot(300, 200, false);
+            // Negative z-Index wird unterhalb des Flusses gemalt: rot gewinnt.
+            assertEquals(new Color(238, 0, 0).getRGB(), image.getRGB(50, 50));
+        } finally {
+            panel.dispose();
+        }
+    }
+
+    @Test
+    public void inheritsVisibilityHiddenToChildren() {
+        DomViewPanel panel = new DomViewPanel(parse("""
+                <html><head><style>html, body { margin: 0; padding: 0; }</style></head>
+                <body style="background: white">
+                  <div style="visibility:hidden">
+                    <div style="width:80px; height:40px; background:#ee0000"></div>
+                  </div>
+                  <div style="visibility:hidden">
+                    <div style="visibility:visible; width:80px; height:40px;
+                         background:#0000ff"></div>
+                  </div>
+                </body>
+                """));
+        try {
+            BufferedImage image = panel.captureScreenshot(300, 200, false);
+            // Kind einer visibility:hidden-Box erbt hidden -> rot nicht gemalt.
+            assertEquals(new Color(255, 255, 255).getRGB(), image.getRGB(50, 32));
+            // Explizites visibility:visible überschreibt die Vererbung.
+            assertEquals(new Color(0, 0, 255).getRGB(), image.getRGB(50, 90));
+        } finally {
+            panel.dispose();
+        }
+    }
+
+    @Test
     public void paintsTransformedBoxesAtTheirTransformedPosition() {
         DomViewPanel panel = new DomViewPanel(parse("""
                 <body style="background: white">

@@ -65,8 +65,23 @@ public final class RenderLayoutEngine {
                 graphics, lineBoxes, initialContainingBlock);
         initialContainingBlock.setGeometry(
                 insets.left, insets.top, availableWidth, root.outerHeight());
-        List<PaintFragment> fragments = new ArrayList<>(root.fragments());
-        fragments.addAll(layoutAbsoluteRequests(initialContainingBlock, graphics, lineBoxes));
+        List<PaintFragment> positioned =
+                layoutAbsoluteRequests(initialContainingBlock, graphics, lineBoxes);
+        List<PaintFragment> negative = new ArrayList<>();
+        List<PaintFragment> zero = new ArrayList<>();
+        List<PaintFragment> positive = new ArrayList<>();
+        for (PaintFragment fragment : positioned) {
+            int z = fragmentZIndex(fragment);
+            if (z < 0) negative.add(fragment);
+            else if (z == 0) zero.add(fragment);
+            else positive.add(fragment);
+        }
+        List<PaintFragment> fragments = new ArrayList<>(
+                root.fragments().size() + positioned.size());
+        fragments.addAll(negative);
+        fragments.addAll(root.fragments());
+        fragments.addAll(zero);
+        fragments.addAll(positive);
         float height = insets.top + root.outerHeight() + insets.bottom;
         return new LayoutResult(
                 viewportWidth,
@@ -167,18 +182,21 @@ public final class RenderLayoutEngine {
                                 style, style.maxHeight(), containingHeight, verticalDecoration));
 
         List<PaintFragment> childFragments = new ArrayList<>();
+        List<PaintFragment> elevatedFragments = new ArrayList<>();
         float naturalContentHeight;
         if (style.display() == RenderStyle.Display.FLEX
                 || style.display() == RenderStyle.Display.INLINE_FLEX) {
             FlexLayout flex = layoutFlex(box, contentX, contentY, contentWidth,
                     childContainingHeight, graphics, lineBoxes, childPositionedContext);
             childFragments.addAll(flex.fragments());
+            elevatedFragments.addAll(flex.elevated());
             naturalContentHeight = flex.height();
         } else if (style.display() == RenderStyle.Display.GRID
                 || style.display() == RenderStyle.Display.INLINE_GRID) {
             GridLayout grid = layoutGrid(box, contentX, contentY, contentWidth,
                     childContainingHeight, graphics, lineBoxes, childPositionedContext);
             childFragments.addAll(grid.fragments());
+            elevatedFragments.addAll(grid.elevated());
             naturalContentHeight = grid.height();
         } else {
             naturalContentHeight = layoutBlockChildren(box, contentX, contentY, contentWidth,
@@ -211,8 +229,29 @@ public final class RenderLayoutEngine {
                 maxRight = Math.max(maxRight, fragmentRight(fragment));
             }
             childPositionedContext.setContentExtent(minLeft, maxRight);
-            childFragments.addAll(
-                    layoutAbsoluteRequests(childPositionedContext, graphics, lineBoxes));
+            List<PaintFragment> positionedFragments =
+                    layoutAbsoluteRequests(childPositionedContext, graphics, lineBoxes);
+            // Paint-Reihenfolge nach z-index: negative positionierte zuerst,
+            // dann normaler Fluss (z == 0), dann positionierte mit z == 0,
+            // zuletzt alle Elemente mit z > 0 (positioniert und Flex-/Grid-Items).
+            List<PaintFragment> negative = new ArrayList<>();
+            List<PaintFragment> zero = new ArrayList<>();
+            List<PaintFragment> positive = new ArrayList<>();
+            for (PaintFragment fragment : positionedFragments) {
+                int z = fragmentZIndex(fragment);
+                if (z < 0) negative.add(fragment);
+                else if (z == 0) zero.add(fragment);
+                else positive.add(fragment);
+            }
+            List<PaintFragment> ordered = new ArrayList<>(
+                    childFragments.size() + positionedFragments.size());
+            ordered.addAll(negative);
+            ordered.addAll(childFragments);
+            ordered.addAll(zero);
+            ordered.addAll(mergeElevated(elevatedFragments, positive));
+            childFragments = ordered;
+        } else {
+            childFragments.addAll(elevatedFragments);
         }
 
         if (style.overflow() != RenderStyle.Overflow.VISIBLE) {
@@ -409,7 +448,11 @@ public final class RenderLayoutEngine {
         return null;
     }
 
-    private record GridLayout(float height, List<PaintFragment> fragments) {
+    private record GridLayout(float height, List<PaintFragment> fragments,
+                              List<PaintFragment> elevated) {
+        private GridLayout(float height, List<PaintFragment> fragments) {
+            this(height, fragments, List.of());
+        }
     }
 
     private record GridPlacement(int row, int column, int rowSpan, int columnSpan) {
@@ -462,23 +505,29 @@ public final class RenderLayoutEngine {
         List<RenderBox> placed = new ArrayList<>();
         for (RenderBox item : items) {
             RenderStyle itemStyle = item.style();
-            int startCol = itemStyle.gridColumnStart();
-            int startRow = itemStyle.gridRowStart();
-            int endCol = itemStyle.gridColumnEnd();
-            int endRow = itemStyle.gridRowEnd();
-            int spanCol = endCol > 0 ? endCol - startCol : 1;
-            int spanRow = endRow > 0 ? endRow - startRow : 1;
-            String areaName = itemStyle.gridAreaName();
-            if (areaName != null && areas != null) {
-                int[] cell = findArea(areas, areaName);
-                if (cell == null) {
-                    continue;
-                }
-                int[] extent = areaExtent(areas, cell[0], cell[1], areaName);
-                startRow = cell[0] + 1;
-                startCol = cell[1] + 1;
-                spanRow = extent[0];
-                spanCol = extent[1];
+            RenderStyle.GridLine colStartLine = itemStyle.gridColumnStart();
+            RenderStyle.GridLine colEndLine = itemStyle.gridColumnEnd();
+            RenderStyle.GridLine rowStartLine = itemStyle.gridRowStart();
+            RenderStyle.GridLine rowEndLine = itemStyle.gridRowEnd();
+            int startCol = resolveGridLine(colStartLine, areas, false, false, columnCount);
+            int endCol = resolveGridLine(colEndLine, areas, false, true, columnCount);
+            int startRow = resolveGridLine(rowStartLine, areas, true, false, rowCapacity);
+            int endRow = resolveGridLine(rowEndLine, areas, true, true, rowCapacity);
+            int spanCol = colStartLine.span() > 0 ? colStartLine.span()
+                    : (colEndLine.span() > 0 ? colEndLine.span() : 1);
+            int spanRow = rowStartLine.span() > 0 ? rowStartLine.span()
+                    : (rowEndLine.span() > 0 ? rowEndLine.span() : 1);
+            if (startCol > 0 && endCol > 0) {
+                spanCol = Math.max(1, endCol - startCol);
+            }
+            if (startRow > 0 && endRow > 0) {
+                spanRow = Math.max(1, endRow - startRow);
+            }
+            if (startCol == 0 && endCol > 0) {
+                startCol = Math.max(1, endCol - spanCol);
+            }
+            if (startRow == 0 && endRow > 0) {
+                startRow = Math.max(1, endRow - spanRow);
             }
             if (startCol == 0 && startRow == 0) {
                 int[] slot = findFreeCell(occupied, columnCount, spanCol, spanRow, startRow,
@@ -581,7 +630,7 @@ public final class RenderLayoutEngine {
             }
         }
 
-        List<PaintFragment> fragments = new ArrayList<>();
+        List<List<PaintFragment>> itemGroups = new ArrayList<>();
         float totalHeight = rowGap * Math.max(0, rowCount - 1);
         for (int row = 0; row < rowCount; row++) {
             totalHeight += rowHeights[row];
@@ -602,22 +651,36 @@ public final class RenderLayoutEngine {
             float itemWidth = Math.max(1, cellWidth - item.style().margin().horizontal());
             boolean stretch = item.style().height().isAuto()
                     && placement.rowSpan() == 1;
-            BlockLayout itemLayout = layoutBlock(item, x,
+            RenderBox itemToLayout = item;
+            if (stretch) {
+                itemToLayout = forceOuterHeight(item, cellHeight);
+            }
+            BlockLayout itemLayout = layoutBlock(itemToLayout, x,
                     y, itemWidth, stretch ? cellHeight : null,
                     false, graphics, lineBoxes, positionedContext);
-            for (PaintFragment fragment : itemLayout.fragments()) {
-                fragments.add(fragment);
+            itemGroups.add(itemLayout.fragments());
+        }
+        itemGroups.sort(java.util.Comparator.comparingInt(group -> fragmentZIndex(group.getFirst())));
+        List<PaintFragment> fragments = new ArrayList<>();
+        List<PaintFragment> elevated = new ArrayList<>();
+        for (List<PaintFragment> group : itemGroups) {
+            if (fragmentZIndex(group.getFirst()) > 0) {
+                elevated.addAll(group);
+            } else {
+                fragments.addAll(group);
             }
         }
         return new GridLayout(contentHeight == null ? totalHeight
-                : Math.max(totalHeight, contentHeight), List.copyOf(fragments));
+                : Math.max(totalHeight, contentHeight), List.copyOf(fragments),
+                List.copyOf(elevated));
     }
 
     private static float trackBase(RenderStyle.GridTrack track, float contentWidth) {
         return switch (track.type()) {
             case FIXED -> track.fixed();
             case PERCENT -> track.fixed() / 100f * contentWidth;
-            case MINMAX -> track.minFixed();
+            case MINMAX -> track.minPercent()
+                    ? track.minFixed() / 100f * contentWidth : track.minFixed();
             default -> 0;
         };
     }
@@ -652,7 +715,7 @@ public final class RenderLayoutEngine {
     private static List<RenderStyle.GridTrack> implicitTracks(
             List<RenderStyle.GridTrack> pattern, int count) {
         RenderStyle.GridTrack fallback = new RenderStyle.GridTrack(
-                RenderStyle.GridTrack.Type.AUTO, 0, 0, 0, 0);
+                RenderStyle.GridTrack.Type.AUTO, 0, 0, 0, 0, false, false);
         List<RenderStyle.GridTrack> source = pattern.isEmpty() ? List.of(fallback) : pattern;
         List<RenderStyle.GridTrack> result = new ArrayList<>(count);
         for (int index = 0; index < count; index++) {
@@ -706,6 +769,61 @@ public final class RenderLayoutEngine {
             }
         }
         return null;
+    }
+
+    /**
+     * Löst eine Grid-Linienangabe in eine 1-basierte Liniennummer auf
+     * (0 = auto). Benannte Linien werden gegen die Template-Areas und die
+     * daraus abgeleiteten impliziten Liniennamen ({@code name-start}/
+     * {@code name-end}) aufgelöst; negative Zahlen zählen vom Ende.
+     */
+    private static int resolveGridLine(RenderStyle.GridLine line, String[][] areas,
+                                       boolean vertical, boolean endSide, int trackCount) {
+        if (line == null) {
+            return 0;
+        }
+        if (line.name() != null) {
+            return namedGridLine(line.name(), areas, vertical, endSide);
+        }
+        int value = line.line();
+        if (value > 0) {
+            return value;
+        }
+        if (value < 0) {
+            return Math.max(0, trackCount + value + 1);
+        }
+        return 0;
+    }
+
+    private static int namedGridLine(String name, String[][] areas,
+                                     boolean vertical, boolean endSide) {
+        if (areas == null) {
+            return 0;
+        }
+        // 1. Name eines benannten Bereichs: Start- bzw. Endlinie des Bereichs.
+        int line = areaLineForName(name, areas, vertical, endSide);
+        if (line != 0) {
+            return line;
+        }
+        // 2. Implizite Liniennamen name-start / name-end der Bereiche.
+        String implicit = endSide ? name + "-end" : name + "-start";
+        return areaLineForName(implicit, areas, vertical, endSide);
+    }
+
+    private static int areaLineForName(String name, String[][] areas,
+                                       boolean vertical, boolean endSide) {
+        for (int row = 0; row < areas.length; row++) {
+            for (int column = 0; column < areas[row].length; column++) {
+                if (!name.equals(areas[row][column])) {
+                    continue;
+                }
+                int[] extent = areaExtent(areas, row, column, name);
+                int start = vertical ? row + 1 : column + 1;
+                int end = vertical ? row + extent[0] + 1 : column + extent[1] + 1;
+                return endSide ? end : start;
+            }
+        }
+        return 0;
     }
 
     private static int[] areaExtent(String[][] areas, int row, int column, String name) {
@@ -780,11 +898,13 @@ public final class RenderLayoutEngine {
             java.util.Collections.reverse(rows);
         }
         List<List<PaintFragment>> rowFragments = new ArrayList<>();
+        List<List<PaintFragment>> rowElevated = new ArrayList<>();
         List<Float> rowHeights = new ArrayList<>();
         for (List<RenderBox> flexRow : rows) {
             FlexLayout layout = layoutFlexRowLine(containerStyle, flexRow, contentX,
                     contentY, contentWidth, null, graphics, lineBoxes);
             rowFragments.add(layout.fragments());
+            rowElevated.add(layout.elevated());
             rowHeights.add(layout.height());
         }
         float rowGap = containerStyle.rowGapPx();
@@ -822,14 +942,18 @@ public final class RenderLayoutEngine {
             }
         }
         List<PaintFragment> fragments = new ArrayList<>();
+        List<PaintFragment> elevated = new ArrayList<>();
         float cursor = firstOffset;
         for (int index = 0; index < rowFragments.size(); index++) {
             for (PaintFragment fragment : rowFragments.get(index)) {
                 fragments.add(translate(fragment, 0, cursor));
             }
+            for (PaintFragment fragment : rowElevated.get(index)) {
+                elevated.add(translate(fragment, 0, cursor));
+            }
             cursor += rowHeights.get(index) + rowGap + extraGap;
         }
-        return new FlexLayout(alignHeight, List.copyOf(fragments));
+        return new FlexLayout(alignHeight, List.copyOf(fragments), List.copyOf(elevated));
     }
 
     private FlexLayout layoutFlexRowLine(RenderStyle containerStyle,
@@ -899,7 +1023,7 @@ public final class RenderLayoutEngine {
                 Math.max(0, contentWidth - sum(widths) - declaredGaps), items.size());
         boolean reverse = containerStyle.flexDirection() == RenderStyle.FlexDirection.ROW_REVERSE;
         float cursor = reverse ? contentWidth - spacing.offset() : spacing.offset();
-        List<PaintFragment> fragments = new ArrayList<>();
+        List<List<PaintFragment>> itemGroups = new ArrayList<>();
         for (int index = 0; index < items.size(); index++) {
             if (reverse) cursor -= widths[index];
             FlexItemLayout item = layouts.get(index);
@@ -908,13 +1032,30 @@ public final class RenderLayoutEngine {
             float crossOffset = alignment == RenderStyle.AlignSelf.BASELINE
                     ? sharedBaseline - flexItemBaseline(item)
                     : crossOffset(alignment, crossSize, item.layout().outerHeight());
+            List<PaintFragment> group = new ArrayList<>();
             appendFlexItem(item, contentX + cursor, contentY + crossOffset,
-                    fragments, lineBoxes);
+                    group, lineBoxes);
+            itemGroups.add(group);
             float gap = containerStyle.columnGapPx() + spacing.gap();
             if (reverse) cursor -= gap;
             else cursor += widths[index] + gap;
         }
-        return new FlexLayout(crossSize, List.copyOf(fragments));
+        return groupFlexItems(itemGroups, crossSize);
+    }
+
+    private FlexLayout groupFlexItems(List<List<PaintFragment>> itemGroups, float height) {
+        List<PaintFragment> fragments = new ArrayList<>();
+        List<PaintFragment> elevated = new ArrayList<>();
+        List<List<PaintFragment>> ordered = new ArrayList<>(itemGroups);
+        ordered.sort(java.util.Comparator.comparingInt(group -> fragmentZIndex(group.getFirst())));
+        for (List<PaintFragment> group : ordered) {
+            if (fragmentZIndex(group.getFirst()) > 0) {
+                elevated.addAll(group);
+            } else {
+                fragments.addAll(group);
+            }
+        }
+        return new FlexLayout(height, List.copyOf(fragments), List.copyOf(elevated));
     }
 
     private float flexBaseOuterWidth(RenderBox item,
@@ -1008,7 +1149,7 @@ public final class RenderLayoutEngine {
         boolean reverse = containerStyle.flexDirection()
                 == RenderStyle.FlexDirection.COLUMN_REVERSE;
         float cursor = reverse ? mainSize - spacing.offset() : spacing.offset();
-        List<PaintFragment> fragments = new ArrayList<>();
+        List<List<PaintFragment>> itemGroups = new ArrayList<>();
         for (int index = 0; index < items.size(); index++) {
             if (reverse) cursor -= heights[index];
             FlexItemLayout item = layouts.get(index);
@@ -1016,12 +1157,14 @@ public final class RenderLayoutEngine {
             float outerWidth = root.width() + item.box().style().margin().horizontal();
             float x = crossOffset(effectiveAlignSelf(items.get(index).style(), containerStyle),
                     contentWidth, outerWidth);
-            appendFlexItem(item, contentX + x, contentY + cursor, fragments, lineBoxes);
+            List<PaintFragment> group = new ArrayList<>();
+            appendFlexItem(item, contentX + x, contentY + cursor, group, lineBoxes);
+            itemGroups.add(group);
             float gap = containerStyle.rowGapPx() + spacing.gap();
             if (reverse) cursor -= gap;
             else cursor += heights[index] + gap;
         }
-        return new FlexLayout(mainSize, List.copyOf(fragments));
+        return groupFlexItems(itemGroups, mainSize);
     }
 
     private FlexItemLayout layoutFlexItem(RenderBox box,
@@ -1330,6 +1473,47 @@ public final class RenderLayoutEngine {
         }
     }
 
+    private static int fragmentZIndex(PaintFragment fragment) {
+        if (fragment instanceof BoxFragment box) {
+            return box.box().style().zIndex();
+        }
+        if (fragment instanceof InlineBoxFragment box) {
+            return box.box().style().zIndex();
+        }
+        return 0;
+    }
+
+    /**
+     * Fügt die Fragmente von Flex-/Grid-Items mit z > 0 und von positionierten
+     * Boxen mit z > 0 aufsteigend nach z-index zusammen (stabil).
+     */
+    private static List<PaintFragment> mergeElevated(List<PaintFragment> elevated,
+                                                     List<PaintFragment> positioned) {
+        if (elevated.isEmpty()) {
+            return positioned;
+        }
+        if (positioned.isEmpty()) {
+            return elevated;
+        }
+        List<PaintFragment> merged = new ArrayList<>(elevated.size() + positioned.size());
+        int i = 0;
+        int j = 0;
+        while (i < elevated.size() && j < positioned.size()) {
+            if (fragmentZIndex(elevated.get(i)) <= fragmentZIndex(positioned.get(j))) {
+                merged.add(elevated.get(i++));
+            } else {
+                merged.add(positioned.get(j++));
+            }
+        }
+        while (i < elevated.size()) {
+            merged.add(elevated.get(i++));
+        }
+        while (j < positioned.size()) {
+            merged.add(positioned.get(j++));
+        }
+        return merged;
+    }
+
     private static float[] fitColumns(float[] preferred, float[] minimum, float targetWidth) {
         float[] result = preferred.clone();
         float preferredWidth = sum(result);
@@ -1510,7 +1694,8 @@ public final class RenderLayoutEngine {
                 text.color(), text.underline(), text.lineThrough(),
                 text.decorationColor(), text.opacity(), text.letterSpacingPx(),
                 text.ellipsis(),
-                translate(text.clip(), dx, dy), text.transform(), text.shadow());
+                translate(text.clip(), dx, dy), text.transform(), text.shadow(),
+                text.visible());
     }
 
     private static PaintFragment withTransform(PaintFragment fragment,
@@ -1534,7 +1719,7 @@ public final class RenderLayoutEngine {
                 text.top(), text.height(), text.font(), text.color(), text.underline(),
                 text.lineThrough(), text.decorationColor(), text.opacity(),
                 text.letterSpacingPx(), text.ellipsis(), text.clip(),
-                compose(text.transform(), transform), text.shadow());
+                compose(text.transform(), transform), text.shadow(), text.visible());
     }
 
     private static java.awt.geom.AffineTransform compose(
@@ -1861,7 +2046,7 @@ public final class RenderLayoutEngine {
         return new TextFragment(text.text(), text.x(), text.width(), text.baseline(), text.top(),
                 text.height(), text.font(), text.color(), text.underline(), text.lineThrough(),
                 text.decorationColor(), text.opacity(), text.letterSpacingPx(),
-                text.ellipsis(), effective, text.transform(), text.shadow());
+                text.ellipsis(), effective, text.transform(), text.shadow(), text.visible());
     }
 
     private static ClipRect intersect(ClipRect first, ClipRect second) {
@@ -1964,19 +2149,20 @@ public final class RenderLayoutEngine {
                                boolean ellipsis,
                                ClipRect clip,
                                java.awt.geom.AffineTransform transform,
-                               RenderStyle.TextShadow shadow) implements InlineFragment {
+                               RenderStyle.TextShadow shadow,
+                               boolean visible) implements InlineFragment {
         public TextFragment(String text, float x, float width, float baseline, float top,
                             float height, Font font, CssColor color, boolean underline,
                             boolean lineThrough, CssColor decorationColor, float opacity) {
             this(text, x, width, baseline, top, height, font, color, underline, lineThrough,
-                    decorationColor, opacity, 0, false, null, null, null);
+                    decorationColor, opacity, 0, false, null, null, null, true);
         }
         public TextFragment(String text, float x, float width, float baseline, float top,
                             float height, Font font, CssColor color, boolean underline,
                             boolean lineThrough, CssColor decorationColor, float opacity,
                             float letterSpacingPx, boolean ellipsis) {
             this(text, x, width, baseline, top, height, font, color, underline, lineThrough,
-                    decorationColor, opacity, letterSpacingPx, ellipsis, null, null, null);
+                    decorationColor, opacity, letterSpacingPx, ellipsis, null, null, null, true);
         }
         @Override public float bottom() { return top + height; }
     }
@@ -2011,7 +2197,11 @@ public final class RenderLayoutEngine {
     private record BlockLayout(float outerHeight, List<PaintFragment> fragments) {
     }
 
-    private record FlexLayout(float height, List<PaintFragment> fragments) {
+    private record FlexLayout(float height, List<PaintFragment> fragments,
+                              List<PaintFragment> elevated) {
+        private FlexLayout(float height, List<PaintFragment> fragments) {
+            this(height, fragments, List.of());
+        }
     }
 
     private record FlexItemLayout(RenderBox box,
@@ -2487,7 +2677,8 @@ public final class RenderLayoutEngine {
                             float usedLineHeight,
                             float letterSpacingPx,
                             RenderStyle.TextOverflow textOverflow,
-                            RenderStyle.TextShadow shadow) implements LineItem {
+                            RenderStyle.TextShadow shadow,
+                            boolean visible) implements LineItem {
         private float adjustment() {
             return usedLineHeight <= 0 ? 0 : (usedLineHeight - metrics.getHeight()) / 2f;
         }
@@ -2651,7 +2842,7 @@ public final class RenderLayoutEngine {
             addItem(new TextItem(text, width, itemWidth, font, metrics, style.color(),
                     style.underline(), style.lineThrough(), style.textDecorationColor(),
                     style.opacity(), style.usedLineHeightPx(), style.letterSpacingPx(),
-                    style.textOverflow(), style.textShadow()));
+                    style.textOverflow(), style.textShadow(), style.visible()));
             width += itemWidth;
             placedContent = true;
         }
@@ -2771,7 +2962,8 @@ public final class RenderLayoutEngine {
                             text.textOverflow == RenderStyle.TextOverflow.ELLIPSIS,
                             null,
                             null,
-                            text.shadow));
+                            text.shadow,
+                            text.visible));
                 } else if (item instanceof BoxItem box) {
                     float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
                     float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
@@ -2871,7 +3063,8 @@ public final class RenderLayoutEngine {
                     text.color(), text.underline(), text.lineThrough(),
                     text.decorationColor(), text.opacity(), text.letterSpacingPx(),
                     text.ellipsis(),
-                    translate(text.clip(), dx, dy), text.transform(), text.shadow());
+                    translate(text.clip(), dx, dy), text.transform(), text.shadow(),
+                    text.visible());
         }
 
         private static ClipRect translate(ClipRect clip, float dx, float dy) {

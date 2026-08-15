@@ -65,7 +65,19 @@ public final class DocumentResourceScanner {
         if (!element.hasAttribute("src")) {
             return java.util.Optional.empty();
         }
-        return resolveHttpUri(document, element.getAttribute("src"))
+        String source = element.getAttribute("src").strip();
+        if (source.startsWith("data:")) {
+            try {
+                // Opaque-URI-Konstruktor: behält den Roh-Payload unverändert
+                // (URI.create würde illegale Zeichen wie '<' oder Leerzeichen
+                // in unkodierten SVG-Daten-URIs ablehnen).
+                return java.util.Optional.of(new ImageResource(
+                        element, new URI("data", source.substring(5), null)));
+            } catch (URISyntaxException invalidDataUri) {
+                return java.util.Optional.empty();
+            }
+        }
+        return resolveHttpUri(document, source)
                 .map(uri -> new ImageResource(element, uri));
     }
 

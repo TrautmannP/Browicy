@@ -1168,13 +1168,19 @@ public class CssParserTest {
         assertEquals("auto min-content", declarations.get("grid-template-rows"));
         assertEquals("\"content pane\" \"footer footer\"", declarations.get("grid-template-areas"));
         assertEquals("row dense", declarations.get("grid-auto-flow"));
-        assertEquals("content", declarations.get("grid-area"));
+        // grid-area ist eine Kurzform und wird in die vier Linien-Langformen expandiert.
         assertEquals("1", declarations.get("grid-column-start"));
         assertEquals("span 2", declarations.get("grid-column-end"));
         assertEquals("2", declarations.get("grid-row-start"));
         assertEquals("4", declarations.get("grid-row-end"));
         assertEquals("8px", declarations.get("row-gap"));
         assertEquals("16px", declarations.get("column-gap"));
+        // Ein einzelner Name setzt alle vier Linien (Bereichsauflösung im Layout).
+        Map<String, String> named = parser.parseDeclarations("grid-area:content");
+        assertEquals("content", named.get("grid-row-start"));
+        assertEquals("content", named.get("grid-column-start"));
+        assertEquals("content", named.get("grid-row-end"));
+        assertEquals("content", named.get("grid-column-end"));
 
         assertTrue(parser.supports("display", "grid"));
         assertTrue(parser.supportsProperty("grid-template-columns"));

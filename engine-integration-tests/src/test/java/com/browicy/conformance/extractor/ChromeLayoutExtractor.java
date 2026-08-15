@@ -76,7 +76,7 @@ public final class ChromeLayoutExtractor implements AutoCloseable {
               const result = [];
               for (const element of document.querySelectorAll('*')) {
                 const computed = getComputedStyle(element);
-                if (computed.display === 'none') continue;
+                if (computed.display === 'none' || computed.display === 'contents') continue;
                 const rect = element.getBoundingClientRect();
                 const styles = {};
                 for (const property of styleProperties) {

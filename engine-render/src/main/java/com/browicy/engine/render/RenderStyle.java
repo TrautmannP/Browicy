@@ -74,12 +74,11 @@ public record RenderStyle(
         java.util.List<GridTrack> gridAutoColumns,
         java.util.List<GridTrack> gridAutoRows,
         String[][] gridTemplateAreas,
-        String gridAreaName,
         GridAutoFlow gridAutoFlow,
-        int gridColumnStart,
-        int gridColumnEnd,
-        int gridRowStart,
-        int gridRowEnd,
+        GridLine gridColumnStart,
+        GridLine gridColumnEnd,
+        GridLine gridRowStart,
+        GridLine gridRowEnd,
         float rowGapPx,
         float columnGapPx,
         TextShadow textShadow,
@@ -91,13 +90,28 @@ public record RenderStyle(
     public enum Display {
         BLOCK, INLINE, INLINE_BLOCK, FLEX, INLINE_FLEX, NONE, GRID, INLINE_GRID,
         TABLE, INLINE_TABLE, TABLE_ROW_GROUP, TABLE_HEADER_GROUP, TABLE_FOOTER_GROUP,
-        TABLE_ROW, TABLE_CELL, TABLE_COLUMN_GROUP, TABLE_COLUMN, TABLE_CAPTION
+        TABLE_ROW, TABLE_CELL, TABLE_COLUMN_GROUP, TABLE_COLUMN, TABLE_CAPTION,
+        CONTENTS
     }
 
     public enum GridAutoFlow { ROW, COLUMN, ROW_DENSE, COLUMN_DENSE }
 
+    /**
+     * Eine Grid-Linienposition: {@code line} ist die numerische Linie (0 = auto,
+     * negative Werte zählen vom Ende), {@code span} eine Spanne ab auto-Platzierung
+     * und {@code name} ein benannter Linien- bzw. Bereichsname (null = auto).
+     */
+    public record GridLine(int line, int span, String name) {
+        public static final GridLine AUTO = new GridLine(0, 0, null);
+
+        public boolean isAuto() {
+            return line == 0 && span == 0 && name == null;
+        }
+    }
+
     public record GridTrack(Type type, float fixed, float fraction,
-                            float minFixed, float maxFixed) {
+                            float minFixed, float maxFixed,
+                            boolean minPercent, boolean maxPercent) {
         public enum Type { FIXED, PERCENT, FRACTION, AUTO, MINMAX }
     }
 
@@ -201,7 +215,7 @@ public record RenderStyle(
                 verticalAlign, flexDirection,
                 flexWrap, justifyContent, alignItems, alignSelf, alignContent, order,
                 gridTemplateColumns, gridTemplateRows, gridAutoColumns, gridAutoRows,
-                gridTemplateAreas, gridAreaName,
+                gridTemplateAreas,
                 gridAutoFlow, gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd,
                 rowGapPx, columnGapPx, textShadow,
                 newFlexGrow, flexShrink, flexBasis, opacity);
