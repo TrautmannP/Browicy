@@ -7,6 +7,7 @@ import com.browicy.engine.css.CssParser;
 import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.selectors.SelectorParseException;
 import com.browicy.engine.selectors.SelectorParser;
+
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -32,6 +33,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.HostAccess;
 import org.graalvm.polyglot.PolyglotException;
@@ -43,7 +45,7 @@ import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
-final class GraalPageRuntime implements PageRuntime {
+public final class GraalPageRuntime implements PageRuntime {
 
     private static final System.Logger LOGGER = System.getLogger(GraalPageRuntime.class.getName());
     private static final AtomicLong NEXT_RUNTIME_ID = new AtomicLong();
@@ -104,19 +106,22 @@ final class GraalPageRuntime implements PageRuntime {
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer) {
         this(document, statementLimit, observer, null, null,
-                new StyleSheetRegistry(), () -> { });
+                new StyleSheetRegistry(), () -> {
+                });
     }
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
                      JsFetchBackend fetchBackend) {
         this(document, statementLimit, observer, fetchBackend, null,
-                new StyleSheetRegistry(), () -> { });
+                new StyleSheetRegistry(), () -> {
+                });
     }
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
                      JsFetchBackend fetchBackend, JsCookieStore cookieStore) {
         this(document, statementLimit, observer, fetchBackend, cookieStore,
-                new StyleSheetRegistry(), () -> { });
+                new StyleSheetRegistry(), () -> {
+                });
     }
 
     GraalPageRuntime(Document document, long statementLimit, PageRuntimeObserver observer,
@@ -213,7 +218,8 @@ final class GraalPageRuntime implements PageRuntime {
         if (Thread.currentThread() == eventLoopThread) {
             return;
         }
-        join(submit(new PageTask.Callback(() -> { }), false));
+        join(submit(new PageTask.Callback(() -> {
+        }), false));
     }
 
     @Override
@@ -242,7 +248,8 @@ final class GraalPageRuntime implements PageRuntime {
             return;
         }
         CompletableFuture<Void> completion = new CompletableFuture<>();
-        tasks.offerFirst(new Envelope<>(new PageTask.Callback(() -> { }), completion, true));
+        tasks.offerFirst(new Envelope<>(new PageTask.Callback(() -> {
+        }), completion, true));
         cancelRunningGuestCode();
         join(completion);
         joinEventLoop();
@@ -409,9 +416,15 @@ final class GraalPageRuntime implements PageRuntime {
         });
         context.eval("js", JavaScriptEngine.CUSTOM_ELEMENTS_BOOTSTRAP);
         bindings.putMember("setTimeout", (ProxyExecutable) args -> registerTimer(args, false));
-        bindings.putMember("clearTimeout", (ProxyExecutable) args -> { clearTimer(args); return null; });
+        bindings.putMember("clearTimeout", (ProxyExecutable) args -> {
+            clearTimer(args);
+            return null;
+        });
         bindings.putMember("setInterval", (ProxyExecutable) args -> registerTimer(args, true));
-        bindings.putMember("clearInterval", (ProxyExecutable) args -> { clearTimer(args); return null; });
+        bindings.putMember("clearInterval", (ProxyExecutable) args -> {
+            clearTimer(args);
+            return null;
+        });
         bindings.putMember("queueMicrotask", (ProxyExecutable) args -> {
             Value callback = requireCallback(args, 0, "queueMicrotask");
             enqueueMicrotask(new PageTask.Callback(() -> executeCallback(callback, new Object[0])));
@@ -698,10 +711,8 @@ final class GraalPageRuntime implements PageRuntime {
 
     private static String describe(PageTask task) {
         return switch (task) {
-            case PageTask.Script script ->
-                    "Skript-Task '" + script.source().sourceName() + "'";
-            case PageTask.DomEvent domEvent ->
-                    "DOM-Event-Task '" + domEvent.event().getType() + "'";
+            case PageTask.Script script -> "Skript-Task '" + script.source().sourceName() + "'";
+            case PageTask.DomEvent domEvent -> "DOM-Event-Task '" + domEvent.event().getType() + "'";
             case PageTask.Timer timer -> "Timer-Task #" + timer.timerId();
             case PageTask.Callback ignored -> "interner Callback-Task";
         };
@@ -827,7 +838,7 @@ final class GraalPageRuntime implements PageRuntime {
         return value.as(byte[].class);
     }
 
-    static Map<String, Object> locationParts(String url) {
+    public static Map<String, Object> locationParts(String url) {
         Map<String, Object> parts = new LinkedHashMap<>();
         URI uri;
         try {
@@ -1001,7 +1012,7 @@ final class GraalPageRuntime implements PageRuntime {
             detail = "Skript wurde nach Überschreitung des Zeitbudgets von "
                     + budgetMillis + " ms unterbrochen (mögliche Endlosschleife)"
                     + (taskDescription == null || taskDescription.isBlank() ? ""
-                            : " bei " + taskDescription)
+                    : " bei " + taskDescription)
                     + ": " + detail;
         }
         return detail;
@@ -1194,12 +1205,32 @@ final class GraalPageRuntime implements PageRuntime {
             this.repeating = repeating;
         }
 
-        long id() { return id; }
-        Value callback() { return callback; }
-        Object[] arguments() { return arguments; }
-        long delayMillis() { return delayMillis; }
-        boolean repeating() { return repeating; }
-        ScheduledFuture<?> future() { return future; }
-        void future(ScheduledFuture<?> future) { this.future = future; }
+        long id() {
+            return id;
+        }
+
+        Value callback() {
+            return callback;
+        }
+
+        Object[] arguments() {
+            return arguments;
+        }
+
+        long delayMillis() {
+            return delayMillis;
+        }
+
+        boolean repeating() {
+            return repeating;
+        }
+
+        ScheduledFuture<?> future() {
+            return future;
+        }
+
+        void future(ScheduledFuture<?> future) {
+            this.future = future;
+        }
     }
 }

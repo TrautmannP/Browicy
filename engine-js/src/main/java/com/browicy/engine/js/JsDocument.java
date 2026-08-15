@@ -7,12 +7,13 @@ import com.browicy.engine.css.CssStyleSheet;
 import com.browicy.engine.css.StyleApplicator;
 import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.dom.Document;
-import com.browicy.engine.dom.CustomEvent;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Event;
 import com.browicy.engine.dom.Node;
-import com.browicy.engine.dom.UiEvent;
-import com.browicy.engine.html.HtmlParser;
+import com.browicy.engine.js.handlers.JsDocumentCreationHandler;
+import com.browicy.engine.js.handlers.JsDocumentTraversalHandler;
+import com.browicy.engine.js.handlers.JsMemberHandler;
+import com.browicy.engine.js.handlers.JsNodeConstants;
 import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
@@ -23,26 +24,34 @@ import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
+import java.util.function.Supplier;
 
-final class JsDocument implements ProxyObject, JsNodeLike {
+public final class JsDocument implements ProxyObject, JsNodeLike {
 
-    private static final List<String> MEMBERS = List.of(
-            "title", "head", "body", "activeElement", "cookie", "documentElement", "forms", "links", "scripts", "styleSheets", "implementation", "defaultView", "URL", "referrer", "location", "readyState", "nodeType", "nodeName", "nodeValue",
-            "parentNode", "ownerDocument", "childNodes", "firstChild", "lastChild", "hasChildNodes",
-            "appendChild", "insertBefore", "replaceChild", "removeChild",
-            "compareDocumentPosition", "isSameNode", "isEqualNode",
-            "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
-            "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
-            "DOCUMENT_POSITION_CONTAINS", "DOCUMENT_POSITION_CONTAINED_BY", "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC",
-            "currentScript", "getElementById", "getElementsByTagName", "querySelector", "querySelectorAll", "elementFromPoint", "createElement", "createElementNS",
-            "createTextNode", "createComment", "createDocumentFragment", "createRange", "createEvent",
-            "createNodeIterator", "createTreeWalker", "write",
-            JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT);
+    private static final List<JsMemberHandler> HANDLERS = List.of(
+            new JsDocumentTraversalHandler(), new JsDocumentCreationHandler());
+
+    private static final List<String> CORE_MEMBERS = List.of(
+            "title", "head", "body", "activeElement", "cookie", "documentElement",
+            "forms", "links", "scripts", "styleSheets", "implementation", "defaultView",
+            "URL", "referrer", "location", "readyState", "nodeType", "nodeName",
+            "nodeValue", "parentNode", "ownerDocument",
+            JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER,
+            JsEventTarget.DISPATCH_EVENT);
+
+    private static final List<String> MEMBERS = buildMembers();
+
+    private static List<String> buildMembers() {
+        List<String> keys = new ArrayList<>(JsNodeConstants.keys());
+        keys.addAll(CORE_MEMBERS);
+        for (JsMemberHandler handler : HANDLERS) {
+            keys.addAll(handler.keys());
+        }
+        return List.copyOf(keys);
+    }
 
     private final Document document;
     private final Consumer<String> errorSink;
@@ -99,9 +108,12 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         documentWrappers.put(document, this);
     }
 
-    @Override public Document unwrapNode() { return document; }
+    @Override
+    public Document unwrapNode() {
+        return document;
+    }
 
-    JsElement wrap(Element element) {
+    public JsElement wrap(Element element) {
         if (element == null) {
             return null;
         }
@@ -109,11 +121,11 @@ final class JsDocument implements ProxyObject, JsNodeLike {
                 element, el -> new JsElement((Element) el, this));
     }
 
-    LayoutMetricsAccess layoutMetrics() {
+    public LayoutMetricsAccess layoutMetrics() {
         return layoutMetrics;
     }
 
-    Object wrap(Node node) {
+    public Object wrap(Node node) {
         if (node == null) {
             return null;
         }
@@ -126,7 +138,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         return wrappers.computeIfAbsent(node, value -> new JsNode(value, this));
     }
 
-    JsDocument wrapDocument(Document relatedDocument) {
+    public JsDocument wrapDocument(Document relatedDocument) {
         JsDocument existing = documentWrappers.get(relatedDocument);
         if (existing != null) {
             return existing;
@@ -156,6 +168,10 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         return promiseGlobal;
     }
 
+    public Element currentScript() {
+        return currentScript;
+    }
+
     JsComputedStyleDeclaration computedStyle(JsElement element) {
         Document owner = element.unwrap().getOwnerDocument();
         if (owner != null && owner != document) {
@@ -164,7 +180,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         return new JsComputedStyleDeclaration(element.unwrap(), layoutMetrics);
     }
 
-    JsWindow defaultView() {
+    public JsWindow defaultView() {
         return defaultView == null ? defaultView = new JsWindow(this) : defaultView;
     }
 
@@ -172,7 +188,7 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         expandos.put(name, value);
     }
 
-    Object wrapOwnerDocument(Node node) {
+    public Object wrapOwnerDocument(Node node) {
         Document ownerDocument = node.getOwnerDocument();
         return ownerDocument == null ? null : wrapDocument(ownerDocument);
     }
@@ -181,19 +197,18 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         wrappers.put(wrapper.unwrapNode(), wrapper);
     }
 
-    JsEvent wrap(Event event) {
+    public JsEvent wrap(Event event) {
         if (event == null) {
             return null;
         }
         return eventWrappers.computeIfAbsent(event, value -> new JsEvent(value, this));
     }
 
-    JsCssStyleSheet styleSheet(Element ownerNode) {
+    public JsCssStyleSheet styleSheet(Element ownerNode) {
         return wrap(styleSheets.ensureStyleSheet(ownerNode, ownerNode.getTextContent()));
     }
 
-    /** Registriert/aktualisiert das Stylesheet eines {@code <style>}-Elements. */
-    void styleSheetContentChanged(Element ownerNode) {
+    public void styleSheetContentChanged(Element ownerNode) {
         styleSheets.updateStyleSheet(ownerNode, ownerNode.getTextContent());
         styleSheetMutationCallback.run();
     }
@@ -203,11 +218,25 @@ final class JsDocument implements ProxyObject, JsNodeLike {
                 value -> new JsCssStyleSheet(value, this, styleSheetMutationCallback));
     }
 
-    Object domOperation(ProxyExecutable operation) {
+    public Object domOperation(ProxyExecutable operation) {
         if (domOperationWrapper == null) {
             return operation;
         }
         return domOperationWrapper.execute(operation);
+    }
+
+    public JsHtmlCollection htmlCollection(Supplier<List<Element>> query) {
+        return new JsHtmlCollection(query, this);
+    }
+
+    public JsNodeList nodeList(List<Element> elements) {
+        return new JsNodeList(elements, this);
+    }
+
+    public void elementCreated(Element element) {
+        if (customElements != null) {
+            customElements.elementCreated(element);
+        }
     }
 
     void addEventListener(Node target, String type, Value callback, boolean capture) {
@@ -250,6 +279,15 @@ final class JsDocument implements ProxyObject, JsNodeLike {
 
     @Override
     public Object getMember(String key) {
+        Integer constant = JsNodeConstants.valueOf(key);
+        if (constant != null) {
+            return constant;
+        }
+        for (JsMemberHandler handler : HANDLERS) {
+            if (handler.canHandle(key)) {
+                return handler.get(key, null, this);
+            }
+        }
         return switch (key) {
             case "title" -> document.getTitle();
             case "head" -> wrap(firstByTag("head"));
@@ -257,8 +295,8 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "activeElement" -> wrap(document.getFocusedElement());
             case "cookie" -> cookieStore == null ? "" : cookieStore.cookiesForScript(documentUri());
             case "documentElement" -> wrap(document.getDocumentElement());
-            case "forms" -> new JsHtmlCollection(() -> document.getElementsByTagName("form"), this);
-            case "links" -> new JsHtmlCollection(() -> {
+            case "forms" -> htmlCollection(() -> document.getElementsByTagName("form"));
+            case "links" -> htmlCollection(() -> {
                 List<Element> links = new ArrayList<>();
                 for (Element element : document.getElementsByTagName("a")) {
                     if (element.hasAttribute("href")) {
@@ -271,9 +309,8 @@ final class JsDocument implements ProxyObject, JsNodeLike {
                     }
                 }
                 return links;
-            }, this);
-            case "scripts" -> new JsHtmlCollection(
-                    () -> document.getElementsByTagName("script"), this);
+            });
+            case "scripts" -> htmlCollection(() -> document.getElementsByTagName("script"));
             case "styleSheets" -> new JsStyleSheetList();
             case "implementation" -> implementation == null
                     ? implementation = new JsDomImplementation(this) : implementation;
@@ -286,138 +323,11 @@ final class JsDocument implements ProxyObject, JsNodeLike {
             case "nodeType" -> document.getNodeType();
             case "nodeName" -> document.getNodeName();
             case "nodeValue", "parentNode", "ownerDocument" -> null;
-            case "childNodes" -> ProxyArray.fromList(document.getChildren().stream().map(this::wrap).toList());
-            case "firstChild" -> wrap(document.getFirstChild());
-            case "lastChild" -> wrap(document.getLastChild());
-            case "hasChildNodes" -> (ProxyExecutable) args -> document.hasChildNodes();
-            case "appendChild" -> domOperation((ProxyExecutable) args -> {
-                JsNodeLike child = JsElement.expectNode(args, 0, false);
-                document.appendChild(child.unwrapNode());
-                return child;
-            });
-            case "insertBefore" -> domOperation((ProxyExecutable) args -> {
-                JsNodeLike child = JsElement.expectNode(args, 0, false);
-                JsNodeLike reference = JsElement.expectNode(args, 1, true);
-                document.insertBefore(child.unwrapNode(), reference == null ? null : reference.unwrapNode());
-                return child;
-            });
-            case "replaceChild" -> domOperation((ProxyExecutable) args -> {
-                JsNodeLike replacement = JsElement.expectNode(args, 0, false);
-                JsNodeLike oldChild = JsElement.expectNode(args, 1, false);
-                document.replaceChild(replacement.unwrapNode(), oldChild.unwrapNode());
-                return oldChild;
-            });
-            case "removeChild" -> domOperation((ProxyExecutable) args -> {
-                JsNodeLike child = JsElement.expectNode(args, 0, false);
-                document.removeChild(child.unwrapNode());
-                return child;
-            });
-            case "compareDocumentPosition" -> (ProxyExecutable) args ->
-                    document.compareDocumentPosition(expectNode(args, 0));
-            case "isSameNode" -> (ProxyExecutable) args -> {
-                JsNodeLike other = JsElement.expectNode(args, 0, true);
-                return other != null && document.isSameNode(other.unwrapNode());
-            };
-            case "isEqualNode" -> (ProxyExecutable) args -> {
-                JsNodeLike other = JsElement.expectNode(args, 0, true);
-                return other != null && document.isEqualNode(other.unwrapNode());
-            };
-            case "ELEMENT_NODE" -> Node.ELEMENT_NODE;
-            case "TEXT_NODE" -> Node.TEXT_NODE;
-            case "COMMENT_NODE" -> Node.COMMENT_NODE;
-            case "DOCUMENT_NODE" -> Node.DOCUMENT_NODE;
-            case "DOCUMENT_TYPE_NODE" -> Node.DOCUMENT_TYPE_NODE;
-            case "DOCUMENT_FRAGMENT_NODE" -> Node.DOCUMENT_FRAGMENT_NODE;
-            case "DOCUMENT_POSITION_DISCONNECTED" -> Node.DOCUMENT_POSITION_DISCONNECTED;
-            case "DOCUMENT_POSITION_PRECEDING" -> Node.DOCUMENT_POSITION_PRECEDING;
-            case "DOCUMENT_POSITION_FOLLOWING" -> Node.DOCUMENT_POSITION_FOLLOWING;
-            case "DOCUMENT_POSITION_CONTAINS" -> Node.DOCUMENT_POSITION_CONTAINS;
-            case "DOCUMENT_POSITION_CONTAINED_BY" -> Node.DOCUMENT_POSITION_CONTAINED_BY;
-            case "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC" -> Node.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC;
-            case "currentScript" -> wrap(currentScript);
-            case "getElementById" -> (ProxyExecutable) args ->
-                    wrap(document.getElementById(asString(args, 0)));
-            case "getElementsByTagName" -> (ProxyExecutable) args ->
-                    new JsHtmlCollection(() -> document.getElementsByTagName(asString(args, 0)), this);
-            case "querySelector" -> domOperation((ProxyExecutable) args ->
-                    wrap(document.querySelector(asString(args, 0))));
-            case "querySelectorAll" -> domOperation((ProxyExecutable) args ->
-                    new JsNodeList(document.querySelectorAll(asString(args, 0)), this));
-            case "elementFromPoint" -> (ProxyExecutable) args -> null;
-            case "createElement" -> domOperation((ProxyExecutable) args -> {
-                Element created = document.createElement(asString(args, 0));
-                JsElement wrapped = wrap(created);
-                if (customElements != null) {
-                    customElements.elementCreated(created);
-                }
-                return wrapped;
-            });
-            case "createElementNS" -> domOperation((ProxyExecutable) args ->
-                    wrap(document.createElementNS(nullableString(args, 0), asString(args, 1))));
-            case "createTextNode" -> (ProxyExecutable) args -> wrap(document.createTextNode(asString(args, 0)));
-            case "createComment" -> (ProxyExecutable) args -> wrap(document.createComment(asString(args, 0)));
-            case "createDocumentFragment" -> (ProxyExecutable) args -> wrap(document.createDocumentFragment());
-            case "createRange" -> (ProxyExecutable) args -> new JsRange(document.createRange(), this);
-            case "createEvent" -> (ProxyExecutable) args -> wrap(createEvent(asString(args, 0)));
-            case "createNodeIterator" -> (ProxyExecutable) args -> new JsNodeIterator(this,
-                    expectNode(args, 0), whatToShow(args, 1), filter(args, 2));
-            case "createTreeWalker" -> (ProxyExecutable) args -> new JsTreeWalker(this,
-                    expectNode(args, 0), whatToShow(args, 1), filter(args, 2));
-            case "write" -> (ProxyExecutable) args -> {
-                StringBuilder html = new StringBuilder();
-                for (int i = 0; i < args.length; i++) {
-                    html.append(asString(args, i));
-                }
-                write(html.toString());
-                return null;
-            };
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(document, this);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(document, this);
             case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(document);
             default -> expandos.get(key);
         };
-    }
-
-    private static Event createEvent(String interfaceName) {
-        return switch (interfaceName.toLowerCase(Locale.ROOT)) {
-            case "event", "events", "htmlevents" -> new Event();
-            case "uievent", "uievents" -> new UiEvent();
-            case "customevent", "customevents" -> new CustomEvent();
-            default -> throw new IllegalArgumentException("Nicht unterstütztes Event-Interface: " + interfaceName);
-        };
-    }
-
-    private static Node expectNode(Value[] args, int index) {
-        JsNodeLike node = JsElement.expectNode(args, index, false);
-        return node.unwrapNode();
-    }
-
-    private static long whatToShow(Value[] args, int index) {
-        return index >= args.length || args[index].isNull() ? 0xFFFFFFFFL : args[index].asLong() & 0xFFFFFFFFL;
-    }
-
-    private static Value filter(Value[] args, int index) {
-        return index >= args.length || args[index].isNull() ? null : args[index];
-    }
-
-    private void write(String html) {
-        Node parent = currentScript == null ? document.getBody() : currentScript.getParent();
-        if (parent == null) {
-            parent = document;
-        }
-        Node reference = null;
-        if (currentScript != null) {
-            List<Node> siblings = parent.getChildren();
-            int index = siblings.indexOf(currentScript);
-            if (index >= 0 && index + 1 < siblings.size()) {
-                reference = siblings.get(index + 1);
-            }
-        }
-
-        Document fragment = new HtmlParser().parse(html, document.getUrl());
-        for (Node node : List.copyOf(fragment.getChildren())) {
-            parent.insertBefore(node, reference);
-        }
     }
 
     @Override
@@ -478,45 +388,44 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         return MEMBERS.contains(key) || expandos.containsKey(key);
     }
 
-    private static String asString(Value[] args, int index) {
-        if (index >= args.length) {
-            throw new IllegalArgumentException("Argument " + index + " fehlt");
-        }
-        Value value = args[index];
-        return value.isString() ? value.asString() : value.toString();
-    }
-
-    private static String nullableString(Value[] args, int index) {
-        return index >= args.length || args[index].isNull() ? null : asString(args, index);
-    }
-
     private record ListenerRegistration(Node target, String type,
                                         JsEventListener listener, boolean capture) {
     }
 
     private final class JsStyleSheetList implements ProxyObject {
-        @Override public Object getMember(String key) {
+        @Override
+        public Object getMember(String key) {
             if ("length".equals(key)) return styleSheets.styleSheets().size();
             if ("item".equals(key)) return (ProxyExecutable) args -> item(
                     args.length > 0 && args[0].fitsInInt() ? args[0].asInt() : -1);
-            try { return item(Integer.parseInt(key)); }
-            catch (NumberFormatException ignored) { return null; }
+            try {
+                return item(Integer.parseInt(key));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
         }
+
         private Object item(int index) {
             List<CssStyleSheet> sheets = styleSheets.styleSheets();
             return index >= 0 && index < sheets.size() ? wrap(sheets.get(index)) : null;
         }
-        @Override public Object getMemberKeys() {
+
+        @Override
+        public Object getMemberKeys() {
             List<String> keys = new ArrayList<>(List.of("length", "item"));
             for (int index = 0; index < styleSheets.styleSheets().size(); index++) {
                 keys.add(Integer.toString(index));
             }
             return ProxyArray.fromArray(keys.toArray());
         }
-        @Override public boolean hasMember(String key) {
+
+        @Override
+        public boolean hasMember(String key) {
             return "length".equals(key) || "item".equals(key) || getMember(key) != null;
         }
-        @Override public void putMember(String key, Value value) {
+
+        @Override
+        public void putMember(String key, Value value) {
             throw new UnsupportedOperationException("StyleSheetList ist schreibgeschuetzt");
         }
     }

@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
-final class JsEvent implements ProxyObject {
+public final class JsEvent implements ProxyObject {
 
     private static final List<String> MEMBERS = List.of(
             "type", "target", "currentTarget", "eventPhase", "bubbles", "cancelable",

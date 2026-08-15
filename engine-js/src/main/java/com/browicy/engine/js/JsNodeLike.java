@@ -2,6 +2,6 @@ package com.browicy.engine.js;
 
 import com.browicy.engine.dom.Node;
 
-interface JsNodeLike {
+public interface JsNodeLike {
     Node unwrapNode();
 }

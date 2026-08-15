@@ -1,16 +1,18 @@
 package com.browicy.engine.js;
 
 import com.browicy.engine.css.CssStyleSheet;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
-final class JsCssStyleSheet implements ProxyObject {
+public final class JsCssStyleSheet implements ProxyObject {
 
     private static final List<String> MEMBERS = List.of(
             "cssRules", "rules", "insertRule", "deleteRule", "ownerNode", "href");

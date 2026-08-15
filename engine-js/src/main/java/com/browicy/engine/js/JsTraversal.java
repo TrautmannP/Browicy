@@ -6,8 +6,8 @@ import lombok.RequiredArgsConstructor;
 import com.browicy.engine.dom.Node;
 import org.graalvm.polyglot.Value;
 
-@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
-abstract class JsTraversal {
+@RequiredArgsConstructor(access = AccessLevel.PUBLIC)
+public abstract class JsTraversal {
     static final int FILTER_ACCEPT = 1;
     static final int FILTER_REJECT = 2;
     static final int FILTER_SKIP = 3;

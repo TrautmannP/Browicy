@@ -10,17 +10,18 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 import java.util.ArrayList;
 import java.util.List;
 
-final class JsTreeWalker extends JsTraversal implements ProxyObject {
+public final class JsTreeWalker extends JsTraversal implements ProxyObject {
     private static final List<String> MEMBERS = List.of("root", "whatToShow", "filter", "currentNode",
             "parentNode", "firstChild", "lastChild", "previousSibling", "nextSibling", "previousNode", "nextNode");
     private Node current;
 
-    JsTreeWalker(JsDocument document, Node root, long whatToShow, Value filter) {
+    public JsTreeWalker(JsDocument document, Node root, long whatToShow, Value filter) {
         super(document, root, whatToShow, filter);
         current = root;
     }
 
-    @Override public Object getMember(String key) {
+    @Override
+    public Object getMember(String key) {
         return switch (key) {
             case "root" -> document.wrap(root);
             case "whatToShow" -> whatToShow;
@@ -94,14 +95,27 @@ final class JsTreeWalker extends JsTraversal implements ProxyObject {
         return null;
     }
 
-    private Object set(Node node) { current = node; return document.wrap(node); }
+    private Object set(Node node) {
+        current = node;
+        return document.wrap(node);
+    }
 
-    @Override public void putMember(String key, Value value) {
+    @Override
+    public void putMember(String key, Value value) {
         if (!"currentNode".equals(key)) throw new UnsupportedOperationException(key);
         if (!value.isProxyObject() || !(value.asProxyObject() instanceof JsNodeLike wrapped)
-                || !insideRoot(wrapped.unwrapNode())) throw new IllegalArgumentException("currentNode liegt außerhalb der Wurzel");
+                || !insideRoot(wrapped.unwrapNode()))
+            throw new IllegalArgumentException("currentNode liegt außerhalb der Wurzel");
         current = wrapped.unwrapNode();
     }
-    @Override public Object getMemberKeys() { return ProxyArray.fromArray(MEMBERS.toArray()); }
-    @Override public boolean hasMember(String key) { return MEMBERS.contains(key); }
+
+    @Override
+    public Object getMemberKeys() {
+        return ProxyArray.fromArray(MEMBERS.toArray());
+    }
+
+    @Override
+    public boolean hasMember(String key) {
+        return MEMBERS.contains(key);
+    }
 }

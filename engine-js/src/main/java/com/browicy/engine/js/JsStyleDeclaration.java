@@ -14,8 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Minimal live CSSStyleDeclaration backed by an element's style attribute. */
-final class JsStyleDeclaration implements ProxyObject {
+public final class JsStyleDeclaration implements ProxyObject {
 
     private static final CssParser PARSER = new CssParser();
     private static final List<String> METHODS = List.of(
@@ -27,7 +26,7 @@ final class JsStyleDeclaration implements ProxyObject {
         this.element = element;
     }
 
-    void setCssText(String cssText) {
+    public void setCssText(String cssText) {
         write(PARSER.parseDeclarations(cssText));
     }
 

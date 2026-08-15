@@ -9,13 +9,13 @@ import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
-final class JsEventTarget {
+public final class JsEventTarget {
 
-    static final String ADD_EVENT_LISTENER = "addEventListener";
-    static final String REMOVE_EVENT_LISTENER = "removeEventListener";
-    static final String DISPATCH_EVENT = "dispatchEvent";
+    public static final String ADD_EVENT_LISTENER = "addEventListener";
+    public static final String REMOVE_EVENT_LISTENER = "removeEventListener";
+    public static final String DISPATCH_EVENT = "dispatchEvent";
 
-    static ProxyExecutable addEventListener(Node target, JsDocument document) {
+    public static ProxyExecutable addEventListener(Node target, JsDocument document) {
         return args -> {
             Value callback = callback(args, 1);
             if (callback != null) {
@@ -25,7 +25,7 @@ final class JsEventTarget {
         };
     }
 
-    static ProxyExecutable removeEventListener(Node target, JsDocument document) {
+    public static ProxyExecutable removeEventListener(Node target, JsDocument document) {
         return args -> {
             Value callback = callback(args, 1);
             if (callback != null) {
@@ -35,11 +35,11 @@ final class JsEventTarget {
         };
     }
 
-    static ProxyExecutable dispatchEvent(Node target) {
+    public static ProxyExecutable dispatchEvent(Node target) {
         return args -> target.dispatchEvent(JsEvent.expect(args, 0).unwrap());
     }
 
-    static ProxyExecutable click(Node target) {
+    public static ProxyExecutable click(Node target) {
         return args -> {
             target.dispatchEvent(new Event("click", true, true));
             return null;
