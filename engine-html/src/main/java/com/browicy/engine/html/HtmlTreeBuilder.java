@@ -9,17 +9,9 @@ import com.browicy.engine.dom.TextNode;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Zustandsbehafteter Tree-Construction-Schritt des HTML-Parsers.
- *
- * <p>Der Builder besitzt den Stack offener Elemente und führt die in
- * {@link HtmlTreeConstructionRules} definierten Korrekturregeln aus. Er ist pro
- * Parse-Vorgang kurzlebig und enthält keine CSS- oder Tokenizer-Verantwortung.</p>
- */
 final class HtmlTreeBuilder {
 
     private final Document document;
@@ -30,11 +22,8 @@ final class HtmlTreeBuilder {
         openNodes.push(document);
     }
 
-    Document build(List<HtmlToken> tokens) {
-        for (HtmlToken token : tokens) {
-            process(token);
-        }
-        return document;
+    void accept(HtmlToken token) {
+        process(token);
     }
 
     private void process(HtmlToken token) {
@@ -84,12 +73,8 @@ final class HtmlTreeBuilder {
         }
     }
 
-    /**
-     * Schließt bis einschließlich des nächsten offenen Elements mit passendem
-     * Namen. Nicht geöffnete End-Tags werden wie bisher ignoriert.
-     */
     private void closeExplicitElement(String tagName) {
-        Element target = findOpenElement(Set.of(tagName), Set.of());
+        Element target = findOpenElement(tagName);
         if (target != null) {
             popThrough(target);
         }
@@ -100,6 +85,15 @@ final class HtmlTreeBuilder {
         if (target != null) {
             popThrough(target);
         }
+    }
+
+    private Element findOpenElement(String targetTag) {
+        for (Node node : openNodes) {
+            if (node instanceof Element element && targetTag.equals(element.getTagName())) {
+                return element;
+            }
+        }
+        return null;
     }
 
     private Element findOpenElement(Set<String> targetTags, Set<String> scopeBoundaries) {

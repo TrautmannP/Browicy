@@ -7,18 +7,11 @@ import com.browicy.engine.dom.TextNode;
 
 import java.util.Locale;
 
-/**
- * Serialisiert DOM-Knoten als HTML-Markup, z.B. für {@code innerHTML} und
- * {@code outerHTML}. Die Ausgabe ist bewusst schlicht gehalten (HTML5-Syntax,
- * Attributwerte in doppelten Anführungszeichen) und reicht für den
- * Roundtrip über den {@link HtmlParser} aus.
- */
 public final class HtmlSerializer {
 
     private HtmlSerializer() {
     }
 
-    /** Serialisiert die Kindknoten eines Elements ({@code element.innerHTML}). */
     public static String innerHtml(Element element) {
         StringBuilder html = new StringBuilder();
         for (Node child : element.getChildren()) {
@@ -27,7 +20,6 @@ public final class HtmlSerializer {
         return html.toString();
     }
 
-    /** Serialisiert ein Element inklusive seines Start-Tags ({@code element.outerHTML}). */
     public static String outerHtml(Element element) {
         StringBuilder html = new StringBuilder();
         appendNode(html, element);
@@ -41,7 +33,6 @@ public final class HtmlSerializer {
                     .append("-->");
             case Node.ELEMENT_NODE -> appendElement(html, (Element) node);
             default -> {
-                // Dokumente und Fragmente serialisieren ihre Kinder direkt.
                 for (Node child : node.getChildren()) {
                     appendNode(html, child);
                 }
@@ -71,15 +62,30 @@ public final class HtmlSerializer {
     }
 
     private static void appendEscaped(StringBuilder html, String value, boolean attribute) {
+        int last = 0;
         for (int index = 0; index < value.length(); index++) {
             char character = value.charAt(index);
             switch (character) {
-                case '&' -> html.append("&amp;");
-                case '<' -> html.append("&lt;");
-                case '>' -> html.append("&gt;");
-                case '"' -> html.append(attribute ? "&quot;" : "\"");
-                default -> html.append(character);
+                case '&' -> {
+                    html.append(value, last, index).append("&amp;");
+                    last = index + 1;
+                }
+                case '<' -> {
+                    html.append(value, last, index).append("&lt;");
+                    last = index + 1;
+                }
+                case '>' -> {
+                    html.append(value, last, index).append("&gt;");
+                    last = index + 1;
+                }
+                case '"' -> {
+                    html.append(value, last, index).append(attribute ? "&quot;" : "\"");
+                    last = index + 1;
+                }
+                default -> {
+                }
             }
         }
+        html.append(value, last, value.length());
     }
 }

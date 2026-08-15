@@ -6,13 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Deklarative Regeln für den vereinfachten HTML-Tree-Construction-Schritt.
- *
- * <p>Die Klasse enthält ausschließlich statische HTML-Semantik. Änderungen an
- * optionalen End-Tags oder impliziten Elternknoten bleiben dadurch von der
- * Stack- und DOM-Manipulation im {@link HtmlTreeBuilder} getrennt.</p>
- */
 final class HtmlTreeConstructionRules {
 
     private static final Set<String> VOID_ELEMENTS = Set.of(
@@ -69,18 +62,6 @@ final class HtmlTreeConstructionRules {
     private static final Map<String, List<AutoCloseRule>> AUTO_CLOSE_RULES_BY_START_TAG =
             indexAutoCloseRules();
 
-    private static final Map<InsertionContext, List<String>> IMPLIED_PARENT_CHAINS = Map.ofEntries(
-            Map.entry(new InsertionContext("tr", "table"), List.of("tbody")),
-            Map.entry(new InsertionContext("td", "table"), List.of("tbody", "tr")),
-            Map.entry(new InsertionContext("th", "table"), List.of("tbody", "tr")),
-            Map.entry(new InsertionContext("td", "tbody"), List.of("tr")),
-            Map.entry(new InsertionContext("th", "tbody"), List.of("tr")),
-            Map.entry(new InsertionContext("td", "thead"), List.of("tr")),
-            Map.entry(new InsertionContext("th", "thead"), List.of("tr")),
-            Map.entry(new InsertionContext("td", "tfoot"), List.of("tr")),
-            Map.entry(new InsertionContext("th", "tfoot"), List.of("tr"))
-    );
-
     private HtmlTreeConstructionRules() {
     }
 
@@ -96,8 +77,15 @@ final class HtmlTreeConstructionRules {
         if (currentParentTagName == null) {
             return List.of();
         }
-        return IMPLIED_PARENT_CHAINS.getOrDefault(
-                new InsertionContext(childTagName, currentParentTagName), List.of());
+        return switch (childTagName) {
+            case "tr" -> "table".equals(currentParentTagName) ? List.of("tbody") : List.of();
+            case "td", "th" -> switch (currentParentTagName) {
+                case "table" -> List.of("tbody", "tr");
+                case "tbody", "thead", "tfoot" -> List.of("tr");
+                default -> List.of();
+            };
+            default -> List.of();
+        };
     }
 
     private static Map<String, List<AutoCloseRule>> indexAutoCloseRules() {
@@ -121,8 +109,5 @@ final class HtmlTreeConstructionRules {
             targetTags = Set.copyOf(targetTags);
             scopeBoundaries = Set.copyOf(scopeBoundaries);
         }
-    }
-
-    private record InsertionContext(String childTagName, String parentTagName) {
     }
 }

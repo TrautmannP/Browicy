@@ -3,52 +3,24 @@ package com.browicy.engine.html;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 
-import java.util.Map;
-
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class HtmlEntities {
 
-    private static final Map<String, String> NAMED = Map.ofEntries(
-            Map.entry("amp", "&"),
-            Map.entry("lt", "<"),
-            Map.entry("gt", ">"),
-            Map.entry("quot", "\""),
-            Map.entry("apos", "'"),
-            Map.entry("ndash", "–"),
-            Map.entry("mdash", "—"),
-            Map.entry("hellip", "…"),
-            Map.entry("lsquo", "‘"),
-            Map.entry("rsquo", "’"),
-            Map.entry("ldquo", "“"),
-            Map.entry("rdquo", "”"),
-            Map.entry("larr", "←"),
-            Map.entry("uarr", "↑"),
-            Map.entry("rarr", "→"),
-            Map.entry("darr", "↓"),
-            Map.entry("copy", "©"),
-            Map.entry("reg", "®"),
-            Map.entry("trade", "™"),
-            Map.entry("sect", "§"),
-            Map.entry("para", "¶"),
-            Map.entry("middot", "·"),
-            Map.entry("bull", "•"),
-            Map.entry("deg", "°"),
-            Map.entry("plusmn", "±"),
-            Map.entry("times", "×"),
-            Map.entry("divide", "÷"),
-            Map.entry("euro", "€"),
-            Map.entry("pound", "£"),
-            Map.entry("yen", "¥"),
-            Map.entry("cent", "¢"),
-            Map.entry("szlig", "ß"),
-            Map.entry("auml", "ä"),
-            Map.entry("ouml", "ö"),
-            Map.entry("uuml", "ü"),
-            Map.entry("Auml", "Ä"),
-            Map.entry("Ouml", "Ö"),
-            Map.entry("Uuml", "Ü"),
-            Map.entry("nbsp", " ")
-    );
+    private static final String[] NAMED_NAMES = {
+            "amp", "lt", "gt", "quot", "apos", "ndash", "mdash", "hellip",
+            "lsquo", "rsquo", "ldquo", "rdquo", "larr", "uarr", "rarr", "darr",
+            "copy", "reg", "trade", "sect", "para", "middot", "bull", "deg",
+            "plusmn", "times", "divide", "euro", "pound", "yen", "cent", "szlig",
+            "auml", "ouml", "uuml", "Auml", "Ouml", "Uuml", "nbsp"
+    };
+
+    private static final String[] NAMED_VALUES = {
+            "&", "<", ">", "\"", "'", "–", "—", "…",
+            "‘", "’", "“", "”", "←", "↑", "→", "↓",
+            "©", "®", "™", "§", "¶", "·", "•", "°",
+            "±", "×", "÷", "€", "£", "¥", "¢", "ß",
+            "ä", "ö", "ü", "Ä", "Ö", "Ü", "\u00A0"
+    };
 
     static String decode(String input) {
         int amp = input.indexOf('&');
@@ -62,7 +34,7 @@ final class HtmlEntities {
             int semicolon = input.indexOf(';', amp + 1);
             String replacement = null;
             if (semicolon > amp && semicolon - amp <= 10) {
-                replacement = resolve(input.substring(amp + 1, semicolon));
+                replacement = resolve(input, amp + 1, semicolon);
             }
             if (replacement != null) {
                 sb.append(replacement);
@@ -77,24 +49,44 @@ final class HtmlEntities {
         return sb.toString();
     }
 
-    private static String resolve(String name) {
-        if (name.startsWith("#x") || name.startsWith("#X")) {
-            return decodeNumeric(name.substring(2), 16);
-        }
-        if (name.startsWith("#")) {
-            return decodeNumeric(name.substring(1), 10);
-        }
-        return NAMED.get(name);
-    }
-
-    private static String decodeNumeric(String digits, int radix) {
-        try {
-            int codePoint = Integer.parseInt(digits, radix);
-            if (Character.isValidCodePoint(codePoint)) {
-                return new String(Character.toChars(codePoint));
+    private static String resolve(String input, int start, int end) {
+        if (input.charAt(start) == '#') {
+            if (end - start > 2) {
+                char radixMarker = input.charAt(start + 1);
+                if (radixMarker == 'x' || radixMarker == 'X') {
+                    return decodeNumeric(input, start + 2, end, 16);
+                }
             }
-        } catch (NumberFormatException ignored) {
+            if (end - start > 1) {
+                return decodeNumeric(input, start + 1, end, 10);
+            }
+            return null;
+        }
+        for (int index = 0; index < NAMED_NAMES.length; index++) {
+            String name = NAMED_NAMES[index];
+            if (name.length() == end - start
+                    && input.regionMatches(start, name, 0, name.length())) {
+                return NAMED_VALUES[index];
+            }
         }
         return null;
+    }
+
+    private static String decodeNumeric(String input, int start, int end, int radix) {
+        if (start >= end) {
+            return null;
+        }
+        int codePoint = 0;
+        for (int index = start; index < end; index++) {
+            int digit = Character.digit(input.charAt(index), radix);
+            if (digit < 0 || codePoint > (Integer.MAX_VALUE - digit) / radix) {
+                return null;
+            }
+            codePoint = codePoint * radix + digit;
+        }
+        if (!Character.isValidCodePoint(codePoint)) {
+            return null;
+        }
+        return new String(Character.toChars(codePoint));
     }
 }

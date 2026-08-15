@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 @RequiredArgsConstructor
 public final class HtmlTokenizer {
@@ -15,22 +16,26 @@ public final class HtmlTokenizer {
 
     public List<HtmlToken> tokenize() {
         List<HtmlToken> tokens = new ArrayList<>();
+        tokenize(tokens::add);
+        return tokens;
+    }
+
+    public void tokenize(Consumer<HtmlToken> sink) {
         while (pos < input.length()) {
             if (peek() == '<') {
                 HtmlToken token = readMarkup();
                 if (token != null) {
-                    tokens.add(token);
+                    sink.accept(token);
                     if (token.type() == HtmlToken.Type.START_TAG
                             && !token.selfClosing()
                             && isRawText(token.name())) {
-                        readRawText(token.name(), tokens);
+                        readRawText(token.name(), sink);
                     }
                 }
             } else {
-                tokens.add(HtmlToken.text(readText()));
+                sink.accept(HtmlToken.text(readText()));
             }
         }
-        return tokens;
     }
 
     private static boolean isRawText(String tagName) {
@@ -86,7 +91,7 @@ public final class HtmlTokenizer {
     private HtmlToken readStartTag() {
         pos++;
         String name = readTagName();
-        Map<String, String> attributes = new LinkedHashMap<>();
+        Map<String, String> attributes = null;
         boolean selfClosing = false;
 
         while (pos < input.length()) {
@@ -108,9 +113,12 @@ public final class HtmlTokenizer {
                 }
                 continue;
             }
+            if (attributes == null) {
+                attributes = new LinkedHashMap<>();
+            }
             readAttribute(attributes);
         }
-        return HtmlToken.startTag(name, attributes, selfClosing);
+        return HtmlToken.startTag(name, attributes == null ? Map.of() : attributes, selfClosing);
     }
 
     private void readAttribute(Map<String, String> attributes) {
@@ -165,34 +173,43 @@ public final class HtmlTokenizer {
     }
 
     private String readText() {
-        int end = input.indexOf('<', pos);
+        int start = pos;
+        int end = input.indexOf('<', start);
         if (end < 0) {
             end = input.length();
         }
-        String raw = input.substring(pos, end);
+        String raw = input.substring(start, end);
         pos = end;
+        int amp = input.indexOf('&', start);
+        if (amp < 0 || amp >= end) {
+            return raw;
+        }
         return HtmlEntities.decode(raw);
     }
 
-    private void readRawText(String tagName, List<HtmlToken> tokens) {
+    private void readRawText(String tagName, Consumer<HtmlToken> sink) {
         String closing = "</" + tagName;
         int end = indexOfIgnoreCase(closing);
         if (end < 0) {
             end = input.length();
         }
         if (end > pos) {
-            tokens.add(HtmlToken.text(input.substring(pos, end)));
+            sink.accept(HtmlToken.text(input.substring(pos, end)));
         }
         pos = end;
         if (pos < input.length()) {
-            tokens.add(readEndTag());
+            sink.accept(readEndTag());
         }
     }
 
     private int indexOfIgnoreCase(String needle) {
-        String lowerNeedle = needle.toLowerCase();
-        String lowerInput = input.toLowerCase();
-        return lowerInput.indexOf(lowerNeedle, pos);
+        int max = input.length() - needle.length();
+        for (int index = pos; index <= max; index++) {
+            if (input.regionMatches(true, index, needle, 0, needle.length())) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private static boolean isTagNameChar(char c) {

@@ -3,6 +3,7 @@ package com.browicy.engine.html;
 import com.browicy.engine.dom.Document;
 import com.browicy.engine.dom.Element;
 import com.browicy.engine.dom.Node;
+
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
@@ -68,9 +69,6 @@ public final class DocumentResourceScanner {
         String source = element.getAttribute("src").strip();
         if (source.startsWith("data:")) {
             try {
-                // Opaque-URI-Konstruktor: behält den Roh-Payload unverändert
-                // (URI.create würde illegale Zeichen wie '<' oder Leerzeichen
-                // in unkodierten SVG-Daten-URIs ablehnen).
                 return java.util.Optional.of(new ImageResource(
                         element, new URI("data", source.substring(5), null)));
             } catch (URISyntaxException invalidDataUri) {
@@ -122,8 +120,18 @@ public final class DocumentResourceScanner {
         if (rel == null || rel.isBlank()) {
             return false;
         }
-        for (String token : rel.strip().split("[\\t\\n\\f\\r ]+")) {
-            if (token.equalsIgnoreCase(expected)) {
+        int length = rel.length();
+        int index = 0;
+        while (index < length) {
+            while (index < length && Character.isWhitespace(rel.charAt(index))) {
+                index++;
+            }
+            int start = index;
+            while (index < length && !Character.isWhitespace(rel.charAt(index))) {
+                index++;
+            }
+            if (index > start && index - start == expected.length()
+                    && rel.regionMatches(true, start, expected, 0, expected.length())) {
                 return true;
             }
         }
