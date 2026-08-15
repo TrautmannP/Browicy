@@ -77,10 +77,6 @@ public final class Document extends Node implements ParentNode {
         }
     }
 
-    /**
-     * Advances the loading state. A document lifecycle is monotonic and cannot return to an
-     * earlier state.
-     */
     public void transitionTo(DocumentReadyState nextState) {
         Objects.requireNonNull(nextState, "nextState");
         DocumentReadyState current = readyState;
@@ -110,8 +106,15 @@ public final class Document extends Node implements ParentNode {
         }
     }
 
-    @Override public short getNodeType() { return DOCUMENT_NODE; }
-    @Override public String getNodeName() { return "#document"; }
+    @Override
+    public short getNodeType() {
+        return DOCUMENT_NODE;
+    }
+
+    @Override
+    public String getNodeName() {
+        return "#document";
+    }
 
     public void setBaseUri(URI baseUri) {
         Objects.requireNonNull(baseUri, "baseUri");
@@ -129,28 +132,35 @@ public final class Document extends Node implements ParentNode {
         element.setOwnerDocument(this);
         return element;
     }
+
     public Element createElementNS(String namespaceUri, String qualifiedName) {
         validateQualifiedName(namespaceUri, qualifiedName);
         Element element = new Element(emptyToNull(namespaceUri), qualifiedName);
         element.setOwnerDocument(this);
         return element;
     }
+
     public TextNode createTextNode(String data) {
         TextNode node = new TextNode(data);
         node.setOwnerDocument(this);
         return node;
     }
+
     public CommentNode createComment(String data) {
         CommentNode node = new CommentNode(data);
         node.setOwnerDocument(this);
         return node;
     }
+
     public DocumentFragment createDocumentFragment() {
         DocumentFragment fragment = new DocumentFragment();
         fragment.setOwnerDocument(this);
         return fragment;
     }
-    public Range createRange() { return new Range(this); }
+
+    public Range createRange() {
+        return new Range(this);
+    }
 
     @Override
     protected void validateChildInsertion(Node child) {
@@ -164,6 +174,29 @@ public final class Document extends Node implements ParentNode {
         if (child instanceof DocumentType && child.getParent() != this
                 && getChildren().stream().anyMatch(DocumentType.class::isInstance)) {
             throw DomException.hierarchyRequest("Ein Document darf nur einen DocumentType enthalten");
+        }
+    }
+
+    @Override
+    void validateBatchSequence(List<Node> nodes) {
+        boolean elementSeen = false;
+        boolean docTypeSeen = false;
+        for (Node node : nodes) {
+            if (node instanceof TextNode) {
+                throw DomException.hierarchyRequest("Ein Document darf keinen Textknoten als direktes Kind enthalten");
+            }
+            if (node instanceof Element) {
+                if (elementSeen) {
+                    throw DomException.hierarchyRequest("Ein Document darf nur ein Dokumentelement enthalten");
+                }
+                elementSeen = true;
+            }
+            if (node instanceof DocumentType) {
+                if (docTypeSeen) {
+                    throw DomException.hierarchyRequest("Ein Document darf nur einen DocumentType enthalten");
+                }
+                docTypeSeen = true;
+            }
         }
     }
 

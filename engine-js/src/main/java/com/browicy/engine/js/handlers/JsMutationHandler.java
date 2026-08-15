@@ -10,13 +10,13 @@ import org.graalvm.polyglot.proxy.ProxyExecutable;
 import java.util.List;
 
 import static com.browicy.engine.js.handlers.JsMemberHandler.expectNode;
-import static com.browicy.engine.js.handlers.JsMemberHandler.toText;
+import static com.browicy.engine.js.handlers.JsMemberHandler.nodesOrStrings;
 
 public final class JsMutationHandler implements JsMemberHandler {
 
     private static final List<String> KEYS = List.of(
-            "append", "prepend", "appendChild", "insertBefore",
-            "replaceChild", "removeChild");
+            "append", "prepend", "replaceChildren", "before", "after", "replaceWith",
+            "appendChild", "insertBefore", "replaceChild", "removeChild");
 
     @Override
     public List<String> keys() {
@@ -33,26 +33,32 @@ public final class JsMutationHandler implements JsMemberHandler {
         Element el = element.unwrap();
         return switch (key) {
             case "append" -> (ProxyExecutable) args -> {
-                for (Value value : args) {
-                    if (value.isProxyObject() && value.asProxyObject() instanceof JsNodeLike node) {
-                        el.appendChild(node.unwrapNode());
-                    } else {
-                        el.appendChild(el.getOwnerDocument().createTextNode(toText(value)));
-                    }
-                }
+                el.append(nodesOrStrings(args));
                 element.styleContentMaybeChanged();
                 return null;
             };
             case "prepend" -> (ProxyExecutable) args -> {
-                for (int index = args.length - 1; index >= 0; index--) {
-                    Value value = args[index];
-                    if (value.isProxyObject() && value.asProxyObject() instanceof JsNodeLike node) {
-                        el.insertBefore(node.unwrapNode(), el.getFirstChild());
-                    } else {
-                        el.insertBefore(el.getOwnerDocument()
-                                .createTextNode(toText(value)), el.getFirstChild());
-                    }
-                }
+                el.prepend(nodesOrStrings(args));
+                element.styleContentMaybeChanged();
+                return null;
+            };
+            case "replaceChildren" -> (ProxyExecutable) args -> {
+                el.replaceChildren(nodesOrStrings(args));
+                element.styleContentMaybeChanged();
+                return null;
+            };
+            case "before" -> (ProxyExecutable) args -> {
+                el.before(nodesOrStrings(args));
+                element.styleContentMaybeChanged();
+                return null;
+            };
+            case "after" -> (ProxyExecutable) args -> {
+                el.after(nodesOrStrings(args));
+                element.styleContentMaybeChanged();
+                return null;
+            };
+            case "replaceWith" -> (ProxyExecutable) args -> {
+                el.replaceWith(nodesOrStrings(args));
                 element.styleContentMaybeChanged();
                 return null;
             };

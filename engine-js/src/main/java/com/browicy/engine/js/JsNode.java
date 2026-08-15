@@ -7,6 +7,7 @@ import com.browicy.engine.dom.Node;
 import com.browicy.engine.dom.ParentNode;
 import com.browicy.engine.dom.DocumentType;
 import com.browicy.engine.dom.TextNode;
+import com.browicy.engine.js.handlers.JsMemberHandler;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
@@ -22,6 +23,7 @@ final class JsNode implements ProxyObject, JsNodeLike {
             "previousSibling", "nextSibling", "textContent", "appendChild", "insertBefore",
             "replaceChild", "removeChild", "hasChildNodes", "contains",
             "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode",
+            "before", "after", "replaceWith", "remove",
             JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
             "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
             "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
@@ -31,7 +33,10 @@ final class JsNode implements ProxyObject, JsNodeLike {
     private final JsDocument document;
     private final Map<String, Value> expandos = new LinkedHashMap<>();
 
-    @Override public Node unwrapNode() { return node; }
+    @Override
+    public Node unwrapNode() {
+        return node;
+    }
 
     @Override
     public Object getMember(String key) {
@@ -91,13 +96,44 @@ final class JsNode implements ProxyObject, JsNodeLike {
             };
             case "cloneNode" -> (org.graalvm.polyglot.proxy.ProxyExecutable) args -> document.wrap(
                     node.cloneNode(args.length > 0 && args[0].asBoolean()));
+            case "before" -> (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
+                node.before(JsMemberHandler.nodesOrStrings(args));
+                return null;
+            };
+            case "after" -> (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
+                node.after(JsMemberHandler.nodesOrStrings(args));
+                return null;
+            };
+            case "replaceWith" -> (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
+                node.replaceWith(JsMemberHandler.nodesOrStrings(args));
+                return null;
+            };
+            case "remove" -> (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
+                node.remove();
+                return null;
+            };
+            case "append" -> node instanceof ParentNode parent
+                    ? (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
+                parent.append(JsMemberHandler.nodesOrStrings(args));
+                return null;
+            } : null;
+            case "prepend" -> node instanceof ParentNode parent
+                    ? (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
+                parent.prepend(JsMemberHandler.nodesOrStrings(args));
+                return null;
+            } : null;
+            case "replaceChildren" -> node instanceof ParentNode parent
+                    ? (org.graalvm.polyglot.proxy.ProxyExecutable) args -> {
+                parent.replaceChildren(JsMemberHandler.nodesOrStrings(args));
+                return null;
+            } : null;
             case "querySelector" -> node instanceof ParentNode parent
                     ? document.domOperation((org.graalvm.polyglot.proxy.ProxyExecutable) args ->
-                            document.wrap(parent.querySelector(text(args, 0))))
+                    document.wrap(parent.querySelector(text(args, 0))))
                     : null;
             case "querySelectorAll" -> node instanceof ParentNode parent
                     ? document.domOperation((org.graalvm.polyglot.proxy.ProxyExecutable) args ->
-                            new JsNodeList(parent.querySelectorAll(text(args, 0)), document))
+                    new JsNodeList(parent.querySelectorAll(text(args, 0)), document))
                     : null;
             case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(node, document);
             case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(node, document);
@@ -151,6 +187,9 @@ final class JsNode implements ProxyObject, JsNodeLike {
         if (node instanceof ParentNode) {
             keys.add("querySelector");
             keys.add("querySelectorAll");
+            keys.add("append");
+            keys.add("prepend");
+            keys.add("replaceChildren");
         }
         keys.addAll(expandos.keySet());
         return ProxyArray.fromArray(keys.toArray());
@@ -159,8 +198,13 @@ final class JsNode implements ProxyObject, JsNodeLike {
     @Override
     public boolean hasMember(String key) {
         return MEMBERS.contains(key)
-                || node instanceof ParentNode && ("querySelector".equals(key) || "querySelectorAll".equals(key))
+                || node instanceof ParentNode && parentNodeMember(key)
                 || expandos.containsKey(key);
+    }
+
+    private static boolean parentNodeMember(String key) {
+        return "querySelector".equals(key) || "querySelectorAll".equals(key)
+                || "append".equals(key) || "prepend".equals(key) || "replaceChildren".equals(key);
     }
 
     private static String text(Value[] args, int index) {

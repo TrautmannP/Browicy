@@ -55,6 +55,21 @@ public interface JsMemberHandler {
         throw new IllegalArgumentException("Es wird ein DOM-Knoten erwartet");
     }
 
+    static Object[] nodesOrStrings(Value[] args) {
+        Object[] result = new Object[args.length];
+        for (int index = 0; index < args.length; index++) {
+            Value value = args[index];
+            if (value.isNull()) {
+                result[index] = null;
+            } else if (value.isProxyObject() && value.asProxyObject() instanceof JsNodeLike node) {
+                result[index] = node.unwrapNode();
+            } else {
+                result[index] = toText(value);
+            }
+        }
+        return result;
+    }
+
     static int indexArg(Value[] args, int index, int defaultValue) {
         return index >= args.length ? defaultValue : args[index].asInt();
     }
