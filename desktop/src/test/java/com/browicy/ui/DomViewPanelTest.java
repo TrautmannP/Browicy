@@ -1253,7 +1253,10 @@ public class DomViewPanelTest {
         BoxFragment clear = boxById(layout, "clear");
 
         assertEquals(300f, floated.x(), 0.001f);
-        assertEquals(300f, beside.width(), 0.001f);
+        // §9.5.1: Die In-Flow-Blockbox fließt "als gäbe es den Float nicht" –
+        // volle Containing-Block-Breite (400); nur ihre Zeilenboxen weichen
+        // dem Float aus. Vor dem Regel-7-Fix wurde die Box auf 300 geschmälert.
+        assertEquals(400f, beside.width(), 0.001f);
         assertEquals(floated.y(), beside.y(), 0.001f);
         assertEquals(floated.y() + floated.height(), clear.y(), 0.001f);
         assertEquals(400f, clear.width(), 0.001f);

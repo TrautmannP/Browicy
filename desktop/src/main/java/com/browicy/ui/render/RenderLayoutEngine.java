@@ -155,7 +155,7 @@ public final class RenderLayoutEngine {
                                     List<LineBox> lineBoxes,
                                     PositionedContext positionedContext) {
         return layoutBlock(box, containingX, y, availableWidth, containingHeight,
-                shrinkToFitAuto, graphics, lineBoxes, positionedContext, false);
+                shrinkToFitAuto, graphics, lineBoxes, positionedContext, false, null);
     }
 
     private BlockLayout layoutBlock(RenderBox box,
@@ -168,6 +168,21 @@ public final class RenderLayoutEngine {
                                     List<LineBox> lineBoxes,
                                     PositionedContext positionedContext,
                                     boolean collapseTopMargin) {
+        return layoutBlock(box, containingX, y, availableWidth, containingHeight,
+                shrinkToFitAuto, graphics, lineBoxes, positionedContext, collapseTopMargin, null);
+    }
+
+    private BlockLayout layoutBlock(RenderBox box,
+                                    float containingX,
+                                    float y,
+                                    float availableWidth,
+                                    Float containingHeight,
+                                    boolean shrinkToFitAuto,
+                                    Graphics2D graphics,
+                                    List<LineBox> lineBoxes,
+                                    PositionedContext positionedContext,
+                                    boolean collapseTopMargin,
+                                    List<FloatRegion> bfcFloats) {
         int firstLine = lineBoxes.size();
         RenderStyle style = box.style();
         if (style.display() == RenderStyle.Display.TABLE) {
@@ -254,9 +269,10 @@ public final class RenderLayoutEngine {
             elevatedFragments.addAll(grid.elevated());
             naturalContentHeight = grid.height();
         } else {
+            List<FloatRegion> floats = bfcFloats == null ? new ArrayList<>() : bfcFloats;
             naturalContentHeight = layoutBlockChildren(box, contentX, contentY, contentWidth,
                     childContainingHeight, graphics, lineBoxes, childPositionedContext,
-                    childFragments);
+                    childFragments, floats);
         }
         float contentHeight = specifiedContentHeight == null
                 ? naturalContentHeight
@@ -342,9 +358,10 @@ public final class RenderLayoutEngine {
                                       Graphics2D graphics,
                                       List<LineBox> lineBoxes,
                                       PositionedContext childPositionedContext,
-                                      List<PaintFragment> childFragments) {
+                                      List<PaintFragment> childFragments,
+                                      List<FloatRegion> floats) {
         List<RenderNode> inlineBuffer = new ArrayList<>();
-        List<FloatRegion> floats = new ArrayList<>();
+        List<PaintFragment> deferredFloats = new ArrayList<>();
         float currentY = contentY;
         Float previousBottomMargin = null;
         RenderBox firstBlockChild = firstInFlowBlockChild(box);
@@ -374,8 +391,27 @@ public final class RenderLayoutEngine {
                 float blockMinimum = floats.isEmpty() ? 0
                         : intrinsicBoxWidth(childBox, contentWidth, graphics, false, true).minimum();
                 if (blockArea.width() < Math.max(1, blockMinimum)) {
-                    currentY = clearedY(floats, currentY, RenderStyle.Clear.BOTH);
-                    blockArea = floatArea(floats, contentX, contentWidth, currentY);
+                    // Float-Regel 7 (§9.5.1): Ein Float, dessen äußere Kante an
+                    // der Kante seines Containing Blocks anliegt ("so weit links
+                    // bzw. rechts wie möglich"), darf über die gegenüberliegende
+                    // Kante hinausragen (Ausnahme zu Regel 3). Die Ausnahme
+                    // greift nur, wenn im Containing Block kein Float der
+                    // Gegenseite steht (Regel 4): Andernfalls überlappt der
+                    // herausragende Float ihn und wird unter die Floats
+                    // verschoben.
+                    boolean floatSticksOut = switch (childBox.style().floatMode()) {
+                        case LEFT -> blockArea.x() <= contentX + 0.5f
+                                && blockArea.x() + blockArea.width()
+                                        >= contentX + contentWidth - 0.5f;
+                        case RIGHT -> blockArea.x() + blockArea.width()
+                                        >= contentX + contentWidth - 0.5f
+                                && blockArea.x() <= contentX + 0.5f;
+                        case NONE -> false;
+                    };
+                    if (!floatSticksOut) {
+                        currentY = clearedY(floats, currentY, RenderStyle.Clear.BOTH);
+                        blockArea = floatArea(floats, contentX, contentWidth, currentY);
+                    }
                 }
                 if (childBox.style().floatMode() != RenderStyle.FloatMode.NONE) {
                     int floatFirstLine = lineBoxes.size();
@@ -389,8 +425,13 @@ public final class RenderLayoutEngine {
                             : blockArea.x() + blockArea.width()
                                     - childBox.style().margin().right() - root.width();
                     float dx = desiredX - root.x();
+                    // Mal-Reihenfolge nach CSS2.1 Anhang E: Float-Fragmente
+                    // werden über den Hintergründen der In-Flow-Blöcke des BFC
+                    // gemalt (nicht in Quellreihenfolge), aber unter dem
+                    // Inline-Inhalt. Deshalb sammeln wir sie und hängen sie
+                    // nach der Kinderschleife an.
                     floatLayout.fragments().stream().map(fragment -> translate(fragment, dx, 0))
-                            .forEach(childFragments::add);
+                            .forEach(deferredFloats::add);
                     translateLines(lineBoxes, floatFirstLine, dx, 0);
                     floats.add(new FloatRegion(
                             childBox.style().floatMode(),
@@ -405,10 +446,22 @@ public final class RenderLayoutEngine {
                         - Math.max(previousBottomMargin, effectiveTopMargin(childBox));
                 currentY -= collapsedOverlap;
                 boolean collapseTop = parentCollapsesTop && childBox == firstBlockChild;
+                // §9.5.1: Normale In-Flow-Blockboxen fließen vertikal und
+                // horizontal "als gäbe es den Float nicht" – sie erhalten die
+                // volle Containing-Block-Breite; nur ihre Zeilenboxen weichen
+                // den Floats des BFC aus. Dafür wird die aktive Float-Liste
+                // des BFC an Nicht-BFC-Kinder weitergereicht (gemeinsame,
+                // mutierbare Liste). Boxen, die selbst einen neuen BFC erzeugen
+                // (overflow ≠ visible, table, inline-block, Flex/Grid), dürfen
+                // Floats dagegen nicht überlappen (Regel 5) und bekommen eine
+                // eigene Float-Liste.
+                boolean childEstablishesBfc = establishesBfc(childBox);
                 BlockLayout childLayout = layoutBlock(
-                        childBox, blockArea.x(), currentY, blockArea.width(),
+                        childBox, childEstablishesBfc ? blockArea.x() : contentX, currentY,
+                        childEstablishesBfc ? blockArea.width() : contentWidth,
                         childContainingHeight, false, graphics, lineBoxes,
-                        childPositionedContext, collapseTop);
+                        childPositionedContext, collapseTop,
+                        childEstablishesBfc ? null : floats);
                 childFragments.addAll(childLayout.fragments());
                 float bottomAbsorbed = childBox == lastBlockChild && parentCollapsesBottom
                         ? effectiveBottomMargin(childBox) : 0;
@@ -426,6 +479,9 @@ public final class RenderLayoutEngine {
             currentY = clearedY(floats, currentY, RenderStyle.Clear.BOTH);
             finalArea = floatArea(floats, contentX, contentWidth, currentY);
         }
+        // Nachlaufende Inline-Inhalte (Anhang E, Schritt 5) malen über den
+        // Floats; deshalb erst die Float-Fragmente anhängen, dann flushInline.
+        childFragments.addAll(deferredFloats);
         currentY += flushInline(inlineBuffer, finalArea.x(), currentY, finalArea.width(),
                 childContainingHeight, box.style().textAlign(), graphics, childFragments,
                 lineBoxes);
@@ -437,6 +493,22 @@ public final class RenderLayoutEngine {
             }
         }
         return contentHeight;
+    }
+
+    /** CSS2.1 §9.4.1: Erzeugt die Box einen neuen Block-Formatierungskontext
+     *  (overflow ≠ visible sowie tabellarische, inline-block- und
+     *  Flex-/Grid-Container)? Positionierung (absolut/fixed) und float werden
+     *  vom Aufrufer bereits vorher abgezweigt. BFC-Wurzeln dürfen die
+     *  Margin-Boxen der Floats des äußeren BFC nicht überlappen (Regel 5,
+     *  §9.5.1) und isolieren ihre eigenen Floats. */
+    private static boolean establishesBfc(RenderBox box) {
+        RenderStyle style = box.style();
+        return style.overflow() != RenderStyle.Overflow.VISIBLE
+                || switch (style.display()) {
+                    case INLINE_BLOCK, FLEX, INLINE_FLEX, GRID, INLINE_GRID,
+                         TABLE, INLINE_TABLE, TABLE_CELL, TABLE_CAPTION -> true;
+                    default -> false;
+                };
     }
 
     private static boolean collapsesWithChildren(RenderStyle style) {
