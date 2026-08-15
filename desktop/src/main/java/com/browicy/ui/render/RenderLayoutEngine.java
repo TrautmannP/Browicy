@@ -6,12 +6,13 @@ import com.browicy.engine.render.RenderBox;
 import com.browicy.engine.render.RenderInlineBox;
 import com.browicy.engine.render.RenderInlineBlock;
 import com.browicy.engine.render.RenderImage;
-import com.browicy.engine.render.RenderLineBreak;
 import com.browicy.engine.render.RenderLength;
 import com.browicy.engine.render.RenderNode;
 import com.browicy.engine.render.RenderStyle;
 import com.browicy.engine.render.RenderTextRun;
 import com.browicy.engine.render.RenderTree;
+import com.browicy.ui.render.FloatExclusionSpace.FloatArea;
+import com.browicy.ui.render.FloatExclusionSpace.FloatRegion;
 import com.browicy.engine.render.Transform;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -43,6 +44,27 @@ public final class RenderLayoutEngine {
     private final Function<String, Font> webFontResolver;
     private final Map<com.browicy.engine.dom.Element, Optional<BufferedImage>> decodedImages =
             java.util.Collections.synchronizedMap(new WeakHashMap<>());
+    private final InlineLayout.Host inlineServices = new InlineLayout.Host() {
+        @Override public Font fontFor(RenderStyle style) {
+            return RenderLayoutEngine.this.fontFor(style);
+        }
+        @Override public ImageLayout imageLayout(RenderImage image, float percentageBase,
+                                                 Float containingHeight) {
+            return RenderLayoutEngine.this.imageLayout(image, percentageBase, containingHeight);
+        }
+        @Override public AtomicLayout layoutAtomic(RenderInlineBlock inlineBlock, float width,
+                                                   Float containingHeight, Graphics2D graphics) {
+            return RenderLayoutEngine.this.layoutAtomic(
+                    inlineBlock, width, containingHeight, graphics);
+        }
+        @Override public float relativeHorizontalOffset(RenderStyle style,
+                                                        float containingWidth) {
+            return RenderLayoutEngine.this.relativeHorizontalOffset(style, containingWidth);
+        }
+        @Override public float relativeVerticalOffset(RenderStyle style, Float containingHeight) {
+            return RenderLayoutEngine.this.relativeVerticalOffset(style, containingHeight);
+        }
+    };
 
     public RenderLayoutEngine() {
         this(ignored -> null);
@@ -182,7 +204,7 @@ public final class RenderLayoutEngine {
                                     List<LineBox> lineBoxes,
                                     PositionedContext positionedContext,
                                     boolean collapseTopMargin,
-                                    List<FloatRegion> bfcFloats) {
+                                    FloatExclusionSpace bfcFloats) {
         int firstLine = lineBoxes.size();
         RenderStyle style = box.style();
         if (style.display() == RenderStyle.Display.TABLE) {
@@ -269,7 +291,7 @@ public final class RenderLayoutEngine {
             elevatedFragments.addAll(grid.elevated());
             naturalContentHeight = grid.height();
         } else {
-            List<FloatRegion> floats = bfcFloats == null ? new ArrayList<>() : bfcFloats;
+            FloatExclusionSpace floats = bfcFloats == null ? new FloatExclusionSpace() : bfcFloats;
             naturalContentHeight = layoutBlockChildren(box, contentX, contentY, contentWidth,
                     childContainingHeight, graphics, lineBoxes, childPositionedContext,
                     childFragments, floats);
@@ -359,7 +381,7 @@ public final class RenderLayoutEngine {
                                       List<LineBox> lineBoxes,
                                       PositionedContext childPositionedContext,
                                       List<PaintFragment> childFragments,
-                                      List<FloatRegion> floats) {
+                                      FloatExclusionSpace floats) {
         List<RenderNode> inlineBuffer = new ArrayList<>();
         List<PaintFragment> deferredFloats = new ArrayList<>();
         float currentY = contentY;
@@ -372,9 +394,9 @@ public final class RenderLayoutEngine {
             if (child instanceof RenderBox childBox) {
                 float inlineMinimum = floats.isEmpty() || inlineBuffer.isEmpty()
                         ? 0 : intrinsicWidths(inlineBuffer, contentWidth, graphics, false).minimum();
-                currentY = dropBelowFloatsIfNarrow(
-                        floats, contentX, contentWidth, currentY, inlineMinimum);
-                FloatArea inlineArea = floatArea(floats, contentX, contentWidth, currentY);
+                currentY = floats.dropBelowFloatsIfNarrow(
+                        contentX, contentWidth, currentY, inlineMinimum);
+                FloatArea inlineArea = floats.floatArea(contentX, contentWidth, currentY);
                 float inlineHeight = flushInline(inlineBuffer, inlineArea.x(), currentY,
                         inlineArea.width(), childContainingHeight, box.style().textAlign(),
                         graphics, childFragments, lineBoxes);
@@ -386,8 +408,8 @@ public final class RenderLayoutEngine {
                             new AbsoluteRequest(childBox, contentX, currentY));
                     continue;
                 }
-                currentY = clearedY(floats, currentY, childBox.style().clear());
-                FloatArea blockArea = floatArea(floats, contentX, contentWidth, currentY);
+                currentY = floats.clearedY(currentY, childBox.style().clear());
+                FloatArea blockArea = floats.floatArea(contentX, contentWidth, currentY);
                 float blockMinimum = floats.isEmpty() ? 0
                         : intrinsicBoxWidth(childBox, contentWidth, graphics, false, true).minimum();
                 if (blockArea.width() < Math.max(1, blockMinimum)) {
@@ -409,8 +431,8 @@ public final class RenderLayoutEngine {
                         case NONE -> false;
                     };
                     if (!floatSticksOut) {
-                        currentY = clearedY(floats, currentY, RenderStyle.Clear.BOTH);
-                        blockArea = floatArea(floats, contentX, contentWidth, currentY);
+                        currentY = floats.clearedY(currentY, RenderStyle.Clear.BOTH);
+                        blockArea = floats.floatArea(contentX, contentWidth, currentY);
                     }
                 }
                 if (childBox.style().floatMode() != RenderStyle.FloatMode.NONE) {
@@ -437,8 +459,7 @@ public final class RenderLayoutEngine {
                             childBox.style().floatMode(),
                             desiredX - childBox.style().margin().left(), currentY,
                             root.width() + childBox.style().margin().horizontal(),
-                            floatLayout.outerHeight()));
-                    previousBottomMargin = null;
+                            floatLayout.outerHeight()));                    previousBottomMargin = null;
                     continue;
                 }
                 float collapsedOverlap = previousBottomMargin == null ? 0
@@ -472,12 +493,12 @@ public final class RenderLayoutEngine {
                 inlineBuffer.add(child);
             }
         }
-        FloatArea finalArea = floatArea(floats, contentX, contentWidth, currentY);
+        FloatArea finalArea = floats.floatArea(contentX, contentWidth, currentY);
         float finalMinimum = floats.isEmpty() || inlineBuffer.isEmpty()
                 ? 0 : intrinsicWidths(inlineBuffer, contentWidth, graphics, false).minimum();
         if (finalArea.width() < Math.max(1, finalMinimum)) {
-            currentY = clearedY(floats, currentY, RenderStyle.Clear.BOTH);
-            finalArea = floatArea(floats, contentX, contentWidth, currentY);
+            currentY = floats.clearedY(currentY, RenderStyle.Clear.BOTH);
+            finalArea = floats.floatArea(contentX, contentWidth, currentY);
         }
         // Nachlaufende Inline-Inhalte (Anhang E, Schritt 5) malen über den
         // Floats; deshalb erst die Float-Fragmente anhängen, dann flushInline.
@@ -487,7 +508,7 @@ public final class RenderLayoutEngine {
                 lineBoxes);
         float contentHeight = Math.max(0, currentY - contentY);
         if (box.style().overflow() != RenderStyle.Overflow.VISIBLE) {
-            for (FloatRegion region : floats) {
+            for (FloatRegion region : floats.regions()) {
                 contentHeight = Math.max(contentHeight,
                         region.y() + region.height() - contentY);
             }
@@ -1421,7 +1442,7 @@ public final class RenderLayoutEngine {
                 : itemStyle.alignSelf();
     }
 
-    private static float textWidth(String text, FontMetrics metrics, float letterSpacingPx) {
+    static float textWidth(String text, FontMetrics metrics, float letterSpacingPx) {
         float base = metrics.stringWidth(text);
         return letterSpacingPx == 0 ? base : base + letterSpacingPx * Math.max(0, text.length() - 1);
     }
@@ -1445,55 +1466,6 @@ public final class RenderLayoutEngine {
         int first = lineBoxes.size();
         lineBoxes.addAll(item.lines());
         translateLines(lineBoxes, first, x, y);
-    }
-
-    private static FloatArea floatArea(List<FloatRegion> floats,
-                                       float contentX,
-                                       float contentWidth,
-                                       float y) {
-        float left = contentX;
-        float right = contentX + contentWidth;
-        for (FloatRegion region : floats) {
-            if (y < region.y() || y >= region.y() + region.height()) continue;
-            if (region.mode() == RenderStyle.FloatMode.LEFT) {
-                left = Math.max(left, region.x() + region.width());
-            } else {
-                right = Math.min(right, region.x());
-            }
-        }
-        return new FloatArea(left, Math.max(1, right - left));
-    }
-
-    private static float dropBelowFloatsIfNarrow(List<FloatRegion> floats,
-                                                 float contentX,
-                                                 float contentWidth,
-                                                 float y,
-                                                 float minimumWidth) {
-        if (floats.isEmpty() || minimumWidth <= 0) {
-            return y;
-        }
-        if (floatArea(floats, contentX, contentWidth, y).width() >= Math.max(1, minimumWidth)) {
-            return y;
-        }
-        return clearedY(floats, y, RenderStyle.Clear.BOTH);
-    }
-
-    private static float clearedY(List<FloatRegion> floats,
-                                  float y,
-                                  RenderStyle.Clear clear) {
-        if (clear == RenderStyle.Clear.NONE) return y;
-        float result = y;
-        for (FloatRegion region : floats) {
-            boolean applies = clear == RenderStyle.Clear.BOTH
-                    || clear == RenderStyle.Clear.LEFT
-                            && region.mode() == RenderStyle.FloatMode.LEFT
-                    || clear == RenderStyle.Clear.RIGHT
-                            && region.mode() == RenderStyle.FloatMode.RIGHT;
-            if (applies && region.y() + region.height() > result) {
-                result = region.y() + region.height();
-            }
-        }
-        return result;
     }
 
     private BlockLayout layoutTable(RenderBox table,
@@ -1826,7 +1798,7 @@ public final class RenderLayoutEngine {
         }
     }
 
-    private static PaintFragment translate(PaintFragment fragment, float dx, float dy) {
+    static PaintFragment translate(PaintFragment fragment, float dx, float dy) {
         if (fragment instanceof BoxFragment box) {
             return new BoxFragment(box.box(), box.x() + dx, box.y() + dy,
                     box.width(), box.height(), translate(box.clip(), dx, dy),
@@ -1889,7 +1861,7 @@ public final class RenderLayoutEngine {
         return composed;
     }
 
-    private static ClipRect translate(ClipRect clip, float dx, float dy) {
+    static ClipRect translate(ClipRect clip, float dx, float dy) {
         return clip == null ? null
                 : new ClipRect(clip.x() + dx, clip.y() + dy, clip.width(), clip.height());
     }
@@ -2260,6 +2232,53 @@ public final class RenderLayoutEngine {
         return new ClipRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
     }
 
+    private Font fontFor(RenderStyle style) {
+        int awtStyle = Font.PLAIN;
+        if (style.bold()) awtStyle |= Font.BOLD;
+        if (style.italic()) awtStyle |= Font.ITALIC;
+        Font webFont = webFontResolver.apply(style.fontFamily());
+        if (webFont != null) {
+            return webFont.deriveFont(awtStyle, Math.max(1f, style.fontSizePx()));
+        }
+        String family = switch (style.fontFamily().toLowerCase(java.util.Locale.ROOT)) {
+            case "serif" -> Font.SERIF;
+            case "sans-serif" -> Font.SANS_SERIF;
+            case "monospace" -> Font.MONOSPACED;
+            case "cursive", "fantasy", "system-ui" -> Font.DIALOG;
+            default -> style.fontFamily();
+        };
+        return new Font(family, awtStyle, Math.max(1, Math.round(style.fontSizePx())));
+    }
+
+    /** Layoutet einen Atomic-Inline (inline-block, ersetzte Elemente) in
+     *  Isolation: eigener PositionedContext, eigene Zeilenboxen, danach die
+     *  Absolut-Positionierten. Dient InlineLayout als Host-Leistung. */
+    private AtomicLayout layoutAtomic(RenderInlineBlock inlineBlock,
+                                      float width,
+                                      Float containingHeight,
+                                      Graphics2D graphics) {
+        List<LineBox> atomicLines = new ArrayList<>();
+        PositionedContext atomicContainingBlock = new PositionedContext();
+        BlockLayout block = layoutBlock(
+                inlineBlock.box(), 0, 0, width, containingHeight, true,
+                graphics, atomicLines, atomicContainingBlock);
+        atomicContainingBlock.setGeometry(0, 0, width, block.outerHeight());
+        List<PaintFragment> atomicFragments = new ArrayList<>(block.fragments());
+        atomicFragments.addAll(
+                layoutAbsoluteRequests(atomicContainingBlock, graphics, atomicLines));
+        block = new BlockLayout(block.outerHeight(), List.copyOf(atomicFragments));
+        BoxFragment root = (BoxFragment) block.fragments().getFirst();
+        float atomicWidth = inlineBlock.box().style().margin().left()
+                + root.width() + inlineBlock.box().style().margin().right();
+        float baselineOffset = inlineBlock.box().style().overflow()
+                != RenderStyle.Overflow.VISIBLE || atomicLines.isEmpty()
+                ? block.outerHeight()
+                : atomicLines.getLast().baseline();
+        return new AtomicLayout(block, atomicLines, atomicWidth,
+                block.outerHeight(), inlineBlock.box().style().verticalAlign(),
+                inlineBlock.box().style().fontSizePx(), baselineOffset);
+    }
+
     private float flushInline(List<RenderNode> inlineNodes,
                               float x,
                               float y,
@@ -2272,8 +2291,9 @@ public final class RenderLayoutEngine {
         if (inlineNodes.isEmpty()) {
             return 0;
         }
-        InlineLayouter layouter = new InlineLayouter(
-                x, y, width, containingHeight, textAlign, graphics, target, lineBoxes);
+        InlineLayout layouter = new InlineLayout(
+                inlineServices, x, y, width, containingHeight, textAlign, graphics,
+                target, lineBoxes);
         layouter.layout(inlineNodes);
         inlineNodes.clear();
         return layouter.finish();
@@ -2394,7 +2414,7 @@ public final class RenderLayoutEngine {
         }
     }
 
-    private record BlockLayout(float outerHeight, List<PaintFragment> fragments) {
+    record BlockLayout(float outerHeight, List<PaintFragment> fragments) {
     }
 
     private record FlexLayout(float height, List<PaintFragment> fragments,
@@ -2443,841 +2463,4 @@ public final class RenderLayoutEngine {
     private record TableRow(RenderBox box, RenderBox group, List<RenderBox> cells) {
     }
 
-    private record FloatRegion(RenderStyle.FloatMode mode,
-                               float x,
-                               float y,
-                               float width,
-                               float height) {
-    }
-
-    private record FloatArea(float x, float width) {
-    }
-
-    private sealed interface InlineToken
-            permits OpenBoxToken, CloseBoxToken, AtomicBlockToken, WordToken, SpaceToken,
-                    BreakToken, ImageToken {
-    }
-
-    private record OpenBoxToken(RenderInlineBox box) implements InlineToken {
-    }
-
-    private record CloseBoxToken(RenderInlineBox box) implements InlineToken {
-    }
-
-    private record AtomicBlockToken(RenderInlineBlock block) implements InlineToken {
-    }
-
-    private record WordToken(String text, RenderStyle style) implements InlineToken {
-    }
-
-    private record SpaceToken(String text, RenderStyle style) implements InlineToken {
-    }
-
-    private record BreakToken(RenderStyle style) implements InlineToken {
-    }
-
-    private record ImageToken(RenderImage image) implements InlineToken {
-    }
-
-    private Font fontFor(RenderStyle style) {
-        int awtStyle = Font.PLAIN;
-        if (style.bold()) awtStyle |= Font.BOLD;
-        if (style.italic()) awtStyle |= Font.ITALIC;
-        Font webFont = webFontResolver.apply(style.fontFamily());
-        if (webFont != null) {
-            return webFont.deriveFont(awtStyle, Math.max(1f, style.fontSizePx()));
-        }
-        String family = switch (style.fontFamily().toLowerCase(java.util.Locale.ROOT)) {
-            case "serif" -> Font.SERIF;
-            case "sans-serif" -> Font.SANS_SERIF;
-            case "monospace" -> Font.MONOSPACED;
-            case "cursive", "fantasy", "system-ui" -> Font.DIALOG;
-            default -> style.fontFamily();
-        };
-        return new Font(family, awtStyle, Math.max(1, Math.round(style.fontSizePx())));
-    }
-
-    private final class InlineLayouter {
-        private final float startY;
-        private final float x;
-        private final float width;
-        private final Float containingHeight;
-        private final RenderStyle.TextAlign textAlign;
-        private final Graphics2D graphics;
-        private final List<PaintFragment> target;
-        private final List<LineBox> lineTarget;
-        private final List<RenderInlineBox> activeBoxes = new ArrayList<>();
-        private final List<InlineToken> tokens = new ArrayList<>();
-        private LineBuilder line;
-        private float y;
-        private boolean pendingSpace;
-        private String pendingSpaceText = " ";
-        private RenderStyle pendingSpaceStyle;
-
-        InlineLayouter(float x,
-                       float y,
-                       float width,
-                       Float containingHeight,
-                       RenderStyle.TextAlign textAlign,
-                       Graphics2D graphics,
-                       List<PaintFragment> target,
-                       List<LineBox> lineTarget) {
-            this.x = x;
-            this.y = y;
-            this.startY = y;
-            this.width = width;
-            this.containingHeight = containingHeight;
-            this.textAlign = textAlign;
-            this.graphics = graphics;
-            this.target = target;
-            this.lineTarget = lineTarget;
-            this.line = new LineBuilder(graphics, activeBoxes, width, containingHeight);
-        }
-
-        void layout(List<RenderNode> nodes) {
-            appendTokens(nodes);
-            for (int index = 0; index < tokens.size(); index++) {
-                InlineToken token = tokens.get(index);
-                if (token instanceof SpaceToken space) {
-                    pendingSpace = true;
-                    pendingSpaceText = space.text();
-                    if (pendingSpaceStyle == null) {
-                        pendingSpaceStyle = space.style();
-                    }
-                } else if (token instanceof OpenBoxToken open) {
-                    openBox(open.box());
-                } else if (token instanceof CloseBoxToken close) {
-                    closeBox(close.box());
-                } else if (token instanceof AtomicBlockToken atomic) {
-                    addAtomicBlock(atomic.block());
-                } else if (token instanceof ImageToken image) {
-                    addImage(image.image());
-                } else if (token instanceof BreakToken lineBreak) {
-                    pendingSpace = false;
-                    pendingSpaceStyle = null;
-                    flushLine(true, lineBreak.style());
-                } else if (token instanceof WordToken word) {
-                    addWord(word.text(), word.style(), closingDecorationWidthAfter(index));
-                }
-            }
-        }
-
-        float finish() {
-            pendingSpace = false;
-            pendingSpaceStyle = null;
-            flushLine(false, null);
-            return y - startY;
-        }
-
-        private void appendTokens(List<RenderNode> nodes) {
-            for (RenderNode node : nodes) {
-                if (node instanceof RenderTextRun run) {
-                    appendText(run.text(), run.style());
-                } else if (node instanceof RenderLineBreak lineBreak) {
-                    tokens.add(new BreakToken(lineBreak.style()));
-                } else if (node instanceof RenderInlineBox inlineBox) {
-                    tokens.add(new OpenBoxToken(inlineBox));
-                    appendTokens(inlineBox.children());
-                    tokens.add(new CloseBoxToken(inlineBox));
-                } else if (node instanceof RenderInlineBlock inlineBlock) {
-                    tokens.add(new AtomicBlockToken(inlineBlock));
-                } else if (node instanceof RenderBox box) {
-                    tokens.add(new AtomicBlockToken(new RenderInlineBlock(box)));
-                } else if (node instanceof RenderImage image) {
-                    tokens.add(new ImageToken(image));
-                }
-            }
-        }
-
-        private void addImage(RenderImage image) {
-            ImageLayout layout = imageLayout(image, width, containingHeight);
-            float pendingWidth = pendingSpaceWidth();
-            if (line.hasPlacedContent()
-                    && line.width() + pendingWidth + layout.width() > width) {
-                pendingSpace = false;
-                pendingSpaceStyle = null;
-                flushLine(false, null);
-            } else {
-                materializePendingSpace();
-            }
-            line.addImage(image, layout);
-        }
-
-        private void addAtomicBlock(RenderInlineBlock inlineBlock) {
-            List<LineBox> atomicLines = new ArrayList<>();
-            PositionedContext atomicContainingBlock = new PositionedContext();
-            BlockLayout block = layoutBlock(
-                    inlineBlock.box(), 0, 0, width, containingHeight, true,
-                    graphics, atomicLines, atomicContainingBlock);
-            atomicContainingBlock.setGeometry(0, 0, width, block.outerHeight());
-            List<PaintFragment> atomicFragments = new ArrayList<>(block.fragments());
-            atomicFragments.addAll(
-                    layoutAbsoluteRequests(atomicContainingBlock, graphics, atomicLines));
-            block = new BlockLayout(block.outerHeight(), List.copyOf(atomicFragments));
-            BoxFragment root = (BoxFragment) block.fragments().getFirst();
-            float atomicWidth = inlineBlock.box().style().margin().left()
-                    + root.width() + inlineBlock.box().style().margin().right();
-            float baselineOffset = inlineBlock.box().style().overflow()
-                    != RenderStyle.Overflow.VISIBLE || atomicLines.isEmpty()
-                    ? block.outerHeight()
-                    : atomicLines.getLast().baseline();
-            AtomicLayout atomic = new AtomicLayout(block, atomicLines, atomicWidth,
-                    block.outerHeight(), inlineBlock.box().style().verticalAlign(),
-                    inlineBlock.box().style().fontSizePx(), baselineOffset);
-
-            float pendingWidth = pendingSpaceWidth();
-            if (line.hasPlacedContent()
-                    && line.width() + pendingWidth + atomic.width() > width) {
-                pendingSpace = false;
-                pendingSpaceStyle = null;
-                flushLine(false, null);
-            } else {
-                materializePendingSpace();
-            }
-            line.addAtomic(atomic);
-        }
-
-        private void appendText(String text, RenderStyle style) {
-            RenderStyle.WhiteSpace mode = style.whiteSpace();
-            boolean preserve = switch (mode) {
-                case PRE, PRE_WRAP, BREAK_SPACES -> true;
-                default -> false;
-            };
-            boolean preserveNewlines = preserve || mode == RenderStyle.WhiteSpace.PRE_LINE;
-            int offset = 0;
-            while (offset < text.length()) {
-                int codePoint = text.codePointAt(offset);
-                if (Character.isWhitespace(codePoint)) {
-                    int start = offset;
-                    boolean newline = codePoint == '\n' || codePoint == '\r';
-                    do {
-                        offset += Character.charCount(codePoint);
-                        if (offset >= text.length()) {
-                            break;
-                        }
-                        codePoint = text.codePointAt(offset);
-                        newline = newline || codePoint == '\n' || codePoint == '\r';
-                    } while (Character.isWhitespace(codePoint));
-                    if (preserveNewlines && newline) {
-                        tokens.add(new BreakToken(style));
-                    } else if (preserve) {
-                        tokens.add(new SpaceToken(text.substring(start, offset), style));
-                    } else {
-                        tokens.add(new SpaceToken(" ", style));
-                    }
-                    continue;
-                }
-
-                int end = offset + Character.charCount(codePoint);
-                while (end < text.length()) {
-                    int next = text.codePointAt(end);
-                    if (Character.isWhitespace(next)) {
-                        break;
-                    }
-                    end += Character.charCount(next);
-                }
-                tokens.add(new WordToken(text.substring(offset, end), style));
-                offset = end;
-            }
-        }
-
-        private void openBox(RenderInlineBox box) {
-            RenderStyle style = box.style();
-            float pendingWidth = pendingSpaceWidth();
-            float openingWidth = style.margin().left()
-                    + style.borderWidth().left() + style.padding().left();
-            if (line.hasPlacedContent()
-                    && line.width() + pendingWidth + openingWidth > width) {
-                pendingSpace = false;
-                pendingSpaceStyle = null;
-                flushLine(false, null);
-            } else {
-                materializePendingSpace();
-            }
-
-            line.openBox(box, true);
-            activeBoxes.add(box);
-        }
-
-        private void closeBox(RenderInlineBox box) {
-            pendingSpace = false;
-            pendingSpaceStyle = null;
-            line.closeBox(box, true);
-            if (activeBoxes.isEmpty() || activeBoxes.getLast() != box) {
-                throw new IllegalStateException("Unbalanced inline box: " + box.tagName());
-            }
-            activeBoxes.removeLast();
-        }
-
-        private void addWord(String word, RenderStyle style, float trailingDecorationWidth) {
-            Font font = fontFor(style);
-            FontMetrics metrics = graphics.getFontMetrics(font);
-            float spaceWidth = pendingSpaceWidth();
-            float wordWidth = textWidth(word, metrics, style.letterSpacingPx());
-            boolean wrapAllowed = switch (style.whiteSpace()) {
-                case NOWRAP, PRE -> false;
-                default -> true;
-            };
-
-            if (wrapAllowed && line.hasPlacedContent()
-                    && line.width() + spaceWidth + wordWidth + trailingDecorationWidth > width) {
-                pendingSpace = false;
-                pendingSpaceStyle = null;
-                flushLine(false, null);
-            }
-
-            materializePendingSpace();
-            if (!wrapAllowed) {
-                line.addText(word, font, metrics, style);
-                return;
-            }
-            int offset = 0;
-            while (offset < word.length()) {
-                float finalWidth = textWidth(word.substring(offset), metrics,
-                        style.letterSpacingPx());
-                if (finalWidth + trailingDecorationWidth <= width - line.width()) {
-                    line.addText(word.substring(offset), font, metrics, style);
-                    return;
-                }
-
-                float remaining = Math.max(1, width - line.width());
-                int end = longestFittingEnd(word, offset, metrics, remaining,
-                        style.letterSpacingPx());
-                line.addText(word.substring(offset, end), font, metrics, style);
-                offset = end;
-                if (offset < word.length()) {
-                    flushLine(false, null);
-                }
-            }
-        }
-
-        private float closingDecorationWidthAfter(int tokenIndex) {
-            float result = 0;
-            for (int index = tokenIndex + 1; index < tokens.size(); index++) {
-                InlineToken token = tokens.get(index);
-                if (!(token instanceof CloseBoxToken close)) {
-                    break;
-                }
-                RenderStyle style = close.box().style();
-                result += style.padding().right() + style.borderWidth().right()
-                        + style.margin().right();
-            }
-            return result;
-        }
-
-        private float pendingSpaceWidth() {
-            if (!pendingSpace || !line.hasPlacedContent() || pendingSpaceStyle == null) {
-                return 0;
-            }
-            FontMetrics metrics = graphics.getFontMetrics(fontFor(pendingSpaceStyle));
-            return textWidth(pendingSpaceText, metrics, pendingSpaceStyle.letterSpacingPx());
-        }
-
-        private void materializePendingSpace() {
-            if (pendingSpace && line.hasPlacedContent() && pendingSpaceStyle != null) {
-                Font font = fontFor(pendingSpaceStyle);
-                FontMetrics metrics = graphics.getFontMetrics(font);
-                line.addText(pendingSpaceText, font, metrics, pendingSpaceStyle);
-            }
-            pendingSpace = false;
-            pendingSpaceStyle = null;
-        }
-
-        private void flushLine(boolean force, RenderStyle fallbackStyle) {
-            if (!line.hasContent()) {
-                if (force && fallbackStyle != null) {
-                    line.addStrut(fontFor(fallbackStyle), fallbackStyle);
-                } else {
-                    line = new LineBuilder(graphics, activeBoxes, width, containingHeight);
-                    return;
-                }
-            }
-
-            float alignmentOffset = switch (textAlign) {
-                case CENTER -> Math.max(0, width - line.width()) / 2f;
-                case RIGHT -> Math.max(0, width - line.width());
-                case LEFT -> 0;
-            };
-            FinishedLine finished = line.finish(x + alignmentOffset, y);
-            LineBox lineBox = finished.line();
-            lineTarget.add(lineBox);
-            lineTarget.addAll(finished.atomicLines());
-            target.addAll(lineBox.fragments());
-            target.addAll(finished.atomicFragments());
-            y += lineBox.height();
-            line = new LineBuilder(graphics, activeBoxes, width, containingHeight);
-        }
-
-        private static int longestFittingEnd(String text,
-                                             int start,
-                                             FontMetrics metrics,
-                                             float availableWidth,
-                                             float letterSpacingPx) {
-            int codePointCount = text.codePointCount(start, text.length());
-            int low = 1;
-            int high = codePointCount;
-            int bestCodePoints = 1;
-            while (low <= high) {
-                int middle = (low + high) >>> 1;
-                int end = text.offsetByCodePoints(start, middle);
-                if (textWidth(text.substring(start, end), metrics, letterSpacingPx)
-                        <= availableWidth) {
-                    bestCodePoints = middle;
-                    low = middle + 1;
-                } else {
-                    high = middle - 1;
-                }
-            }
-            return text.offsetByCodePoints(start, bestCodePoints);
-        }
-    }
-
-    private record AtomicLayout(BlockLayout block,
-                                List<LineBox> lines,
-                                float width,
-                                float height,
-                                RenderStyle.VerticalAlign verticalAlign,
-                                float fontSize,
-                                float baselineOffset) {
-    }
-
-    private record ImageLayout(BufferedImage bitmap,
-                               float width,
-                               float height,
-                               RenderStyle.VerticalAlign verticalAlign,
-                               float fontSize) {
-    }
-
-    private record FinishedLine(LineBox line,
-                                List<PaintFragment> atomicFragments,
-                                List<LineBox> atomicLines) {
-    }
-
-    private sealed interface LineItem permits TextItem, BoxItem, StrutItem, AtomicItem, ImageItem {
-        float ascent();
-        float descent();
-        default RenderStyle.VerticalAlign verticalAlign() {
-            return RenderStyle.VerticalAlign.BASELINE;
-        }
-        default float height() {
-            return ascent() + descent();
-        }
-    }
-
-    private record TextItem(String text,
-                            float x,
-                            float width,
-                            Font font,
-                            FontMetrics metrics,
-                            CssColor color,
-                            boolean underline,
-                            boolean lineThrough,
-                            CssColor decorationColor,
-                            float opacity,
-                            float usedLineHeight,
-                            float letterSpacingPx,
-                            RenderStyle.TextOverflow textOverflow,
-                            RenderStyle.TextShadow shadow,
-                            boolean visible) implements LineItem {
-        private float adjustment() {
-            return usedLineHeight <= 0 ? 0 : (usedLineHeight - metrics.getHeight()) / 2f;
-        }
-        @Override public float ascent() { return Math.max(0, metrics.getAscent() + adjustment()); }
-        @Override public float descent() {
-            return Math.max(0, metrics.getDescent() + metrics.getLeading() + adjustment());
-        }
-    }
-
-    private record StrutItem(FontMetrics metrics, float usedLineHeight) implements LineItem {
-        private float adjustment() {
-            return usedLineHeight <= 0 ? 0 : (usedLineHeight - metrics.getHeight()) / 2f;
-        }
-        @Override public float ascent() { return Math.max(0, metrics.getAscent() + adjustment()); }
-        @Override public float descent() {
-            return Math.max(0, metrics.getDescent() + metrics.getLeading() + adjustment());
-        }
-    }
-
-    private record AtomicItem(AtomicLayout layout, float x) implements LineItem {
-        @Override public float ascent() {
-            if (layout.verticalAlign() == RenderStyle.VerticalAlign.MIDDLE) {
-                return Math.min(layout.height(), layout.height() / 2f + layout.fontSize() / 4f);
-            }
-            return layout.baselineOffset();
-        }
-        @Override public float descent() {
-            return layout.height() - ascent();
-        }
-        @Override public RenderStyle.VerticalAlign verticalAlign() {
-            return layout.verticalAlign();
-        }
-        @Override public float height() { return layout.height(); }
-    }
-
-    private record ImageItem(RenderImage image, ImageLayout layout, float x) implements LineItem {
-        @Override public float ascent() {
-            if (layout.verticalAlign() == RenderStyle.VerticalAlign.MIDDLE) {
-                return Math.min(layout.height(), layout.height() / 2f + layout.fontSize() / 4f);
-            }
-            return layout.height();
-        }
-        @Override public float descent() { return layout.height() - ascent(); }
-        @Override public RenderStyle.VerticalAlign verticalAlign() {
-            return layout.verticalAlign();
-        }
-        @Override public float height() { return layout.height(); }
-    }
-
-    private final class BoxItem implements LineItem {
-        private final RenderInlineBox box;
-        private final float x;
-        private final boolean firstFragment;
-        private final List<LineItem> children = new ArrayList<>();
-        private float width;
-        private boolean lastFragment;
-        private float ascent;
-        private float descent;
-
-        BoxItem(RenderInlineBox box, float x, boolean firstFragment) {
-            this.box = box;
-            this.x = x;
-            this.firstFragment = firstFragment;
-        }
-
-        void finish(float endX, boolean lastFragment, Graphics2D graphics) {
-            this.width = Math.max(0, endX - x);
-            this.lastFragment = lastFragment;
-            calculateMetrics(graphics);
-        }
-
-        void calculateMetrics(Graphics2D graphics) {
-            FontMetrics ownMetrics = graphics.getFontMetrics(fontFor(box.style()));
-            float contentAscent = ownMetrics.getAscent();
-            float contentDescent = ownMetrics.getDescent() + ownMetrics.getLeading();
-            for (LineItem child : children) {
-                if (child instanceof BoxItem childBox) {
-                    childBox.calculateMetrics(graphics);
-                }
-                contentAscent = Math.max(contentAscent, child.ascent());
-                contentDescent = Math.max(contentDescent, child.descent());
-            }
-            ascent = contentAscent + box.style().padding().top() + box.style().borderWidth().top();
-            descent = contentDescent + box.style().padding().bottom()
-                    + box.style().borderWidth().bottom();
-        }
-
-        @Override public float ascent() { return ascent; }
-        @Override public float descent() { return descent; }
-    }
-
-    private final class LineBuilder {
-        private final Graphics2D graphics;
-        private final float containingWidth;
-        private final Float containingHeight;
-        private final List<LineItem> roots = new ArrayList<>();
-        private final List<BoxItem> active = new ArrayList<>();
-        private float width;
-        private boolean placedContent;
-        private boolean structuralContent;
-
-        LineBuilder(Graphics2D graphics,
-                    List<RenderInlineBox> continuingBoxes,
-                    float containingWidth,
-                    Float containingHeight) {
-            this.graphics = graphics;
-            this.containingWidth = containingWidth;
-            this.containingHeight = containingHeight;
-            for (RenderInlineBox box : continuingBoxes) {
-                openBox(box, false);
-            }
-        }
-
-        float width() {
-            return width;
-        }
-
-        boolean hasPlacedContent() {
-            return placedContent;
-        }
-
-        boolean hasContent() {
-            return placedContent || structuralContent;
-        }
-
-        void openBox(RenderInlineBox box, boolean firstFragment) {
-            RenderStyle style = box.style();
-            if (firstFragment) {
-                width += style.margin().left();
-            }
-            BoxItem item = new BoxItem(box, width, firstFragment);
-            addItem(item);
-            active.add(item);
-            structuralContent = true;
-            if (firstFragment) {
-                width += style.borderWidth().left() + style.padding().left();
-            }
-        }
-
-        void closeBox(RenderInlineBox box, boolean lastFragment) {
-            if (active.isEmpty() || active.getLast().box != box) {
-                throw new IllegalStateException("Unbalanced inline layout box: " + box.tagName());
-            }
-            RenderStyle style = box.style();
-            if (lastFragment) {
-                width += style.padding().right() + style.borderWidth().right();
-            }
-            BoxItem item = active.removeLast();
-            item.finish(width, lastFragment, graphics);
-            placedContent = true;
-            if (lastFragment) {
-                width += style.margin().right();
-            }
-        }
-
-        void addText(String text,
-                     Font font,
-                     FontMetrics metrics,
-                     RenderStyle style) {
-            float itemWidth = textWidth(text, metrics, style.letterSpacingPx());
-            addItem(new TextItem(text, width, itemWidth, font, metrics, style.color(),
-                    style.underline(), style.lineThrough(), style.textDecorationColor(),
-                    style.opacity(), style.usedLineHeightPx(), style.letterSpacingPx(),
-                    style.textOverflow(), style.textShadow(), style.visible()));
-            width += itemWidth;
-            placedContent = true;
-        }
-
-        void addStrut(Font font, RenderStyle style) {
-            addItem(new StrutItem(graphics.getFontMetrics(font), style.usedLineHeightPx()));
-            placedContent = true;
-        }
-
-        void addAtomic(AtomicLayout atomic) {
-            addItem(new AtomicItem(atomic, width));
-            width += atomic.width();
-            placedContent = true;
-        }
-
-        void addImage(RenderImage image, ImageLayout layout) {
-            addItem(new ImageItem(image, layout, width));
-            width += layout.width();
-            placedContent = true;
-        }
-
-        FinishedLine finish(float lineX, float lineY) {
-            for (BoxItem box : active) {
-                box.finish(width, false, graphics);
-            }
-            for (LineItem root : roots) {
-                if (root instanceof BoxItem box) {
-                    box.calculateMetrics(graphics);
-                }
-            }
-
-            float ascent = 0;
-            float descent = 0;
-            float edgeAlignedHeight = 0;
-            for (LineItem item : roots) {
-                if (item.verticalAlign() == RenderStyle.VerticalAlign.TOP
-                        || item.verticalAlign() == RenderStyle.VerticalAlign.BOTTOM) {
-                    edgeAlignedHeight = Math.max(edgeAlignedHeight, item.height());
-                } else {
-                    ascent = Math.max(ascent, item.ascent());
-                    descent = Math.max(descent, item.descent());
-                }
-            }
-            if (ascent + descent < edgeAlignedHeight) {
-                descent += edgeAlignedHeight - ascent - descent;
-            }
-            float baseline = lineY + ascent;
-            float height = ascent + descent;
-
-            List<InlineFragment> fragments = new ArrayList<>();
-            collectBoxFragments(roots, fragments, lineX, baseline, 0, 0);
-            collectTextFragments(roots, fragments, lineX, baseline, 0, 0);
-            collectImageFragments(roots, fragments, lineX, lineY, height, baseline, 0, 0);
-            List<PaintFragment> atomicFragments = new ArrayList<>();
-            List<LineBox> atomicLines = new ArrayList<>();
-            collectAtomicFragments(
-                    roots, atomicFragments, atomicLines, lineX, lineY, height, baseline, 0, 0);
-            return new FinishedLine(
-                    new LineBox(lineX, lineY, width, height, baseline, fragments),
-                    atomicFragments,
-                    atomicLines);
-        }
-
-        private void addItem(LineItem item) {
-            if (active.isEmpty()) {
-                roots.add(item);
-            } else {
-                active.getLast().children.add(item);
-            }
-        }
-
-        private void collectBoxFragments(List<LineItem> items,
-                                                List<InlineFragment> fragments,
-                                                float lineX,
-                                                float baseline,
-                                                float inheritedDx,
-                                                float inheritedDy) {
-            for (LineItem item : items) {
-                if (item instanceof BoxItem box) {
-                    float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
-                    float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
-                    fragments.add(new InlineBoxFragment(
-                            box.box,
-                            lineX + box.x + dx,
-                            baseline - box.ascent + dy,
-                            box.width,
-                            box.ascent + box.descent,
-                            box.firstFragment,
-                            box.lastFragment));
-                    collectBoxFragments(box.children, fragments, lineX, baseline, dx, dy);
-                }
-            }
-        }
-
-        private void collectTextFragments(List<LineItem> items,
-                                                 List<InlineFragment> fragments,
-                                                 float lineX,
-                                                 float baseline,
-                                                 float inheritedDx,
-                                                 float inheritedDy) {
-            for (LineItem item : items) {
-                if (item instanceof TextItem text) {
-                    fragments.add(new TextFragment(
-                            text.text,
-                            lineX + text.x + inheritedDx,
-                            text.width,
-                            baseline + inheritedDy,
-                            baseline - text.metrics.getAscent() + inheritedDy,
-                            text.metrics.getHeight(),
-                            text.font,
-                            text.color,
-                            text.underline,
-                            text.lineThrough,
-                            text.decorationColor,
-                            text.opacity,
-                            text.letterSpacingPx,
-                            text.textOverflow == RenderStyle.TextOverflow.ELLIPSIS,
-                            null,
-                            null,
-                            text.shadow,
-                            text.visible));
-                } else if (item instanceof BoxItem box) {
-                    float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
-                    float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
-                    collectTextFragments(box.children, fragments, lineX, baseline, dx, dy);
-                }
-            }
-        }
-
-        private void collectImageFragments(List<LineItem> items,
-                                                  List<InlineFragment> fragments,
-                                                  float lineX,
-                                                  float lineY,
-                                                  float lineHeight,
-                                                  float baseline,
-                                                  float inheritedDx,
-                                                  float inheritedDy) {
-            for (LineItem item : items) {
-                if (item instanceof ImageItem image) {
-                    float top = switch (image.verticalAlign()) {
-                        case TOP -> lineY;
-                        case BOTTOM -> lineY + lineHeight - image.height();
-                        case BASELINE, MIDDLE -> baseline - image.ascent();
-                    };
-                    fragments.add(new ImageFragment(image.image(), image.layout().bitmap(),
-                            lineX + image.x() + inheritedDx, top + inheritedDy,
-                            image.layout().width(), image.layout().height()));
-                } else if (item instanceof BoxItem box) {
-                    float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
-                    float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
-                    collectImageFragments(box.children, fragments, lineX, lineY,
-                            lineHeight, baseline, dx, dy);
-                }
-            }
-        }
-
-        private void collectAtomicFragments(List<LineItem> items,
-                                                   List<PaintFragment> fragments,
-                                                   List<LineBox> lines,
-                                                   float lineX,
-                                                   float lineY,
-                                                   float lineHeight,
-                                                   float baseline,
-                                                   float inheritedDx,
-                                                   float inheritedDy) {
-            for (LineItem item : items) {
-                if (item instanceof AtomicItem atomic) {
-                    float dx = lineX + atomic.x() + inheritedDx;
-                    float dy = inheritedDy + switch (atomic.verticalAlign()) {
-                        case TOP -> lineY;
-                        case BOTTOM -> lineY + lineHeight - atomic.height();
-                        case BASELINE, MIDDLE -> baseline - atomic.ascent();
-                    };
-                    for (PaintFragment fragment : atomic.layout().block().fragments()) {
-                        fragments.add(translate(fragment, dx, dy));
-                    }
-                    for (LineBox line : atomic.layout().lines()) {
-                        lines.add(translate(line, dx, dy));
-                    }
-                } else if (item instanceof BoxItem box) {
-                    float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
-                    float dy = inheritedDy + inlineOffsetY(box.box.style(), containingHeight);
-                    collectAtomicFragments(box.children, fragments, lines, lineX, lineY,
-                            lineHeight, baseline, dx, dy);
-                }
-            }
-        }
-
-        private float inlineOffsetX(RenderStyle style, float containingWidth) {
-            return style.position() == RenderStyle.Position.RELATIVE
-                    ? relativeHorizontalOffset(style, containingWidth) : 0;
-        }
-
-        private float inlineOffsetY(RenderStyle style, Float containingHeight) {
-            return style.position() == RenderStyle.Position.RELATIVE
-                    ? relativeVerticalOffset(style, containingHeight) : 0;
-        }
-
-        private static PaintFragment translate(PaintFragment fragment, float dx, float dy) {
-            if (fragment instanceof BoxFragment box) {
-                return new BoxFragment(
-                        box.box(), box.x() + dx, box.y() + dy, box.width(), box.height(),
-                        translate(box.clip(), dx, dy), box.transform());
-            }
-            if (fragment instanceof InlineBoxFragment box) {
-                return new InlineBoxFragment(box.box(), box.x() + dx, box.y() + dy,
-                        box.width(), box.height(), box.firstFragment(), box.lastFragment(),
-                        translate(box.clip(), dx, dy), box.transform());
-            }
-            if (fragment instanceof ImageFragment image) {
-                return new ImageFragment(image.image(), image.bitmap(), image.x() + dx,
-                        image.y() + dy, image.width(), image.height(),
-                        translate(image.clip(), dx, dy), image.transform());
-            }
-            TextFragment text = (TextFragment) fragment;
-            return new TextFragment(text.text(), text.x() + dx, text.width(),
-                    text.baseline() + dy, text.top() + dy, text.height(), text.font(),
-                    text.color(), text.underline(), text.lineThrough(),
-                    text.decorationColor(), text.opacity(), text.letterSpacingPx(),
-                    text.ellipsis(),
-                    translate(text.clip(), dx, dy), text.transform(), text.shadow(),
-                    text.visible());
-        }
-
-        private static ClipRect translate(ClipRect clip, float dx, float dy) {
-            return clip == null ? null
-                    : new ClipRect(clip.x() + dx, clip.y() + dy, clip.width(), clip.height());
-        }
-
-        private static LineBox translate(LineBox line, float dx, float dy) {
-            List<InlineFragment> fragments = line.fragments().stream()
-                    .map(fragment -> (InlineFragment) translate(fragment, dx, dy))
-                    .toList();
-            return new LineBox(line.x() + dx, line.y() + dy, line.width(), line.height(),
-                    line.baseline() + dy, fragments);
-        }
-    }
 }
