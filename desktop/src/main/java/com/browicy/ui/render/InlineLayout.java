@@ -16,8 +16,10 @@ import com.browicy.ui.render.RenderLayoutEngine.InlineFragment;
 import com.browicy.ui.render.RenderLayoutEngine.LineBox;
 import com.browicy.ui.render.RenderLayoutEngine.PaintFragment;
 import com.browicy.ui.render.RenderLayoutEngine.TextFragment;
+
 import static com.browicy.ui.render.RenderLayoutEngine.textWidth;
-import static com.browicy.ui.render.RenderLayoutEngine.translate;
+import static com.browicy.ui.render.PositionedLayout.translate;
+
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
@@ -110,26 +112,26 @@ final class InlineLayout {
         appendTokens(nodes);
         for (int index = 0; index < tokens.size(); index++) {
             InlineToken token = tokens.get(index);
-            if (token instanceof SpaceToken space) {
+            if (token instanceof SpaceToken(String text, RenderStyle style)) {
                 pendingSpace = true;
-                pendingSpaceText = space.text();
+                pendingSpaceText = text;
                 if (pendingSpaceStyle == null) {
-                    pendingSpaceStyle = space.style();
+                    pendingSpaceStyle = style;
                 }
-            } else if (token instanceof OpenBoxToken open) {
-                openBox(open.box());
-            } else if (token instanceof CloseBoxToken close) {
-                closeBox(close.box());
-            } else if (token instanceof AtomicBlockToken atomic) {
-                addAtomicBlock(atomic.block());
-            } else if (token instanceof ImageToken image) {
-                addImage(image.image());
-            } else if (token instanceof BreakToken lineBreak) {
+            } else if (token instanceof OpenBoxToken(RenderInlineBox box)) {
+                openBox(box);
+            } else if (token instanceof CloseBoxToken(RenderInlineBox box)) {
+                closeBox(box);
+            } else if (token instanceof AtomicBlockToken(RenderInlineBlock block)) {
+                addAtomicBlock(block);
+            } else if (token instanceof ImageToken(RenderImage image1)) {
+                addImage(image1);
+            } else if (token instanceof BreakToken(RenderStyle style)) {
                 pendingSpace = false;
                 pendingSpaceStyle = null;
-                flushLine(true, lineBreak.style());
-            } else if (token instanceof WordToken word) {
-                addWord(word.text(), word.style(), closingDecorationWidthAfter(index));
+                flushLine(true, style);
+            } else if (token instanceof WordToken(String text, RenderStyle style)) {
+                addWord(text, style, closingDecorationWidthAfter(index));
             }
         }
     }
@@ -145,8 +147,8 @@ final class InlineLayout {
         for (RenderNode node : nodes) {
             if (node instanceof RenderTextRun run) {
                 appendText(run.text(), run.style());
-            } else if (node instanceof RenderLineBreak lineBreak) {
-                tokens.add(new BreakToken(lineBreak.style()));
+            } else if (node instanceof RenderLineBreak(RenderStyle style)) {
+                tokens.add(new BreakToken(style));
             } else if (node instanceof RenderInlineBox inlineBox) {
                 tokens.add(new OpenBoxToken(inlineBox));
                 appendTokens(inlineBox.children());
@@ -405,7 +407,7 @@ final class InlineLayout {
 
     private sealed interface InlineToken
             permits OpenBoxToken, CloseBoxToken, AtomicBlockToken, WordToken, SpaceToken,
-                    BreakToken, ImageToken {
+            BreakToken, ImageToken {
     }
 
     private record OpenBoxToken(RenderInlineBox box) implements InlineToken {
@@ -431,10 +433,13 @@ final class InlineLayout {
 
     private sealed interface LineItem permits TextItem, BoxItem, StrutItem, AtomicItem, ImageItem {
         float ascent();
+
         float descent();
+
         default RenderStyle.VerticalAlign verticalAlign() {
             return RenderStyle.VerticalAlign.BASELINE;
         }
+
         default float height() {
             return ascent() + descent();
         }
@@ -458,8 +463,14 @@ final class InlineLayout {
         private float adjustment() {
             return usedLineHeight <= 0 ? 0 : (usedLineHeight - metrics.getHeight()) / 2f;
         }
-        @Override public float ascent() { return Math.max(0, metrics.getAscent() + adjustment()); }
-        @Override public float descent() {
+
+        @Override
+        public float ascent() {
+            return Math.max(0, metrics.getAscent() + adjustment());
+        }
+
+        @Override
+        public float descent() {
             return Math.max(0, metrics.getDescent() + metrics.getLeading() + adjustment());
         }
     }
@@ -468,40 +479,66 @@ final class InlineLayout {
         private float adjustment() {
             return usedLineHeight <= 0 ? 0 : (usedLineHeight - metrics.getHeight()) / 2f;
         }
-        @Override public float ascent() { return Math.max(0, metrics.getAscent() + adjustment()); }
-        @Override public float descent() {
+
+        @Override
+        public float ascent() {
+            return Math.max(0, metrics.getAscent() + adjustment());
+        }
+
+        @Override
+        public float descent() {
             return Math.max(0, metrics.getDescent() + metrics.getLeading() + adjustment());
         }
     }
 
     private record AtomicItem(AtomicLayout layout, float x) implements LineItem {
-        @Override public float ascent() {
+        @Override
+        public float ascent() {
             if (layout.verticalAlign() == RenderStyle.VerticalAlign.MIDDLE) {
                 return Math.min(layout.height(), layout.height() / 2f + layout.fontSize() / 4f);
             }
             return layout.baselineOffset();
         }
-        @Override public float descent() {
+
+        @Override
+        public float descent() {
             return layout.height() - ascent();
         }
-        @Override public RenderStyle.VerticalAlign verticalAlign() {
+
+        @Override
+        public RenderStyle.VerticalAlign verticalAlign() {
             return layout.verticalAlign();
         }
-        @Override public float height() { return layout.height(); }
+
+        @Override
+        public float height() {
+            return layout.height();
+        }
     }
 
     private record ImageItem(RenderImage image, ImageLayout layout, float x) implements LineItem {
-        @Override public float ascent() {
+        @Override
+        public float ascent() {
             if (layout.verticalAlign() == RenderStyle.VerticalAlign.MIDDLE) {
                 return Math.min(layout.height(), layout.height() / 2f + layout.fontSize() / 4f);
             }
             return layout.height();
         }
-        @Override public float descent() { return layout.height() - ascent(); }
-        @Override public RenderStyle.VerticalAlign verticalAlign() {
+
+        @Override
+        public float descent() {
+            return layout.height() - ascent();
+        }
+
+        @Override
+        public RenderStyle.VerticalAlign verticalAlign() {
             return layout.verticalAlign();
         }
-        @Override public float height() { return layout.height(); }
+
+        @Override
+        public float height() {
+            return layout.height();
+        }
     }
 
     private final class BoxItem implements LineItem {
@@ -542,8 +579,15 @@ final class InlineLayout {
                     + box.style().borderWidth().bottom();
         }
 
-        @Override public float ascent() { return ascent; }
-        @Override public float descent() { return descent; }
+        @Override
+        public float ascent() {
+            return ascent;
+        }
+
+        @Override
+        public float descent() {
+            return descent;
+        }
     }
 
     private final class LineBuilder {
@@ -691,11 +735,11 @@ final class InlineLayout {
         }
 
         private void collectBoxFragments(List<LineItem> items,
-                                                List<InlineFragment> fragments,
-                                                float lineX,
-                                                float baseline,
-                                                float inheritedDx,
-                                                float inheritedDy) {
+                                         List<InlineFragment> fragments,
+                                         float lineX,
+                                         float baseline,
+                                         float inheritedDx,
+                                         float inheritedDy) {
             for (LineItem item : items) {
                 if (item instanceof BoxItem box) {
                     float dx = inheritedDx + inlineOffsetX(box.box.style(), containingWidth);
@@ -714,11 +758,11 @@ final class InlineLayout {
         }
 
         private void collectTextFragments(List<LineItem> items,
-                                                 List<InlineFragment> fragments,
-                                                 float lineX,
-                                                 float baseline,
-                                                 float inheritedDx,
-                                                 float inheritedDy) {
+                                          List<InlineFragment> fragments,
+                                          float lineX,
+                                          float baseline,
+                                          float inheritedDx,
+                                          float inheritedDy) {
             for (LineItem item : items) {
                 if (item instanceof TextItem text) {
                     fragments.add(new TextFragment(
@@ -749,13 +793,13 @@ final class InlineLayout {
         }
 
         private void collectImageFragments(List<LineItem> items,
-                                                  List<InlineFragment> fragments,
-                                                  float lineX,
-                                                  float lineY,
-                                                  float lineHeight,
-                                                  float baseline,
-                                                  float inheritedDx,
-                                                  float inheritedDy) {
+                                           List<InlineFragment> fragments,
+                                           float lineX,
+                                           float lineY,
+                                           float lineHeight,
+                                           float baseline,
+                                           float inheritedDx,
+                                           float inheritedDy) {
             for (LineItem item : items) {
                 if (item instanceof ImageItem image) {
                     float top = switch (image.verticalAlign()) {
@@ -776,14 +820,14 @@ final class InlineLayout {
         }
 
         private void collectAtomicFragments(List<LineItem> items,
-                                                   List<PaintFragment> fragments,
-                                                   List<LineBox> lines,
-                                                   float lineX,
-                                                   float lineY,
-                                                   float lineHeight,
-                                                   float baseline,
-                                                   float inheritedDx,
-                                                   float inheritedDy) {
+                                            List<PaintFragment> fragments,
+                                            List<LineBox> lines,
+                                            float lineX,
+                                            float lineY,
+                                            float lineHeight,
+                                            float baseline,
+                                            float inheritedDx,
+                                            float inheritedDy) {
             for (LineItem item : items) {
                 if (item instanceof AtomicItem atomic) {
                     float dx = lineX + atomic.x() + inheritedDx;

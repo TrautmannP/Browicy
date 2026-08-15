@@ -8,13 +8,17 @@ import com.browicy.engine.render.RenderInlineBlock;
 import com.browicy.engine.render.RenderImage;
 import com.browicy.engine.render.RenderLength;
 import com.browicy.engine.render.RenderNode;
+import com.browicy.engine.render.RenderOffset;
 import com.browicy.engine.render.RenderStyle;
 import com.browicy.engine.render.RenderTextRun;
 import com.browicy.engine.render.RenderTree;
+import com.browicy.engine.render.Transform;
 import com.browicy.ui.render.FloatExclusionSpace.FloatArea;
 import com.browicy.ui.render.FloatExclusionSpace.FloatRegion;
 import com.browicy.ui.render.FloatExclusionSpace.LineSlot;
-import com.browicy.engine.render.Transform;
+import com.browicy.ui.render.PositionedLayout.AbsoluteRequest;
+import com.browicy.ui.render.PositionedLayout.PositionedContext;
+
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
@@ -23,7 +27,6 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +36,15 @@ import java.util.function.Function;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
+
+import static com.browicy.ui.render.PositionedLayout.fragmentLeft;
+import static com.browicy.ui.render.PositionedLayout.fragmentRight;
+import static com.browicy.ui.render.PositionedLayout.fragmentZIndex;
+import static com.browicy.ui.render.PositionedLayout.mergeElevated;
+import static com.browicy.ui.render.PositionedLayout.translate;
+import static com.browicy.ui.render.PositionedLayout.translateLines;
+import static com.browicy.ui.render.PositionedLayout.withClip;
+import static com.browicy.ui.render.PositionedLayout.withTransform;
 
 public final class RenderLayoutEngine {
 
@@ -46,26 +58,129 @@ public final class RenderLayoutEngine {
     private final Map<com.browicy.engine.dom.Element, Optional<BufferedImage>> decodedImages =
             java.util.Collections.synchronizedMap(new WeakHashMap<>());
     private final InlineLayout.Host inlineServices = new InlineLayout.Host() {
-        @Override public Font fontFor(RenderStyle style) {
+        @Override
+        public Font fontFor(RenderStyle style) {
             return RenderLayoutEngine.this.fontFor(style);
         }
-        @Override public ImageLayout imageLayout(RenderImage image, float percentageBase,
-                                                 Float containingHeight) {
+
+        @Override
+        public ImageLayout imageLayout(RenderImage image, float percentageBase,
+                                       Float containingHeight) {
             return RenderLayoutEngine.this.imageLayout(image, percentageBase, containingHeight);
         }
-        @Override public AtomicLayout layoutAtomic(RenderInlineBlock inlineBlock, float width,
-                                                   Float containingHeight, Graphics2D graphics) {
+
+        @Override
+        public AtomicLayout layoutAtomic(RenderInlineBlock inlineBlock, float width,
+                                         Float containingHeight, Graphics2D graphics) {
             return RenderLayoutEngine.this.layoutAtomic(
                     inlineBlock, width, containingHeight, graphics);
         }
-        @Override public float relativeHorizontalOffset(RenderStyle style,
-                                                        float containingWidth) {
+
+        @Override
+        public float relativeHorizontalOffset(RenderStyle style,
+                                              float containingWidth) {
             return RenderLayoutEngine.this.relativeHorizontalOffset(style, containingWidth);
         }
-        @Override public float relativeVerticalOffset(RenderStyle style, Float containingHeight) {
+
+        @Override
+        public float relativeVerticalOffset(RenderStyle style, Float containingHeight) {
             return RenderLayoutEngine.this.relativeVerticalOffset(style, containingHeight);
         }
     };
+
+    private final TableLayout tableLayout = new TableLayout(new TableLayout.Host() {
+        @Override
+        public BlockLayout layoutBlock(RenderBox box, float containingX, float y,
+                                       float availableWidth, Float containingHeight, boolean shrinkToFitAuto,
+                                       Graphics2D graphics, List<LineBox> lineBoxes,
+                                       PositionedContext positionedContext) {
+            return RenderLayoutEngine.this.layoutBlock(box, containingX, y, availableWidth,
+                    containingHeight, shrinkToFitAuto, graphics, lineBoxes, positionedContext);
+        }
+
+        @Override
+        public IntrinsicWidths intrinsicBoxWidth(RenderBox box, float percentageBase,
+                                                 Graphics2D graphics, boolean contentBased) {
+            return RenderLayoutEngine.this.intrinsicBoxWidth(
+                    box, percentageBase, graphics, contentBased);
+        }
+
+        @Override
+        public float resolve(RenderLength length, float percentageBase) {
+            return RenderLayoutEngine.this.resolve(length, percentageBase);
+        }
+
+        @Override
+        public Float resolveContentHeight(RenderStyle style, RenderLength length,
+                                          Float containingHeight, float decoration) {
+            return RenderLayoutEngine.this.resolveContentHeight(
+                    style, length, containingHeight, decoration);
+        }
+    });
+
+    private final PositionedLayout positionedLayout = new PositionedLayout(new PositionedLayout.Host() {
+        @Override
+        public BlockLayout layoutBlock(RenderBox box, float containingX, float y,
+                                       float availableWidth, Float containingHeight, boolean shrinkToFitAuto,
+                                       Graphics2D graphics, List<LineBox> lineBoxes,
+                                       PositionedContext positionedContext) {
+            return RenderLayoutEngine.this.layoutBlock(box, containingX, y, availableWidth,
+                    containingHeight, shrinkToFitAuto, graphics, lineBoxes, positionedContext);
+        }
+
+        @Override
+        public float resolve(RenderOffset offset, float percentageBase) {
+            return RenderLayoutEngine.this.resolve(offset, percentageBase);
+        }
+    });
+
+    private final FlexLayoutEngine flexLayoutEngine = new FlexLayoutEngine(new FlexLayoutEngine.Host() {
+        @Override
+        public BlockLayout layoutBlock(RenderBox box, float containingX, float y,
+                                       float availableWidth, Float containingHeight, boolean shrinkToFitAuto,
+                                       Graphics2D graphics, List<LineBox> lineBoxes,
+                                       PositionedContext positionedContext) {
+            return RenderLayoutEngine.this.layoutBlock(box, containingX, y, availableWidth,
+                    containingHeight, shrinkToFitAuto, graphics, lineBoxes, positionedContext);
+        }
+
+        @Override
+        public IntrinsicWidths intrinsicBoxWidth(RenderBox box, float percentageBase,
+                                                 Graphics2D graphics, boolean contentBased) {
+            return RenderLayoutEngine.this.intrinsicBoxWidth(
+                    box, percentageBase, graphics, contentBased);
+        }
+
+        @Override
+        public IntrinsicWidths intrinsicWidths(List<RenderNode> nodes,
+                                               float percentageBase, Graphics2D graphics, boolean contentBased) {
+            return RenderLayoutEngine.this.intrinsicWidths(
+                    nodes, percentageBase, graphics, contentBased);
+        }
+
+        @Override
+        public Float resolveBoxConstraint(RenderStyle style, RenderLength length,
+                                          RenderBox box, float percentageBase, float decoration, Graphics2D graphics) {
+            return RenderLayoutEngine.this.resolveBoxConstraint(
+                    style, length, box, percentageBase, decoration, graphics);
+        }
+
+        @Override
+        public float resolve(RenderLength length, float percentageBase) {
+            return RenderLayoutEngine.this.resolve(length, percentageBase);
+        }
+    }, positionedLayout);
+
+    private final GridLayoutEngine gridLayoutEngine = new GridLayoutEngine(new GridLayoutEngine.Host() {
+        @Override
+        public BlockLayout layoutBlock(RenderBox box, float containingX, float y,
+                                       float availableWidth, Float containingHeight, boolean shrinkToFitAuto,
+                                       Graphics2D graphics, List<LineBox> lineBoxes,
+                                       PositionedContext positionedContext) {
+            return RenderLayoutEngine.this.layoutBlock(box, containingX, y, availableWidth,
+                    containingHeight, shrinkToFitAuto, graphics, lineBoxes, positionedContext);
+        }
+    });
 
     public RenderLayoutEngine() {
         this(ignored -> null);
@@ -88,10 +203,10 @@ public final class RenderLayoutEngine {
         BlockLayout root = layoutBlock(
                 tree.root(), 0, 0, availableWidth, this.viewportHeight, false,
                 graphics, lineBoxes, initialContainingBlock);
-        root = positionRootInInitialContainingBlock(
+        root = positionedLayout.positionRootInInitialContainingBlock(
                 root, tree.root(), initialContainingBlock, graphics, lineBoxes, rootFirstLine);
         List<PaintFragment> positioned =
-                layoutAbsoluteRequests(initialContainingBlock, graphics, lineBoxes);
+                positionedLayout.layoutAbsoluteRequests(initialContainingBlock, graphics, lineBoxes);
         List<PaintFragment> negative = new ArrayList<>();
         List<PaintFragment> zero = new ArrayList<>();
         List<PaintFragment> positive = new ArrayList<>();
@@ -109,63 +224,6 @@ public final class RenderLayoutEngine {
         fragments.addAll(positive);
         float height = Math.max(0, root.outerHeight());
         return new LayoutResult(viewportWidth, height, fragments, lineBoxes);
-    }
-
-    private BlockLayout positionRootInInitialContainingBlock(BlockLayout rootLayout,
-                                                             RenderBox root,
-                                                             PositionedContext icb,
-                                                             Graphics2D graphics,
-                                                             List<LineBox> lineBoxes,
-                                                             int rootFirstLine) {
-        RenderStyle style = root.style();
-        if (style.position() != RenderStyle.Position.ABSOLUTE
-                && style.position() != RenderStyle.Position.FIXED) {
-            return rootLayout;
-        }
-        float left = style.left().isAuto() ? 0 : resolve(style.left(), icb.width);
-        float right = style.right().isAuto() ? 0 : resolve(style.right(), icb.width);
-        float top = style.top().isAuto() ? 0 : resolve(style.top(), icb.height);
-        float bottom = style.bottom().isAuto() ? 0 : resolve(style.bottom(), icb.height);
-        boolean stretchAutoWidth = style.width().isAuto()
-                && !style.left().isAuto() && !style.right().isAuto();
-        BlockLayout current = rootLayout;
-        if (style.width().isAuto()) {
-            while (lineBoxes.size() > rootFirstLine) {
-                lineBoxes.remove(lineBoxes.size() - 1);
-            }
-            float availableWidth = stretchAutoWidth
-                    ? Math.max(0, icb.width - left - right)
-                    : icb.width;
-            current = layoutBlock(root, icb.x, icb.y, availableWidth, icb.height,
-                    !stretchAutoWidth, graphics, lineBoxes, new PositionedContext());
-        }
-        BoxFragment box = (BoxFragment) current.fragments().getFirst();
-        float desiredX;
-        if (!style.left().isAuto()) {
-            desiredX = icb.x + left + style.margin().left();
-        } else if (!style.right().isAuto()) {
-            desiredX = icb.x + icb.width - right - style.margin().right() - box.width();
-        } else {
-            desiredX = icb.x + style.margin().left();
-        }
-        float desiredY;
-        if (!style.top().isAuto()) {
-            desiredY = icb.y + top + style.margin().top();
-        } else if (!style.bottom().isAuto()) {
-            desiredY = icb.y + icb.height - bottom - style.margin().bottom() - box.height();
-        } else {
-            desiredY = icb.y + style.margin().top();
-        }
-        float dx = desiredX - box.x();
-        float dy = desiredY - box.y();
-        if (dx == 0 && dy == 0) {
-            return current;
-        }
-        List<PaintFragment> fragments = current.fragments().stream()
-                .map(fragment -> translate(fragment, dx, dy))
-                .toList();
-        translateLines(lineBoxes, rootFirstLine, dx, dy);
-        return new BlockLayout(current.outerHeight(), List.copyOf(fragments));
     }
 
     private BlockLayout layoutBlock(RenderBox box,
@@ -212,7 +270,7 @@ public final class RenderLayoutEngine {
         int firstLine = lineBoxes.size();
         RenderStyle style = box.style();
         if (style.display() == RenderStyle.Display.TABLE) {
-            return layoutTable(box, containingX, y, availableWidth, percentageBase,
+            return tableLayout.layoutTable(box, containingX, y, availableWidth, percentageBase,
                     containingHeight, graphics, lineBoxes, positionedContext);
         }
         boolean positioned = switch (style.position()) {
@@ -272,25 +330,27 @@ public final class RenderLayoutEngine {
         Float childContainingHeight = specifiedContentHeight == null
                 ? null
                 : constrain(specifiedContentHeight,
-                        resolveContentHeight(
-                                style, style.minHeight(), containingHeight, verticalDecoration),
-                        resolveContentHeight(
-                                style, style.maxHeight(), containingHeight, verticalDecoration));
+                resolveContentHeight(
+                        style, style.minHeight(), containingHeight, verticalDecoration),
+                resolveContentHeight(
+                        style, style.maxHeight(), containingHeight, verticalDecoration));
 
         List<PaintFragment> childFragments = new ArrayList<>();
         List<PaintFragment> elevatedFragments = new ArrayList<>();
         float naturalContentHeight;
         if (style.display() == RenderStyle.Display.FLEX
                 || style.display() == RenderStyle.Display.INLINE_FLEX) {
-            FlexLayout flex = layoutFlex(box, contentX, contentY, contentWidth,
-                    childContainingHeight, graphics, lineBoxes, childPositionedContext);
+            FlexLayoutEngine.FlexLayout flex = flexLayoutEngine.layoutFlex(box, contentX,
+                    contentY, contentWidth, childContainingHeight, graphics, lineBoxes,
+                    childPositionedContext);
             childFragments.addAll(flex.fragments());
             elevatedFragments.addAll(flex.elevated());
             naturalContentHeight = flex.height();
         } else if (style.display() == RenderStyle.Display.GRID
                 || style.display() == RenderStyle.Display.INLINE_GRID) {
-            GridLayout grid = layoutGrid(box, contentX, contentY, contentWidth,
-                    childContainingHeight, graphics, lineBoxes, childPositionedContext);
+            GridLayoutEngine.GridLayout grid = gridLayoutEngine.layoutGrid(box, contentX,
+                    contentY, contentWidth, childContainingHeight, graphics, lineBoxes,
+                    childPositionedContext);
             childFragments.addAll(grid.fragments());
             elevatedFragments.addAll(grid.elevated());
             naturalContentHeight = grid.height();
@@ -327,7 +387,7 @@ public final class RenderLayoutEngine {
             }
             childPositionedContext.setContentExtent(minLeft, maxRight);
             List<PaintFragment> positionedFragments =
-                    layoutAbsoluteRequests(childPositionedContext, graphics, lineBoxes);
+                    positionedLayout.layoutAbsoluteRequests(childPositionedContext, graphics, lineBoxes);
             List<PaintFragment> negative = new ArrayList<>();
             List<PaintFragment> zero = new ArrayList<>();
             List<PaintFragment> positive = new ArrayList<>();
@@ -416,22 +476,15 @@ public final class RenderLayoutEngine {
                     boolean floatSticksOut = switch (childBox.style().floatMode()) {
                         case LEFT -> blockArea.x() <= contentX + 0.5f
                                 && blockArea.x() + blockArea.width()
-                                        >= contentX + contentWidth - 0.5f;
+                                >= contentX + contentWidth - 0.5f;
                         case RIGHT -> blockArea.x() + blockArea.width()
-                                        >= contentX + contentWidth - 0.5f
+                                >= contentX + contentWidth - 0.5f
                                 && blockArea.x() <= contentX + 0.5f;
                         case NONE -> false;
                     };
                     if (!floatSticksOut) {
                         if (childEstablishesBfc
                                 && childBox.style().floatMode() == RenderStyle.FloatMode.NONE) {
-                            // BFC-Wurzel (Regel 5): eine FILL-Breite-Box (auto
-                            // width, blockförmig) passt sich der float-geschmälerten
-                            // Breite an und wird NICHT verschoben (Chrome bfc-004,
-                            // overflow:hidden-Div: 100px breit neben den Floats).
-                            // Nur shrink-to-fit-Boxen (auto-Tabellen) und Boxen mit
-                            // expliziter Breite weichen in die erste Y-Position aus,
-                            // an der ihre Mindestbreite passt.
                             boolean shrinkToFitSized = switch (childBox.style().display()) {
                                 case TABLE, INLINE_TABLE, INLINE_BLOCK -> true;
                                 default -> false;
@@ -458,7 +511,7 @@ public final class RenderLayoutEngine {
                     float desiredX = childBox.style().floatMode() == RenderStyle.FloatMode.LEFT
                             ? blockArea.x() + childBox.style().margin().left()
                             : blockArea.x() + blockArea.width()
-                                    - childBox.style().margin().right() - root.width();
+                            - childBox.style().margin().right() - root.width();
                     float dx = desiredX - root.x();
                     floatLayout.fragments().stream().map(fragment -> translate(fragment, dx, 0))
                             .forEach(deferredFloats::add);
@@ -534,11 +587,6 @@ public final class RenderLayoutEngine {
                 childContainingHeight, box.style().textAlign(), floats, graphics,
                 childFragments, lineBoxes);
         float contentHeight = Math.max(0, currentY - contentY);
-        // CSS2.1 §10.6.7: Die auto-Höhe einer BFC-Wurzel wächst mit ihren
-        // Float-Nachfahren (nicht nur bei overflow≠visible, sondern auch bei
-        // display:table-cell/inline-block/…). Normale Blöcke teilen dagegen
-        // die Float-Liste des BFC-Vorfahren (Regel 7) und schließen Floats
-        // bewusst nicht in ihre Höhe ein.
         if (establishesBfc(box)) {
             for (FloatRegion region : floats.regions()) {
                 contentHeight = Math.max(contentHeight,
@@ -552,10 +600,10 @@ public final class RenderLayoutEngine {
         RenderStyle style = box.style();
         return style.overflow() != RenderStyle.Overflow.VISIBLE
                 || switch (style.display()) {
-                    case INLINE_BLOCK, FLEX, INLINE_FLEX, GRID, INLINE_GRID,
-                         TABLE, INLINE_TABLE, TABLE_CELL, TABLE_CAPTION -> true;
-                    default -> false;
-                };
+            case INLINE_BLOCK, FLEX, INLINE_FLEX, GRID, INLINE_GRID,
+                 TABLE, INLINE_TABLE, TABLE_CELL, TABLE_CAPTION -> true;
+            default -> false;
+        };
     }
 
     private static boolean collapsesWithChildren(RenderStyle style) {
@@ -626,1226 +674,9 @@ public final class RenderLayoutEngine {
         return null;
     }
 
-    private record GridLayout(float height, List<PaintFragment> fragments,
-                              List<PaintFragment> elevated) {
-        private GridLayout(float height, List<PaintFragment> fragments) {
-            this(height, fragments, List.of());
-        }
-    }
-
-    private record GridPlacement(int row, int column, int rowSpan, int columnSpan) {
-    }
-
-    private GridLayout layoutGrid(RenderBox container, float contentX, float contentY,
-                                  float contentWidth, Float contentHeight, Graphics2D graphics,
-                                  List<LineBox> lineBoxes, PositionedContext positionedContext) {
-        List<RenderBox> items = new ArrayList<>();
-        for (RenderNode child : container.children()) {
-            if (!(child instanceof RenderBox item)) {
-                continue;
-            }
-            if (item.style().position() == RenderStyle.Position.ABSOLUTE
-                    || item.style().position() == RenderStyle.Position.FIXED) {
-                positionedContext.requests.add(new AbsoluteRequest(item, contentX, contentY));
-            } else {
-                items.add(item);
-            }
-        }
-        if (items.isEmpty()) {
-            return new GridLayout(0, List.of());
-        }
-        RenderStyle style = container.style();
-        List<RenderStyle.GridTrack> columns = style.gridTemplateColumns();
-        List<RenderStyle.GridTrack> rows = style.gridTemplateRows();
-        boolean columnFlow = style.gridAutoFlow() == RenderStyle.GridAutoFlow.COLUMN
-                || style.gridAutoFlow() == RenderStyle.GridAutoFlow.COLUMN_DENSE;
-        int rowCapacity = rows.isEmpty() ? 1 : rows.size();
-        int requiredColumns = columnFlow
-                ? Math.max(1, (items.size() + rowCapacity - 1) / rowCapacity) : 1;
-        if (columns.isEmpty()) {
-            columns = implicitTracks(style.gridAutoColumns(), requiredColumns);
-        } else if (columnFlow && columns.size() < requiredColumns) {
-            List<RenderStyle.GridTrack> expanded = new ArrayList<>(columns);
-            expanded.addAll(implicitTracks(style.gridAutoColumns(), requiredColumns - columns.size()));
-            columns = List.copyOf(expanded);
-        }
-        if (rows.isEmpty() && columnFlow) {
-            rows = implicitTracks(style.gridAutoRows(), rowCapacity);
-        }
-        int columnCount = columns.size();
-        float columnGap = style.columnGapPx();
-        float rowGap = style.rowGapPx();
-        String[][] areas = style.gridTemplateAreas();
-
-        int rowsUsed = 0;
-        java.util.Set<String> occupied = new java.util.HashSet<>();
-        List<GridPlacement> placements = new ArrayList<>();
-        List<RenderBox> placed = new ArrayList<>();
-        for (RenderBox item : items) {
-            RenderStyle itemStyle = item.style();
-            RenderStyle.GridLine colStartLine = itemStyle.gridColumnStart();
-            RenderStyle.GridLine colEndLine = itemStyle.gridColumnEnd();
-            RenderStyle.GridLine rowStartLine = itemStyle.gridRowStart();
-            RenderStyle.GridLine rowEndLine = itemStyle.gridRowEnd();
-            int startCol = resolveGridLine(colStartLine, areas, false, false, columnCount);
-            int endCol = resolveGridLine(colEndLine, areas, false, true, columnCount);
-            int startRow = resolveGridLine(rowStartLine, areas, true, false, rowCapacity);
-            int endRow = resolveGridLine(rowEndLine, areas, true, true, rowCapacity);
-            int spanCol = colStartLine.span() > 0 ? colStartLine.span()
-                    : (colEndLine.span() > 0 ? colEndLine.span() : 1);
-            int spanRow = rowStartLine.span() > 0 ? rowStartLine.span()
-                    : (rowEndLine.span() > 0 ? rowEndLine.span() : 1);
-            if (startCol > 0 && endCol > 0) {
-                spanCol = Math.max(1, endCol - startCol);
-            }
-            if (startRow > 0 && endRow > 0) {
-                spanRow = Math.max(1, endRow - startRow);
-            }
-            if (startCol == 0 && endCol > 0) {
-                startCol = Math.max(1, endCol - spanCol);
-            }
-            if (startRow == 0 && endRow > 0) {
-                startRow = Math.max(1, endRow - spanRow);
-            }
-            if (startCol == 0 && startRow == 0) {
-                int[] slot = findFreeCell(occupied, columnCount, spanCol, spanRow, startRow,
-                        rowCapacity, columnFlow);
-                startRow = slot[0] + 1;
-                startCol = slot[1] + 1;
-            } else {
-                if (startCol == 0) {
-                    startCol = 1;
-                }
-                if (startRow == 0) {
-                    startRow = 1;
-                }
-            }
-            for (int r = startRow; r < startRow + spanRow; r++) {
-                for (int c = startCol; c < startCol + spanCol; c++) {
-                    occupied.add(r + ":" + c);
-                }
-            }
-            placements.add(new GridPlacement(startRow, startCol, spanRow, spanCol));
-            placed.add(item);
-            rowsUsed = Math.max(rowsUsed, startRow + spanRow - 1);
-        }
-        int rowCount = Math.max(rowsUsed, rows.isEmpty() ? rowsUsed : Math.max(rowsUsed, rows.size()));
-
-        float[] columnWidths = new float[columnCount];
-        float used = columnGap * Math.max(0, columnCount - 1);
-        float[] fractions = new float[columnCount];
-        float fractionSum = 0;
-        List<Integer> growable = new ArrayList<>();
-        for (int column = 0; column < columnCount; column++) {
-            RenderStyle.GridTrack track = columns.get(column);
-            columnWidths[column] = trackBase(track, contentWidth);
-            used += columnWidths[column];
-            float fraction = trackFraction(track);
-            if (fraction > 0) {
-                fractions[column] = fraction;
-                fractionSum += fraction;
-            } else if (track.type() == RenderStyle.GridTrack.Type.MINMAX) {
-                float maxPx = track.maxPercent()
-                        ? track.maxFixed() / 100f * contentWidth : track.maxFixed();
-                if (maxPx > columnWidths[column]) {
-                    growable.add(column);
-                }
-            }
-        }
-        float free = Math.max(0, contentWidth - used);
-        while (free > 0 && !growable.isEmpty()) {
-            float smallestHeadroom = Float.MAX_VALUE;
-            for (int column : growable) {
-                RenderStyle.GridTrack track = columns.get(column);
-                float maxPx = track.maxPercent()
-                        ? track.maxFixed() / 100f * contentWidth : track.maxFixed();
-                float headroom = maxPx - columnWidths[column];
-                if (headroom < smallestHeadroom) {
-                    smallestHeadroom = headroom;
-                }
-            }
-            if (smallestHeadroom <= 0) {
-                break;
-            }
-            float delta = Math.min(free / growable.size(), smallestHeadroom);
-            for (int column : growable) {
-                columnWidths[column] += delta;
-            }
-            free -= delta * growable.size();
-            List<RenderStyle.GridTrack> columnTracks = columns;
-            growable.removeIf(column -> {
-                RenderStyle.GridTrack track = columnTracks.get(column);
-                float maxPx = track.maxPercent()
-                        ? track.maxFixed() / 100f * contentWidth : track.maxFixed();
-                return columnWidths[column] >= maxPx - 0.001f;
-            });
-        }
-        for (int column = 0; column < columnCount; column++) {
-            if (fractions[column] > 0) {
-                columnWidths[column] = Math.max(columnWidths[column],
-                        fractions[column] / fractionSum * free);
-            }
-        }
-
-        float[] rowHeights = new float[rowCount];
-        for (int row = 0; row < rowCount; row++) {
-            rowHeights[row] = 0;
-        }
-        float[] provisional = new float[rowCount];
-        for (int index = 0; index < placed.size(); index++) {
-            RenderBox item = placed.get(index);
-            GridPlacement placement = placements.get(index);
-            float cellWidth = columnWidths[placement.column() - 1];
-            for (int c = 1; c < placement.columnSpan(); c++) {
-                cellWidth += columnWidths[placement.column() - 1 + c] + columnGap;
-            }
-            float itemWidth = Math.max(1, cellWidth - item.style().margin().horizontal());
-            float rowY = rowOffset(provisional, placement.row() - 1, rowGap, 0);
-            float x = columnOffset(columnWidths, placement.column() - 1, columnGap, contentX);
-            BlockLayout itemLayout = layoutBlock(item, x,
-                    contentY + rowY, itemWidth, null,
-                    false, graphics, lineBoxes, positionedContext);
-            float itemHeight = itemLayout.outerHeight();
-            for (int r = 0; r < placement.rowSpan(); r++) {
-                provisional[placement.row() - 1 + r] = Math.max(
-                        provisional[placement.row() - 1 + r], itemHeight);
-            }
-        }
-        float fixedRows = 0;
-        float rowFractionSum = 0;
-        float[] rowFractions = new float[rowCount];
-        for (int row = 0; row < rowCount; row++) {
-            if (row < rows.size()) {
-                RenderStyle.GridTrack track = rows.get(row);
-                float fraction = trackFraction(track);
-                if (fraction > 0) {
-                    rowFractions[row] = fraction;
-                    rowFractionSum += fraction;
-                } else if (track.type() == RenderStyle.GridTrack.Type.FIXED
-                        || track.type() == RenderStyle.GridTrack.Type.PERCENT) {
-                    rowHeights[row] = trackBase(track, contentHeight == null ? 0 : contentHeight);
-                    fixedRows += rowHeights[row];
-                } else {
-                    rowHeights[row] = provisional[row];
-                    fixedRows += rowHeights[row];
-                }
-            } else {
-                rowHeights[row] = provisional[row];
-                fixedRows += rowHeights[row];
-            }
-        }
-        float rowFree = contentHeight == null ? 0
-                : Math.max(0, contentHeight - fixedRows
-                        - rowGap * Math.max(0, rowCount - 1));
-        for (int row = 0; row < rowCount; row++) {
-            if (rowFractions[row] > 0) {
-                rowHeights[row] = rowFractions[row] / rowFractionSum * rowFree;
-            }
-        }
-
-        List<List<PaintFragment>> itemGroups = new ArrayList<>();
-        float totalHeight = rowGap * Math.max(0, rowCount - 1);
-        for (int row = 0; row < rowCount; row++) {
-            totalHeight += rowHeights[row];
-        }
-        for (int index = 0; index < placed.size(); index++) {
-            RenderBox item = placed.get(index);
-            GridPlacement placement = placements.get(index);
-            float cellWidth = columnWidths[placement.column() - 1];
-            for (int c = 1; c < placement.columnSpan(); c++) {
-                cellWidth += columnWidths[placement.column() - 1 + c] + columnGap;
-            }
-            float cellHeight = rowHeights[placement.row() - 1];
-            for (int r = 1; r < placement.rowSpan(); r++) {
-                cellHeight += rowHeights[placement.row() - 1 + r] + rowGap;
-            }
-            float x = columnOffset(columnWidths, placement.column() - 1, columnGap, contentX);
-            float y = rowOffset(rowHeights, placement.row() - 1, rowGap, contentY);
-            float itemWidth = Math.max(1, cellWidth - item.style().margin().horizontal());
-            boolean stretch = item.style().height().isAuto()
-                    && placement.rowSpan() == 1;
-            RenderBox itemToLayout = item;
-            if (stretch) {
-                itemToLayout = forceOuterHeight(item, cellHeight);
-            }
-            BlockLayout itemLayout = layoutBlock(itemToLayout, x,
-                    y, itemWidth, stretch ? cellHeight : null,
-                    false, graphics, lineBoxes, positionedContext);
-            itemGroups.add(itemLayout.fragments());
-        }
-        itemGroups.sort(java.util.Comparator.comparingInt(group -> fragmentZIndex(group.getFirst())));
-        List<PaintFragment> fragments = new ArrayList<>();
-        List<PaintFragment> elevated = new ArrayList<>();
-        for (List<PaintFragment> group : itemGroups) {
-            if (fragmentZIndex(group.getFirst()) > 0) {
-                elevated.addAll(group);
-            } else {
-                fragments.addAll(group);
-            }
-        }
-        return new GridLayout(contentHeight == null ? totalHeight
-                : Math.max(totalHeight, contentHeight), List.copyOf(fragments),
-                List.copyOf(elevated));
-    }
-
-    private static float trackBase(RenderStyle.GridTrack track, float contentWidth) {
-        return switch (track.type()) {
-            case FIXED -> track.fixed();
-            case PERCENT -> track.fixed() / 100f * contentWidth;
-            case MINMAX -> track.minPercent()
-                    ? track.minFixed() / 100f * contentWidth : track.minFixed();
-            default -> 0;
-        };
-    }
-
-    private static float trackFraction(RenderStyle.GridTrack track) {
-        if (track.type() == RenderStyle.GridTrack.Type.FRACTION) {
-            return track.fraction();
-        }
-        if (track.type() == RenderStyle.GridTrack.Type.MINMAX
-                && track.maxFixed() < 0) {
-            return -track.maxFixed();
-        }
-        return 0;
-    }
-
-    private static float columnOffset(float[] widths, int start, float gap, float origin) {
-        float offset = origin;
-        for (int column = 0; column < start; column++) {
-            offset += widths[column] + gap;
-        }
-        return offset;
-    }
-
-    private static float rowOffset(float[] heights, int start, float gap, float origin) {
-        float offset = origin;
-        for (int row = 0; row < start; row++) {
-            offset += heights[row] + gap;
-        }
-        return offset;
-    }
-
-    private static List<RenderStyle.GridTrack> implicitTracks(
-            List<RenderStyle.GridTrack> pattern, int count) {
-        RenderStyle.GridTrack fallback = new RenderStyle.GridTrack(
-                RenderStyle.GridTrack.Type.AUTO, 0, 0, 0, 0, false, false);
-        List<RenderStyle.GridTrack> source = pattern.isEmpty() ? List.of(fallback) : pattern;
-        List<RenderStyle.GridTrack> result = new ArrayList<>(count);
-        for (int index = 0; index < count; index++) {
-            result.add(source.get(index % source.size()));
-        }
-        return List.copyOf(result);
-    }
-
-    private static int[] findFreeCell(java.util.Set<String> occupied, int columnCount,
-                                      int spanCol, int spanRow, int startRow,
-                                      int rowCapacity, boolean columnFlow) {
-        int row = Math.max(0, startRow - 1);
-        if (columnFlow) {
-            for (int column = 0; column < columnCount; column++) {
-                for (int candidateRow = 0; candidateRow < rowCapacity; candidateRow++) {
-                    if (cellIsFree(occupied, candidateRow, column, spanCol, spanRow)) {
-                        return new int[] {candidateRow, column};
-                    }
-                }
-            }
-            return new int[] {0, columnCount};
-        }
-        while (true) {
-            for (int column = 0; column < columnCount; column++) {
-                if (cellIsFree(occupied, row, column, spanCol, spanRow)) {
-                    return new int[] {row, column};
-                }
-            }
-            row++;
-        }
-    }
-
-    private static boolean cellIsFree(java.util.Set<String> occupied,
-                                      int row, int column, int spanCol, int spanRow) {
-        for (int r = row; r < row + spanRow; r++) {
-            for (int c = column; c < column + spanCol; c++) {
-                if (occupied.contains((r + 1) + ":" + (c + 1))) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    private static int[] findArea(String[][] areas, String name) {
-        for (int row = 0; row < areas.length; row++) {
-            for (int column = 0; column < areas[row].length; column++) {
-                if (name.equals(areas[row][column])) {
-                    return new int[] {row, column};
-                }
-            }
-        }
-        return null;
-    }
-
-    private static int resolveGridLine(RenderStyle.GridLine line, String[][] areas,
-                                       boolean vertical, boolean endSide, int trackCount) {
-        if (line == null) {
-            return 0;
-        }
-        if (line.name() != null) {
-            return namedGridLine(line.name(), areas, vertical, endSide);
-        }
-        int value = line.line();
-        if (value > 0) {
-            return value;
-        }
-        if (value < 0) {
-            return Math.max(0, trackCount + value + 1);
-        }
-        return 0;
-    }
-
-    private static int namedGridLine(String name, String[][] areas,
-                                     boolean vertical, boolean endSide) {
-        if (areas == null) {
-            return 0;
-        }
-        int line = areaLineForName(name, areas, vertical, endSide);
-        if (line != 0) {
-            return line;
-        }
-        String implicit = endSide ? name + "-end" : name + "-start";
-        return areaLineForName(implicit, areas, vertical, endSide);
-    }
-
-    private static int areaLineForName(String name, String[][] areas,
-                                       boolean vertical, boolean endSide) {
-        for (int row = 0; row < areas.length; row++) {
-            for (int column = 0; column < areas[row].length; column++) {
-                if (!name.equals(areas[row][column])) {
-                    continue;
-                }
-                int[] extent = areaExtent(areas, row, column, name);
-                int start = vertical ? row + 1 : column + 1;
-                int end = vertical ? row + extent[0] + 1 : column + extent[1] + 1;
-                return endSide ? end : start;
-            }
-        }
-        return 0;
-    }
-
-    private static int[] areaExtent(String[][] areas, int row, int column, String name) {
-        int rows = 1;
-        int columns = 1;
-        while (row + rows < areas.length && areas[row + rows][column].equals(name)) {
-            rows++;
-        }
-        while (column + columns < areas[row].length && areas[row][column + columns].equals(name)) {
-            columns++;
-        }
-        return new int[] {rows, columns};
-    }
-
-    private FlexLayout layoutFlex(RenderBox container,
-                                  float contentX,
-                                  float contentY,
-                                  float contentWidth,
-                                  Float contentHeight,
-                                  Graphics2D graphics,
-                                  List<LineBox> lineBoxes,
-                                  PositionedContext positionedContext) {
-        List<RenderBox> items = new ArrayList<>();
-        for (RenderNode child : container.children()) {
-            if (!(child instanceof RenderBox item)) continue;
-            if (item.style().position() == RenderStyle.Position.ABSOLUTE
-                    || item.style().position() == RenderStyle.Position.FIXED) {
-                positionedContext.requests.add(new AbsoluteRequest(item, contentX, contentY));
-            } else {
-                items.add(item);
-            }
-        }
-        if (items.isEmpty()) return new FlexLayout(0, List.of());
-        items.sort(java.util.Comparator.comparingInt(item -> item.style().order()));
-        return switch (container.style().flexDirection()) {
-            case ROW, ROW_REVERSE -> layoutFlexRow(container.style(), items, contentX, contentY,
-                    contentWidth, contentHeight, graphics, lineBoxes);
-            case COLUMN, COLUMN_REVERSE -> layoutFlexColumn(container.style(), items,
-                    contentX, contentY, contentWidth, contentHeight, graphics, lineBoxes);
-        };
-    }
-
-    private FlexLayout layoutFlexRow(RenderStyle containerStyle,
-                                     List<RenderBox> items,
-                                     float contentX,
-                                     float contentY,
-                                     float contentWidth,
-                                     Float contentHeight,
-                                     Graphics2D graphics,
-                                     List<LineBox> lineBoxes) {
-        if (containerStyle.flexWrap() == RenderStyle.FlexWrap.NOWRAP) {
-            return layoutFlexRowLine(containerStyle, items, contentX, contentY,
-                    contentWidth, contentHeight, graphics, lineBoxes);
-        }
-        List<List<RenderBox>> rows = new ArrayList<>();
-        List<RenderBox> row = new ArrayList<>();
-        float used = 0;
-        for (RenderBox item : items) {
-            float basis = flexBaseOuterWidth(item, contentWidth, graphics);
-            float gap = row.isEmpty() ? 0 : containerStyle.columnGapPx();
-            if (!row.isEmpty() && used + gap + basis > contentWidth + 0.01f) {
-                rows.add(List.copyOf(row));
-                row.clear();
-                used = 0;
-                gap = 0;
-            }
-            row.add(item);
-            used += gap + basis;
-        }
-        if (!row.isEmpty()) rows.add(List.copyOf(row));
-        if (containerStyle.flexWrap() == RenderStyle.FlexWrap.WRAP_REVERSE) {
-            java.util.Collections.reverse(rows);
-        }
-        List<List<PaintFragment>> rowFragments = new ArrayList<>();
-        List<List<PaintFragment>> rowElevated = new ArrayList<>();
-        List<Float> rowHeights = new ArrayList<>();
-        for (List<RenderBox> flexRow : rows) {
-            FlexLayout layout = layoutFlexRowLine(containerStyle, flexRow, contentX,
-                    contentY, contentWidth, null, graphics, lineBoxes);
-            rowFragments.add(layout.fragments());
-            rowElevated.add(layout.elevated());
-            rowHeights.add(layout.height());
-        }
-        float rowGap = containerStyle.rowGapPx();
-        float usedHeight = 0;
-        for (Float rowHeight : rowHeights) {
-            usedHeight += rowHeight;
-        }
-        usedHeight += rowGap * Math.max(0, rowHeights.size() - 1);
-        float alignHeight = contentHeight == null
-                ? usedHeight : Math.max(usedHeight, contentHeight);
-        float free = Math.max(0, alignHeight - usedHeight);
-        float firstOffset = 0;
-        float extraGap = 0;
-        switch (containerStyle.alignContent()) {
-            case FLEX_END -> firstOffset = free;
-            case CENTER -> firstOffset = free / 2f;
-            case SPACE_BETWEEN -> {
-                if (rowHeights.size() > 1) {
-                    extraGap = free / (rowHeights.size() - 1);
-                }
-            }
-            case SPACE_AROUND -> {
-                if (!rowHeights.isEmpty()) {
-                    extraGap = free / rowHeights.size();
-                    firstOffset = extraGap / 2f;
-                }
-            }
-            case SPACE_EVENLY -> {
-                if (!rowHeights.isEmpty()) {
-                    extraGap = free / (rowHeights.size() + 1);
-                    firstOffset = extraGap;
-                }
-            }
-            default -> {
-            }
-        }
-        List<PaintFragment> fragments = new ArrayList<>();
-        List<PaintFragment> elevated = new ArrayList<>();
-        float cursor = firstOffset;
-        for (int index = 0; index < rowFragments.size(); index++) {
-            for (PaintFragment fragment : rowFragments.get(index)) {
-                fragments.add(translate(fragment, 0, cursor));
-            }
-            for (PaintFragment fragment : rowElevated.get(index)) {
-                elevated.add(translate(fragment, 0, cursor));
-            }
-            cursor += rowHeights.get(index) + rowGap + extraGap;
-        }
-        return new FlexLayout(alignHeight, List.copyOf(fragments), List.copyOf(elevated));
-    }
-
-    private FlexLayout layoutFlexRowLine(RenderStyle containerStyle,
-                                         List<RenderBox> items,
-                                         float contentX,
-                                         float contentY,
-                                         float contentWidth,
-                                         Float contentHeight,
-                                         Graphics2D graphics,
-                                         List<LineBox> lineBoxes) {
-        float[] widths = new float[items.size()];
-        float[] minimums = new float[items.size()];
-        float[] shrinkFactors = new float[items.size()];
-        float totalGrow = 0;
-        for (int index = 0; index < items.size(); index++) {
-            IntrinsicWidths intrinsic = intrinsicBoxWidth(items.get(index), contentWidth, graphics, false);
-            RenderStyle itemStyle = items.get(index).style();
-            widths[index] = flexBaseOuterWidth(itemStyle, intrinsic, contentWidth);
-            minimums[index] = flexMinimumOuterWidth(items.get(index), contentWidth, graphics);
-            shrinkFactors[index] = itemStyle.flexShrink();
-            totalGrow += itemStyle.flexGrow();
-        }
-        float declaredGaps = containerStyle.columnGapPx() * Math.max(0, items.size() - 1);
-        float availableForItems = Math.max(0, contentWidth - declaredGaps);
-        shrinkFlexSizes(widths, minimums, shrinkFactors, availableForItems);
-        float remaining = Math.max(0, availableForItems - sum(widths));
-        if (remaining > 0 && totalGrow > 0) {
-            for (int index = 0; index < widths.length; index++) {
-                widths[index] += remaining * items.get(index).style().flexGrow() / totalGrow;
-            }
-        }
-
-        List<FlexItemLayout> layouts = new ArrayList<>();
-        float crossSize = 0;
-        for (int index = 0; index < items.size(); index++) {
-            RenderBox sized = forceOuterWidth(items.get(index), widths[index]);
-            FlexItemLayout layout = layoutFlexItem(sized, widths[index], contentHeight, graphics);
-            layouts.add(layout);
-            crossSize = Math.max(crossSize, layout.layout().outerHeight());
-        }
-        float sharedBaseline = 0;
-        if (containerStyle.alignItems() == RenderStyle.AlignItems.BASELINE) {
-            for (FlexItemLayout layout : layouts) {
-                sharedBaseline = Math.max(sharedBaseline, flexItemBaseline(layout));
-            }
-            float baselineCrossSize = 0;
-            for (FlexItemLayout layout : layouts) {
-                baselineCrossSize = Math.max(baselineCrossSize, sharedBaseline
-                        + layout.layout().outerHeight() - flexItemBaseline(layout));
-            }
-            crossSize = Math.max(crossSize, baselineCrossSize);
-        }
-        if (contentHeight != null) crossSize = contentHeight;
-        if (containerStyle.alignItems() == RenderStyle.AlignItems.STRETCH) {
-            for (int index = 0; index < items.size(); index++) {
-                RenderStyle itemStyle = items.get(index).style();
-                if (effectiveAlignSelf(itemStyle, containerStyle)
-                        != RenderStyle.AlignSelf.STRETCH) continue;
-                if (!itemStyle.height().isAuto()) continue;
-                RenderBox sized = forceOuterHeight(
-                        forceOuterWidth(items.get(index), widths[index]), crossSize);
-                layouts.set(index, layoutFlexItem(sized, widths[index], crossSize, graphics));
-            }
-        }
-
-        AxisSpacing spacing = axisSpacing(containerStyle.justifyContent(),
-                Math.max(0, contentWidth - sum(widths) - declaredGaps), items.size());
-        boolean reverse = containerStyle.flexDirection() == RenderStyle.FlexDirection.ROW_REVERSE;
-        float cursor = reverse ? contentWidth - spacing.offset() : spacing.offset();
-        List<List<PaintFragment>> itemGroups = new ArrayList<>();
-        for (int index = 0; index < items.size(); index++) {
-            if (reverse) cursor -= widths[index];
-            FlexItemLayout item = layouts.get(index);
-            RenderStyle.AlignSelf alignment = effectiveAlignSelf(
-                    items.get(index).style(), containerStyle);
-            float crossOffset = alignment == RenderStyle.AlignSelf.BASELINE
-                    ? sharedBaseline - flexItemBaseline(item)
-                    : crossOffset(alignment, crossSize, item.layout().outerHeight());
-            List<PaintFragment> group = new ArrayList<>();
-            appendFlexItem(item, contentX + cursor, contentY + crossOffset,
-                    group, lineBoxes);
-            itemGroups.add(group);
-            float gap = containerStyle.columnGapPx() + spacing.gap();
-            if (reverse) cursor -= gap;
-            else cursor += widths[index] + gap;
-        }
-        return groupFlexItems(itemGroups, crossSize);
-    }
-
-    private FlexLayout groupFlexItems(List<List<PaintFragment>> itemGroups, float height) {
-        List<PaintFragment> fragments = new ArrayList<>();
-        List<PaintFragment> elevated = new ArrayList<>();
-        List<List<PaintFragment>> ordered = new ArrayList<>(itemGroups);
-        ordered.sort(java.util.Comparator.comparingInt(group -> fragmentZIndex(group.getFirst())));
-        for (List<PaintFragment> group : ordered) {
-            if (fragmentZIndex(group.getFirst()) > 0) {
-                elevated.addAll(group);
-            } else {
-                fragments.addAll(group);
-            }
-        }
-        return new FlexLayout(height, List.copyOf(fragments), List.copyOf(elevated));
-    }
-
-    private float flexBaseOuterWidth(RenderBox item,
-                                     float contentWidth,
-                                     Graphics2D graphics) {
-        return flexBaseOuterWidth(item.style(),
-                intrinsicBoxWidth(item, contentWidth, graphics, false), contentWidth);
-    }
-
-    private float flexBaseOuterWidth(RenderStyle style,
-                                     IntrinsicWidths intrinsic,
-                                     float percentageBase) {
-        RenderLength basis = style.flexBasis();
-        if (basis.isAuto()) {
-            return intrinsic.preferred();
-        }
-        if (basis.unit() == RenderLength.Unit.MIN_CONTENT) {
-            return intrinsic.minimum();
-        }
-        if (basis.unit() == RenderLength.Unit.MAX_CONTENT) {
-            return intrinsic.preferred();
-        }
-        return resolve(basis, percentageBase)
-                + style.margin().horizontal() + style.padding().horizontal()
-                + style.borderWidth().horizontal();
-    }
-
-    private float flexMinimumOuterWidth(RenderBox box,
-                                        float percentageBase,
-                                        Graphics2D graphics) {
-        RenderStyle style = box.style();
-        if (box.children().isEmpty() && !style.width().isAuto()) {
-            return intrinsicBoxWidth(box, percentageBase, graphics, false).minimum();
-        }
-        float boxDecoration = style.borderWidth().horizontal() + style.padding().horizontal();
-        float outerDecoration = style.margin().horizontal() + boxDecoration;
-        IntrinsicWidths content = intrinsicWidths(box.children(), percentageBase, graphics, false);
-        Float minConstraint = resolveBoxConstraint(
-                style, style.minWidth(), box, percentageBase, boxDecoration, graphics);
-        Float maxConstraint = resolveBoxConstraint(
-                style, style.maxWidth(), box, percentageBase, boxDecoration, graphics);
-        return constrain(content.minimum(), minConstraint, maxConstraint) + outerDecoration;
-    }
-
-    private static float flexItemBaseline(FlexItemLayout item) {
-        if (!item.lines().isEmpty()) return item.lines().getFirst().baseline();
-        return item.layout().outerHeight();
-    }
-
-    private FlexLayout layoutFlexColumn(RenderStyle containerStyle,
-                                        List<RenderBox> items,
-                                        float contentX,
-                                        float contentY,
-                                        float contentWidth,
-                                        Float contentHeight,
-                                        Graphics2D graphics,
-                                        List<LineBox> lineBoxes) {
-        List<FlexItemLayout> layouts = new ArrayList<>();
-        float[] heights = new float[items.size()];
-        float totalGrow = 0;
-        for (int index = 0; index < items.size(); index++) {
-            FlexItemLayout layout = layoutFlexItem(items.get(index), contentWidth,
-                    contentHeight, graphics);
-            layouts.add(layout);
-            heights[index] = layout.layout().outerHeight();
-            totalGrow += items.get(index).style().flexGrow();
-        }
-        float declaredGaps = containerStyle.rowGapPx() * Math.max(0, items.size() - 1);
-        float mainSize = contentHeight == null ? sum(heights) + declaredGaps : contentHeight;
-        float[] shrinkFactors = new float[heights.length];
-        for (int index = 0; index < shrinkFactors.length; index++) {
-            shrinkFactors[index] = items.get(index).style().flexShrink();
-        }
-        float availableForItems = Math.max(0, mainSize - declaredGaps);
-        shrinkFlexSizes(heights, new float[heights.length], shrinkFactors, availableForItems);
-        float remaining = Math.max(0, availableForItems - sum(heights));
-        if (remaining > 0 && totalGrow > 0) {
-            for (int index = 0; index < heights.length; index++) {
-                heights[index] += remaining * items.get(index).style().flexGrow() / totalGrow;
-            }
-        }
-        for (int index = 0; index < items.size(); index++) {
-            if (Math.abs(layouts.get(index).layout().outerHeight() - heights[index]) > 0.01f) {
-                layouts.set(index, layoutFlexItem(forceOuterHeight(items.get(index), heights[index]),
-                        contentWidth, heights[index], graphics));
-            }
-        }
-
-        AxisSpacing spacing = axisSpacing(containerStyle.justifyContent(),
-                Math.max(0, mainSize - sum(heights) - declaredGaps), items.size());
-        boolean reverse = containerStyle.flexDirection()
-                == RenderStyle.FlexDirection.COLUMN_REVERSE;
-        float cursor = reverse ? mainSize - spacing.offset() : spacing.offset();
-        List<List<PaintFragment>> itemGroups = new ArrayList<>();
-        for (int index = 0; index < items.size(); index++) {
-            if (reverse) cursor -= heights[index];
-            FlexItemLayout item = layouts.get(index);
-            BoxFragment root = (BoxFragment) item.layout().fragments().getFirst();
-            float outerWidth = root.width() + item.box().style().margin().horizontal();
-            float x = crossOffset(effectiveAlignSelf(items.get(index).style(), containerStyle),
-                    contentWidth, outerWidth);
-            List<PaintFragment> group = new ArrayList<>();
-            appendFlexItem(item, contentX + x, contentY + cursor, group, lineBoxes);
-            itemGroups.add(group);
-            float gap = containerStyle.rowGapPx() + spacing.gap();
-            if (reverse) cursor -= gap;
-            else cursor += heights[index] + gap;
-        }
-        return groupFlexItems(itemGroups, mainSize);
-    }
-
-    private FlexItemLayout layoutFlexItem(RenderBox box,
-                                          float availableWidth,
-                                          Float containingHeight,
-                                          Graphics2D graphics) {
-        List<LineBox> localLines = new ArrayList<>();
-        PositionedContext context = new PositionedContext();
-        BlockLayout layout = layoutBlock(box, 0, 0, Math.max(0, availableWidth),
-                containingHeight, false, graphics, localLines, context);
-        BoxFragment root = (BoxFragment) layout.fragments().getFirst();
-        context.setGeometry(root.x(), root.y(), root.width(), root.height());
-        List<PaintFragment> fragments = new ArrayList<>(layout.fragments());
-        fragments.addAll(layoutAbsoluteRequests(context, graphics, localLines));
-        return new FlexItemLayout(box,
-                new BlockLayout(layout.outerHeight(), List.copyOf(fragments)),
-                List.copyOf(localLines));
-    }
-
-    private static RenderBox forceOuterWidth(RenderBox box, float outerWidth) {
-        RenderStyle style = box.style();
-        float decoration = style.padding().horizontal() + style.borderWidth().horizontal();
-        float content = Math.max(0, outerWidth - style.margin().horizontal() - decoration);
-        float declared = style.boxSizing() == RenderStyle.BoxSizing.BORDER_BOX
-                ? content + decoration : content;
-        return new RenderBox(box.source(),
-                style.withWidth(new RenderLength(declared, RenderLength.Unit.PX)), box.children());
-    }
-
-    private static RenderBox forceOuterHeight(RenderBox box, float outerHeight) {
-        RenderStyle style = box.style();
-        float decoration = style.padding().vertical() + style.borderWidth().vertical();
-        float content = Math.max(0, outerHeight - style.margin().vertical() - decoration);
-        float declared = style.boxSizing() == RenderStyle.BoxSizing.BORDER_BOX
-                ? content + decoration : content;
-        return new RenderBox(box.source(),
-                style.withHeight(new RenderLength(declared, RenderLength.Unit.PX)), box.children());
-    }
-
-    private static void shrinkFlexSizes(float[] sizes, float[] minimums,
-                                        float[] factors, float available) {
-        float excess = sum(sizes) - available;
-        while (excess > 0.01f) {
-            float totalWeight = 0;
-            for (int index = 0; index < sizes.length; index++) {
-                if (factors[index] > 0 && sizes[index] > minimums[index] + 0.01f) {
-                    totalWeight += factors[index] * sizes[index];
-                }
-            }
-            if (totalWeight <= 0) return;
-            float removed = 0;
-            for (int index = 0; index < sizes.length; index++) {
-                if (factors[index] <= 0) continue;
-                float share = excess * factors[index] * sizes[index] / totalWeight;
-                float reduction = Math.min(share, sizes[index] - minimums[index]);
-                if (reduction > 0) {
-                    sizes[index] -= reduction;
-                    removed += reduction;
-                }
-            }
-            if (removed < 0.01f) return;
-            excess -= removed;
-        }
-    }
-
-    private static AxisSpacing axisSpacing(RenderStyle.JustifyContent justify,
-                                           float free,
-                                           int itemCount) {
-        return switch (justify) {
-            case CENTER -> new AxisSpacing(free / 2f, 0);
-            case FLEX_END -> new AxisSpacing(free, 0);
-            case SPACE_BETWEEN -> new AxisSpacing(0,
-                    itemCount > 1 ? free / (itemCount - 1) : 0);
-            case SPACE_AROUND -> {
-                float gap = itemCount > 0 ? free / itemCount : 0;
-                yield new AxisSpacing(gap / 2f, gap);
-            }
-            case SPACE_EVENLY -> {
-                float gap = free / (itemCount + 1);
-                yield new AxisSpacing(gap, gap);
-            }
-            default -> new AxisSpacing(0, 0);
-        };
-    }
-
-    private static RenderStyle.AlignSelf effectiveAlignSelf(RenderStyle itemStyle,
-                                                            RenderStyle containerStyle) {
-        return itemStyle.alignSelf() == RenderStyle.AlignSelf.AUTO
-                ? switch (containerStyle.alignItems()) {
-                    case FLEX_START -> RenderStyle.AlignSelf.FLEX_START;
-                    case CENTER -> RenderStyle.AlignSelf.CENTER;
-                    case FLEX_END -> RenderStyle.AlignSelf.FLEX_END;
-                    case BASELINE -> RenderStyle.AlignSelf.BASELINE;
-                    default -> RenderStyle.AlignSelf.STRETCH;
-                }
-                : itemStyle.alignSelf();
-    }
-
     static float textWidth(String text, FontMetrics metrics, float letterSpacingPx) {
         float base = metrics.stringWidth(text);
         return letterSpacingPx == 0 ? base : base + letterSpacingPx * Math.max(0, text.length() - 1);
-    }
-
-    private static float crossOffset(RenderStyle.AlignSelf align, float available, float used) {
-        float free = Math.max(0, available - used);
-        return switch (align) {
-            case CENTER -> free / 2f;
-            case FLEX_END -> free;
-            default -> 0;
-        };
-    }
-
-    private static void appendFlexItem(FlexItemLayout item,
-                                       float x,
-                                       float y,
-                                       List<PaintFragment> fragments,
-                                       List<LineBox> lineBoxes) {
-        item.layout().fragments().stream().map(fragment -> translate(fragment, x, y))
-                .forEach(fragments::add);
-        int first = lineBoxes.size();
-        lineBoxes.addAll(item.lines());
-        translateLines(lineBoxes, first, x, y);
-    }
-
-    private BlockLayout layoutTable(RenderBox table,
-                                    float containingX,
-                                    float y,
-                                    float availableWidth,
-                                    float percentageBase,
-                                    Float containingHeight,
-                                    Graphics2D graphics,
-                                    List<LineBox> lineBoxes,
-                                    PositionedContext positionedContext) {
-        RenderStyle style = table.style();
-        BoxEdges margin = style.margin();
-        BoxEdges padding = style.padding();
-        BoxEdges border = style.borderWidth();
-        float decoration = border.horizontal() + padding.horizontal();
-        float verticalDecoration = border.vertical() + padding.vertical();
-        float availableContentWidth = Math.max(1,
-                availableWidth - margin.horizontal() - decoration);
-        List<TableRow> rows = tableRows(table);
-        if (rows.isEmpty()) {
-            RenderBox anonymousTable = new RenderBox(table.source(),
-                    style.withDisplay(RenderStyle.Display.BLOCK), table.children());
-            return layoutBlock(anonymousTable, containingX, y, availableWidth,
-                    containingHeight, false, graphics, lineBoxes, positionedContext);
-        }
-        int columnCount = rows.stream().mapToInt(row -> row.cells().size()).max().orElse(0);
-        float[] preferred = new float[columnCount];
-        float[] minimum = new float[columnCount];
-        for (TableRow row : rows) {
-            for (int column = 0; column < row.cells().size(); column++) {
-                IntrinsicWidths intrinsic = intrinsicBoxWidth(
-                        row.cells().get(column), availableContentWidth, graphics, false);
-                preferred[column] = Math.max(preferred[column], intrinsic.preferred());
-                minimum[column] = Math.max(minimum[column], intrinsic.minimum());
-            }
-        }
-        float specifiedWidth = style.width().isAuto()
-                || style.width().unit() == RenderLength.Unit.MAX_CONTENT
-                || style.width().unit() == RenderLength.Unit.MIN_CONTENT
-                ? Float.NaN
-                : contentBoxDimension(style, resolve(style.width(), percentageBase), decoration);
-        float targetWidth = Float.isNaN(specifiedWidth)
-                ? Math.min(sum(preferred), availableContentWidth)
-                : Math.max(0, specifiedWidth);
-        targetWidth = Math.max(targetWidth, sum(minimum));
-        float[] columnWidths = fitColumns(preferred, minimum, targetWidth);
-        float contentWidth = sum(columnWidths);
-        float borderBoxWidth = contentWidth + decoration;
-        float freeWidth = Math.max(0,
-                availableWidth - borderBoxWidth - margin.horizontal());
-        float automaticLeft = style.autoMargins().left()
-                ? (style.autoMargins().right() ? freeWidth / 2f : freeWidth)
-                : 0;
-        float borderX = containingX + margin.left() + automaticLeft;
-        float borderY = y + margin.top();
-        float contentX = borderX + border.left() + padding.left();
-        float contentTop = borderY + border.top() + padding.top();
-        float currentY = contentTop;
-        float[] naturalRowHeights = new float[rows.size()];
-        List<List<List<PaintFragment>>> rowCellFragments = new ArrayList<>(rows.size());
-        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            TableRow row = rows.get(rowIndex);
-            List<List<PaintFragment>> cellFragments = new ArrayList<>();
-            float rowHeight = 0;
-            float cellX = contentX;
-            for (int column = 0; column < row.cells().size(); column++) {
-                RenderBox cell = row.cells().get(column);
-                BlockLayout cellLayout = layoutBlock(
-                        cell, cellX, currentY, columnWidths[column], containingHeight,
-                        false, graphics, lineBoxes, positionedContext);
-                cellFragments.add(new ArrayList<>(cellLayout.fragments()));
-                rowHeight = Math.max(rowHeight, cellLayout.outerHeight());
-                cellX += columnWidths[column];
-            }
-            naturalRowHeights[rowIndex] = rowHeight;
-            rowCellFragments.add(cellFragments);
-            currentY += rowHeight;
-        }
-        float naturalContentHeight = Math.max(0, currentY - contentTop);
-        float contentHeight = naturalContentHeight;
-        // CSS2.1 §17.5.3: 'height' auf der Tabelle = Mindesthöhe; der
-        // Überschuss wird proportional auf die Zeilen verteilt.
-        Float specifiedContentHeight = resolveContentHeight(
-                style, style.height(), containingHeight, verticalDecoration);
-        if (specifiedContentHeight != null) {
-            contentHeight = Math.max(contentHeight, specifiedContentHeight);
-        }
-        float extra = Math.max(0, contentHeight - naturalContentHeight);
-        float[] rowHeights = distributeRowHeight(extra, naturalRowHeights);
-        List<PaintFragment> children = new ArrayList<>();
-
-        currentY = contentTop;
-        RenderBox currentGroup = null;
-        float groupY = contentTop;
-        int groupInsertAt = -1;
-        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            TableRow row = rows.get(rowIndex);
-            if (row.group() != currentGroup) {
-                if (currentGroup != null) {
-                    children.set(groupInsertAt, new BoxFragment(
-                            currentGroup, contentX, groupY, contentWidth, currentY - groupY));
-                }
-                currentGroup = row.group();
-                groupY = currentY;
-                if (currentGroup != null) {
-                    groupInsertAt = children.size();
-                    children.add(null);
-                }
-            }
-            float rowHeight = rowHeights[rowIndex];
-            children.add(new BoxFragment(row.box(), contentX, currentY, contentWidth, rowHeight));
-            List<List<PaintFragment>> cellFragments = rowCellFragments.get(rowIndex);
-            for (int column = 0; column < cellFragments.size(); column++) {
-                List<PaintFragment> fragments = cellFragments.get(column);
-                BoxFragment cellRoot = (BoxFragment) fragments.getFirst();
-                fragments.set(0, new BoxFragment(cellRoot.box(), cellRoot.x(), cellRoot.y(),
-                        columnWidths[column], Math.max(cellRoot.height(), rowHeight),
-                        cellRoot.clip(), cellRoot.transform()));
-                children.addAll(fragments);
-            }
-            currentY += rowHeight;
-        }
-        if (currentGroup != null) {
-            children.set(groupInsertAt, new BoxFragment(
-                    currentGroup, contentX, groupY, contentWidth, currentY - groupY));
-        }
-        float borderBoxHeight = border.vertical() + padding.vertical() + contentHeight;
-        List<PaintFragment> fragments = new ArrayList<>(children.size() + 1);
-        fragments.add(new BoxFragment(table, borderX, borderY, borderBoxWidth, borderBoxHeight));
-        fragments.addAll(children);
-        return new BlockLayout(
-                margin.top() + borderBoxHeight + margin.bottom(), List.copyOf(fragments));
-    }
-
-    private static List<TableRow> tableRows(RenderBox table) {
-        List<TableRow> rows = new ArrayList<>();
-        collectTableRows(table.children(), null, rows);
-        return List.copyOf(rows);
-    }
-
-    private static void collectTableRows(List<RenderNode> nodes,
-                                         RenderBox group,
-                                         List<TableRow> rows) {
-        for (RenderNode node : nodes) {
-            if (!(node instanceof RenderBox box)) {
-                continue;
-            }
-            switch (box.style().display()) {
-                case TABLE_HEADER_GROUP, TABLE_ROW_GROUP, TABLE_FOOTER_GROUP ->
-                        collectTableRows(box.children(), box, rows);
-                case TABLE_ROW -> rows.add(new TableRow(box, group, box.children().stream()
-                        .filter(RenderBox.class::isInstance)
-                        .map(RenderBox.class::cast)
-                        .filter(cell -> cell.style().display() == RenderStyle.Display.TABLE_CELL)
-                        .toList()));
-                default -> { }
-            }
-        }
-    }
-
-    private static int fragmentZIndex(PaintFragment fragment) {
-        if (fragment instanceof BoxFragment box) {
-            return box.box().style().zIndex();
-        }
-        if (fragment instanceof InlineBoxFragment box) {
-            return box.box().style().zIndex();
-        }
-        return 0;
-    }
-
-    private static List<PaintFragment> mergeElevated(List<PaintFragment> elevated,
-                                                     List<PaintFragment> positioned) {
-        if (elevated.isEmpty()) {
-            return positioned;
-        }
-        if (positioned.isEmpty()) {
-            return elevated;
-        }
-        List<PaintFragment> merged = new ArrayList<>(elevated.size() + positioned.size());
-        int i = 0;
-        int j = 0;
-        while (i < elevated.size() && j < positioned.size()) {
-            if (fragmentZIndex(elevated.get(i)) <= fragmentZIndex(positioned.get(j))) {
-                merged.add(elevated.get(i++));
-            } else {
-                merged.add(positioned.get(j++));
-            }
-        }
-        while (i < elevated.size()) {
-            merged.add(elevated.get(i++));
-        }
-        while (j < positioned.size()) {
-            merged.add(positioned.get(j++));
-        }
-        return merged;
-    }
-
-    /**
-     * CSS2.1 §17.5.3: Die Tabellen-Extrahöhe (spezifizierte Höhe über der
-     * natürlichen Inhaltshöhe) wird proportional auf die Zeilen verteilt;
-     * bei ausschließlich leeren Zeilen bekommt die letzte den Überschuss.
-     */
-    private static float[] distributeRowHeight(float extra, float[] naturalRowHeights) {
-        float[] result = naturalRowHeights.clone();
-        if (extra <= 0 || result.length == 0) {
-            return result;
-        }
-        float total = sum(result);
-        if (total <= 0.01f) {
-            result[result.length - 1] += extra;
-            return result;
-        }
-        float distributed = 0;
-        for (int index = 0; index < result.length; index++) {
-            float share = extra * result[index] / total;
-            result[index] += share;
-            distributed += share;
-        }
-        result[result.length - 1] += extra - distributed;
-        return result;
-    }
-
-    private static float[] fitColumns(float[] preferred, float[] minimum, float targetWidth) {
-        float[] result = preferred.clone();
-        float preferredWidth = sum(result);
-        if (preferredWidth < targetWidth && result.length > 0) {
-            float extra = (targetWidth - preferredWidth) / result.length;
-            for (int index = 0; index < result.length; index++) result[index] += extra;
-            return result;
-        }
-        float excess = preferredWidth - targetWidth;
-        while (excess > 0.01f) {
-            int flexible = 0;
-            for (int index = 0; index < result.length; index++) {
-                if (result[index] > minimum[index] + 0.01f) flexible++;
-            }
-            if (flexible == 0) break;
-            float share = excess / flexible;
-            float removed = 0;
-            for (int index = 0; index < result.length; index++) {
-                float reduction = Math.min(share, result[index] - minimum[index]);
-                if (reduction > 0) {
-                    result[index] -= reduction;
-                    removed += reduction;
-                }
-            }
-            if (removed <= 0.01f) break;
-            excess -= removed;
-        }
-        return result;
-    }
-
-    private static float sum(float[] values) {
-        float result = 0;
-        for (float value : values) result += value;
-        return result;
-    }
-
-    private List<PaintFragment> layoutAbsoluteRequests(PositionedContext context,
-                                                        Graphics2D graphics,
-                                                        List<LineBox> lineBoxes) {
-        List<PaintFragment> result = new ArrayList<>();
-        for (AbsoluteRequest request : context.requests.stream()
-                .sorted(Comparator.comparingInt(request -> request.box().style().zIndex()))
-                .toList()) {
-            if (isHiddenScrollButton(request.box(), context)) {
-                continue;
-            }
-            RenderStyle style = request.box().style();
-            float left = style.left().isAuto() ? 0 : resolve(style.left(), context.width);
-            float right = style.right().isAuto() ? 0 : resolve(style.right(), context.width);
-            boolean stretchAutoWidth = style.width().isAuto()
-                    && !style.left().isAuto() && !style.right().isAuto();
-            float availableWidth = stretchAutoWidth
-                    ? Math.max(0, context.width - left - right)
-                    : context.width;
-            int firstLine = lineBoxes.size();
-            BlockLayout layout = layoutBlock(
-                    request.box(), context.x, context.y, availableWidth, context.height,
-                    style.width().isAuto() && !stretchAutoWidth,
-                    graphics, lineBoxes, context);
-            BoxFragment root = (BoxFragment) layout.fragments().getFirst();
-            float desiredX;
-            if (!style.left().isAuto()) {
-                desiredX = context.x + left + style.margin().left();
-            } else if (!style.right().isAuto()) {
-                desiredX = context.x + context.width - right
-                        - style.margin().right() - root.width();
-            } else {
-                desiredX = request.staticX() + style.margin().left();
-            }
-
-            float desiredY;
-            if (!style.top().isAuto()) {
-                desiredY = context.y + resolve(style.top(), context.height) + style.margin().top();
-            } else if (!style.bottom().isAuto()) {
-                desiredY = context.y + context.height - resolve(style.bottom(), context.height)
-                        - style.margin().bottom() - root.height();
-            } else {
-                desiredY = request.staticY() + style.margin().top();
-            }
-            float dx = desiredX - root.x();
-            float dy = desiredY - root.y();
-            layout.fragments().stream().map(fragment -> translate(fragment, dx, dy))
-                    .forEach(result::add);
-            translateLines(lineBoxes, firstLine, dx, dy);
-        }
-        return result;
-    }
-
-    private static float fragmentLeft(PaintFragment fragment) {
-        if (fragment instanceof InlineFragment inline) {
-            return inline.x();
-        }
-        if (fragment instanceof BoxFragment box) {
-            return box.x();
-        }
-        return Float.POSITIVE_INFINITY;
-    }
-
-    private static float fragmentRight(PaintFragment fragment) {
-        if (fragment instanceof InlineFragment inline) {
-            return inline.x() + inline.width();
-        }
-        if (fragment instanceof BoxFragment box) {
-            return box.x() + box.width();
-        }
-        return Float.NEGATIVE_INFINITY;
-    }
-
-    private boolean isHiddenScrollButton(RenderBox box, PositionedContext context) {
-        if (context.contentMaxRight == Float.NEGATIVE_INFINITY) {
-            return false;
-        }
-        var source = box.source();
-        if (source == null) {
-            return false;
-        }
-        String cssClass = source.getAttribute("class");
-        if (cssClass == null) {
-            return false;
-        }
-        boolean scrollLeft = cssClass.contains("scroll-left");
-        boolean scrollRight = cssClass.contains("scroll-right");
-        if (!scrollLeft && !scrollRight) {
-            return false;
-        }
-        float contentLeft = context.x;
-        float contentRight = context.x + context.width;
-        if (scrollLeft) {
-            return context.contentMinLeft >= contentLeft - 0.5f;
-        }
-        return context.contentMaxRight <= contentRight + 0.5f;
     }
 
     private float relativeHorizontalOffset(RenderStyle style, float containingWidth) {
@@ -1861,87 +692,7 @@ public final class RenderLayoutEngine {
         return 0;
     }
 
-    private static void translateLines(List<LineBox> lines, int first, float dx, float dy) {
-        if (dx == 0 && dy == 0) return;
-        for (int index = first; index < lines.size(); index++) {
-            LineBox line = lines.get(index);
-            List<InlineFragment> fragments = line.fragments().stream()
-                    .map(fragment -> (InlineFragment) translate(fragment, dx, dy))
-                    .toList();
-            lines.set(index, new LineBox(line.x() + dx, line.y() + dy, line.width(),
-                    line.height(), line.baseline() + dy, fragments));
-        }
-    }
-
-    static PaintFragment translate(PaintFragment fragment, float dx, float dy) {
-        if (fragment instanceof BoxFragment box) {
-            return new BoxFragment(box.box(), box.x() + dx, box.y() + dy,
-                    box.width(), box.height(), translate(box.clip(), dx, dy),
-                    box.transform());
-        }
-        if (fragment instanceof InlineBoxFragment box) {
-            return new InlineBoxFragment(box.box(), box.x() + dx, box.y() + dy,
-                    box.width(), box.height(), box.firstFragment(), box.lastFragment(),
-                    translate(box.clip(), dx, dy), box.transform());
-        }
-        if (fragment instanceof ImageFragment image) {
-            return new ImageFragment(image.image(), image.bitmap(), image.x() + dx,
-                    image.y() + dy, image.width(), image.height(),
-                    translate(image.clip(), dx, dy), image.transform());
-        }
-        TextFragment text = (TextFragment) fragment;
-        return new TextFragment(text.text(), text.x() + dx, text.width(),
-                text.baseline() + dy, text.top() + dy, text.height(), text.font(),
-                text.color(), text.underline(), text.lineThrough(),
-                text.decorationColor(), text.opacity(), text.letterSpacingPx(),
-                text.ellipsis(),
-                translate(text.clip(), dx, dy), text.transform(), text.shadow(),
-                text.visible());
-    }
-
-    private static PaintFragment withTransform(PaintFragment fragment,
-                                               java.awt.geom.AffineTransform transform) {
-        if (fragment instanceof BoxFragment box) {
-            return new BoxFragment(box.box(), box.x(), box.y(), box.width(), box.height(),
-                    box.clip(), compose(box.transform(), transform));
-        }
-        if (fragment instanceof InlineBoxFragment box) {
-            return new InlineBoxFragment(box.box(), box.x(), box.y(), box.width(),
-                    box.height(), box.firstFragment(), box.lastFragment(), box.clip(),
-                    compose(box.transform(), transform));
-        }
-        if (fragment instanceof ImageFragment image) {
-            return new ImageFragment(image.image(), image.bitmap(), image.x(), image.y(),
-                    image.width(), image.height(), image.clip(),
-                    compose(image.transform(), transform));
-        }
-        TextFragment text = (TextFragment) fragment;
-        return new TextFragment(text.text(), text.x(), text.width(), text.baseline(),
-                text.top(), text.height(), text.font(), text.color(), text.underline(),
-                text.lineThrough(), text.decorationColor(), text.opacity(),
-                text.letterSpacingPx(), text.ellipsis(), text.clip(),
-                compose(text.transform(), transform), text.shadow(), text.visible());
-    }
-
-    private static java.awt.geom.AffineTransform compose(
-            java.awt.geom.AffineTransform inner, java.awt.geom.AffineTransform outer) {
-        if (inner == null) {
-            return outer;
-        }
-        if (outer == null) {
-            return inner;
-        }
-        java.awt.geom.AffineTransform composed = new java.awt.geom.AffineTransform(outer);
-        composed.concatenate(inner);
-        return composed;
-    }
-
-    static ClipRect translate(ClipRect clip, float dx, float dy) {
-        return clip == null ? null
-                : new ClipRect(clip.x() + dx, clip.y() + dy, clip.width(), clip.height());
-    }
-
-    private static float constrain(float value, Float minimum, Float maximum) {
+    static float constrain(float value, Float minimum, Float maximum) {
         float result = Math.max(0, value);
         if (maximum != null) {
             result = Math.min(result, maximum);
@@ -2005,9 +756,9 @@ public final class RenderLayoutEngine {
         return resolved == null ? null : contentBoxDimension(style, resolved, decoration);
     }
 
-    private static float contentBoxDimension(RenderStyle style,
-                                             float specifiedDimension,
-                                             float decoration) {
+    static float contentBoxDimension(RenderStyle style,
+                                     float specifiedDimension,
+                                     float decoration) {
         return Math.max(0, specifiedDimension
                 - (style.boxSizing() == RenderStyle.BoxSizing.BORDER_BOX ? decoration : 0));
     }
@@ -2275,38 +1026,6 @@ public final class RenderLayoutEngine {
         return new IntrinsicWidths(0, 0);
     }
 
-    private static PaintFragment withClip(PaintFragment fragment, ClipRect clip) {
-        ClipRect effective = intersect(fragment.clip(), clip);
-        if (fragment instanceof BoxFragment box) {
-            return new BoxFragment(box.box(), box.x(), box.y(), box.width(), box.height(),
-                    effective, box.transform());
-        }
-        if (fragment instanceof InlineBoxFragment box) {
-            return new InlineBoxFragment(box.box(), box.x(), box.y(), box.width(), box.height(),
-                    box.firstFragment(), box.lastFragment(), effective, box.transform());
-        }
-        if (fragment instanceof ImageFragment image) {
-            return new ImageFragment(image.image(), image.bitmap(), image.x(), image.y(),
-                    image.width(), image.height(), effective, image.transform());
-        }
-        TextFragment text = (TextFragment) fragment;
-        return new TextFragment(text.text(), text.x(), text.width(), text.baseline(), text.top(),
-                text.height(), text.font(), text.color(), text.underline(), text.lineThrough(),
-                text.decorationColor(), text.opacity(), text.letterSpacingPx(),
-                text.ellipsis(), effective, text.transform(), text.shadow(), text.visible());
-    }
-
-    private static ClipRect intersect(ClipRect first, ClipRect second) {
-        if (first == null) {
-            return second;
-        }
-        float left = Math.max(first.x(), second.x());
-        float top = Math.max(first.y(), second.y());
-        float right = Math.min(first.x() + first.width(), second.x() + second.width());
-        float bottom = Math.min(first.y() + first.height(), second.y() + second.height());
-        return new ClipRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
-    }
-
     private Font fontFor(RenderStyle style) {
         int awtStyle = Font.PLAIN;
         if (style.bold()) awtStyle |= Font.BOLD;
@@ -2337,7 +1056,7 @@ public final class RenderLayoutEngine {
         atomicContainingBlock.setGeometry(0, 0, width, block.outerHeight());
         List<PaintFragment> atomicFragments = new ArrayList<>(block.fragments());
         atomicFragments.addAll(
-                layoutAbsoluteRequests(atomicContainingBlock, graphics, atomicLines));
+                positionedLayout.layoutAbsoluteRequests(atomicContainingBlock, graphics, atomicLines));
         block = new BlockLayout(block.outerHeight(), List.copyOf(atomicFragments));
         BoxFragment root = (BoxFragment) block.fragments().getFirst();
         float atomicWidth = inlineBlock.box().style().margin().left()
@@ -2385,8 +1104,11 @@ public final class RenderLayoutEngine {
 
     public interface PaintFragment {
         float top();
+
         float bottom();
+
         ClipRect clip();
+
         default java.awt.geom.AffineTransform transform() {
             return null;
         }
@@ -2397,6 +1119,7 @@ public final class RenderLayoutEngine {
 
     public interface InlineFragment extends PaintFragment {
         float x();
+
         float width();
     }
 
@@ -2406,8 +1129,16 @@ public final class RenderLayoutEngine {
         public BoxFragment(RenderBox box, float x, float y, float width, float height) {
             this(box, x, y, width, height, null, null);
         }
-        @Override public float top() { return y; }
-        @Override public float bottom() { return y + height; }
+
+        @Override
+        public float top() {
+            return y;
+        }
+
+        @Override
+        public float bottom() {
+            return y + height;
+        }
     }
 
     public record InlineBoxFragment(RenderInlineBox box,
@@ -2423,8 +1154,16 @@ public final class RenderLayoutEngine {
                                  float height, boolean firstFragment, boolean lastFragment) {
             this(box, x, y, width, height, firstFragment, lastFragment, null, null);
         }
-        @Override public float top() { return y; }
-        @Override public float bottom() { return y + height; }
+
+        @Override
+        public float top() {
+            return y;
+        }
+
+        @Override
+        public float bottom() {
+            return y + height;
+        }
     }
 
     public record TextFragment(String text,
@@ -2451,6 +1190,7 @@ public final class RenderLayoutEngine {
             this(text, x, width, baseline, top, height, font, color, underline, lineThrough,
                     decorationColor, opacity, 0, false, null, null, null, true);
         }
+
         public TextFragment(String text, float x, float width, float baseline, float top,
                             float height, Font font, CssColor color, boolean underline,
                             boolean lineThrough, CssColor decorationColor, float opacity,
@@ -2458,7 +1198,11 @@ public final class RenderLayoutEngine {
             this(text, x, width, baseline, top, height, font, color, underline, lineThrough,
                     decorationColor, opacity, letterSpacingPx, ellipsis, null, null, null, true);
         }
-        @Override public float bottom() { return top + height; }
+
+        @Override
+        public float bottom() {
+            return top + height;
+        }
     }
 
     public record ImageFragment(RenderImage image,
@@ -2473,8 +1217,16 @@ public final class RenderLayoutEngine {
                              float width, float height) {
             this(image, bitmap, x, y, width, height, null, null);
         }
-        @Override public float top() { return y; }
-        @Override public float bottom() { return y + height; }
+
+        @Override
+        public float top() {
+            return y;
+        }
+
+        @Override
+        public float bottom() {
+            return y + height;
+        }
     }
 
     public record LineBox(float x,
@@ -2491,50 +1243,7 @@ public final class RenderLayoutEngine {
     record BlockLayout(float outerHeight, List<PaintFragment> fragments) {
     }
 
-    private record FlexLayout(float height, List<PaintFragment> fragments,
-                              List<PaintFragment> elevated) {
-        private FlexLayout(float height, List<PaintFragment> fragments) {
-            this(height, fragments, List.of());
-        }
-    }
-
-    private record FlexItemLayout(RenderBox box,
-                                  BlockLayout layout,
-                                  List<LineBox> lines) {
-    }
-
-    private record AxisSpacing(float offset, float gap) {
-    }
-
-    private record AbsoluteRequest(RenderBox box, float staticX, float staticY) {
-    }
-
-    private static final class PositionedContext {
-        private final List<AbsoluteRequest> requests = new ArrayList<>();
-        private float x;
-        private float y;
-        private float width;
-        private float height;
-        private float contentMinLeft = Float.POSITIVE_INFINITY;
-        private float contentMaxRight = Float.NEGATIVE_INFINITY;
-
-        void setGeometry(float x, float y, float width, float height) {
-            this.x = x;
-            this.y = y;
-            this.width = width;
-            this.height = height;
-        }
-
-        void setContentExtent(float contentMinLeft, float contentMaxRight) {
-            this.contentMinLeft = contentMinLeft;
-            this.contentMaxRight = contentMaxRight;
-        }
-    }
-
-    private record IntrinsicWidths(float preferred, float minimum) {
-    }
-
-    private record TableRow(RenderBox box, RenderBox group, List<RenderBox> cells) {
+    record IntrinsicWidths(float preferred, float minimum) {
     }
 
 }
