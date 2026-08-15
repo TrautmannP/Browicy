@@ -22,6 +22,8 @@ final class PseudoElementSupport {
                 || name.equals("first-letter") || name.equals("first-line")
                 || name.equals("placeholder") || name.equals("selection")
                 || name.equals("-moz-selection") || name.equals("backdrop")
+                || name.equals("-webkit-input-placeholder")
+                || name.equals("-moz-placeholder")
                 || name.equals("-webkit-scrollbar")
                 || name.equals("-webkit-scrollbar-thumb")
                 || name.equals("-webkit-scrollbar-track")

@@ -192,6 +192,12 @@ final class JsDocument implements ProxyObject, JsNodeLike {
         return wrap(styleSheets.ensureStyleSheet(ownerNode, ownerNode.getTextContent()));
     }
 
+    /** Registriert/aktualisiert das Stylesheet eines {@code <style>}-Elements. */
+    void styleSheetContentChanged(Element ownerNode) {
+        styleSheets.updateStyleSheet(ownerNode, ownerNode.getTextContent());
+        styleSheetMutationCallback.run();
+    }
+
     private JsCssStyleSheet wrap(CssStyleSheet sheet) {
         return styleSheetWrappers.computeIfAbsent(sheet,
                 value -> new JsCssStyleSheet(value, this, styleSheetMutationCallback));

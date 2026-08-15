@@ -123,7 +123,8 @@ public final class SelectorParser {
                     if (position + 1 < source.length() && source.charAt(position + 1) == ':') {
                         if (pseudoElement != null) throw error();
                         position += 2;
-                        pseudoElement = readIdentifier().toLowerCase(java.util.Locale.ROOT);
+                        pseudoElement = normalizePseudoElementName(
+                                readIdentifier().toLowerCase(java.util.Locale.ROOT));
                         if (!isPseudoElementName(pseudoElement)) {
                             throw error();
                         }
@@ -133,7 +134,8 @@ public final class SelectorParser {
                     } else {
                         int start = position;
                         position++;
-                        String name = readIdentifier().toLowerCase(java.util.Locale.ROOT);
+                        String name = normalizePseudoElementName(
+                                readIdentifier().toLowerCase(java.util.Locale.ROOT));
                         if (isPseudoElementName(name)) {
                             if (pseudoElement != null) throw error();
                             pseudoElement = name;
@@ -227,11 +229,8 @@ public final class SelectorParser {
                     break;
                 }
                 if (value == '\\') {
-                    position++;
-                    if (atEnd()) {
-                        throw error();
-                    }
-                    value = peek();
+                    result.appendCodePoint(decodeEscape());
+                    continue;
                 }
                 result.append(value);
                 position++;
@@ -249,19 +248,55 @@ public final class SelectorParser {
             char quote = source.charAt(position++);
             StringBuilder result = new StringBuilder();
             while (!atEnd()) {
-                char value = source.charAt(position++);
+                char value = source.charAt(position);
                 if (value == quote) {
+                    position++;
                     return result.toString();
                 }
                 if (value == '\\') {
-                    if (atEnd()) {
-                        throw error();
-                    }
-                    value = source.charAt(position++);
+                    result.appendCodePoint(decodeEscape());
+                } else {
+                    result.append(value);
+                    position++;
                 }
-                result.append(value);
             }
             throw error();
+        }
+
+        /**
+         * Dekodiert eine CSS-Escape-Sequenz an der aktuellen Position (die auf den
+         * Backslash zeigt): {@code \HHHHHH } (1-6 Hex-Ziffern, optional durch ein
+         * Leerzeichen abgeschlossen) oder {@code \x} für ein einzelnes Zeichen.
+         * Ungültige Code Points werden wie in css-syntax zu U+FFFD.
+         */
+        private int decodeEscape() {
+            if (atEnd() || peek() != '\\') {
+                throw error();
+            }
+            position++;
+            if (atEnd()) {
+                throw error();
+            }
+            char first = peek();
+            if (!isHexDigit(first)) {
+                position++;
+                return first;
+            }
+            int codePoint = 0;
+            int digits = 0;
+            while (digits < 6 && !atEnd() && isHexDigit(peek())) {
+                codePoint = codePoint * 16 + Character.digit(peek(), 16);
+                position++;
+                digits++;
+            }
+            if (!atEnd() && Character.isWhitespace(peek())) {
+                position++;
+            }
+            if (codePoint == 0 || codePoint > 0x10FFFF
+                    || (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
+                return 0xFFFD;
+            }
+            return codePoint;
         }
 
         private void parsePseudoClass(List<StructuralPseudoClass> pseudoClasses,
@@ -488,9 +523,8 @@ public final class SelectorParser {
             StringBuilder result = new StringBuilder();
             while (!atEnd()) {
                 char current = peek();
-                if (current == '\\' && position + 1 < source.length()) {
-                    position += 2;
-                    result.append(source.charAt(position - 1));
+                if (current == '\\') {
+                    result.appendCodePoint(decodeEscape());
                 } else if (isIdentifierPart(current)) {
                     position++;
                     result.append(current);
@@ -533,6 +567,20 @@ public final class SelectorParser {
 
         private static boolean isTypeStart(char value) {
             return Character.isLetter(value) || value == '_';
+        }
+
+        private static boolean isHexDigit(char value) {
+            return value >= '0' && value <= '9'
+                    || value >= 'a' && value <= 'f'
+                    || value >= 'A' && value <= 'F';
+        }
+
+        /** Vendor-Aliase auf die standardisierten Pseudo-Element-Namen abbilden. */
+        private static String normalizePseudoElementName(String name) {
+            return switch (name) {
+                case "-webkit-input-placeholder", "-moz-placeholder" -> "placeholder";
+                default -> name;
+            };
         }
 
         private static boolean isIdentifierStart(char value) {

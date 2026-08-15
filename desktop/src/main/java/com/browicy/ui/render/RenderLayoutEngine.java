@@ -141,7 +141,7 @@ public final class RenderLayoutEngine {
             contentBoxWidth = shrinkToFitWidth(box, availableContentWidth, graphics);
         } else if (style.width().unit() == RenderLength.Unit.MIN_CONTENT) {
             contentBoxWidth = Math.max(1,
-                    intrinsicWidths(box.children(), availableContentWidth, graphics).minimum());
+                    intrinsicWidths(box.children(), availableContentWidth, graphics, false).minimum());
         } else {
             contentBoxWidth = contentBoxDimension(
                     style, resolve(style.width(), availableWidth), horizontalDecoration);
@@ -302,7 +302,7 @@ public final class RenderLayoutEngine {
         for (RenderNode child : box.children()) {
             if (child instanceof RenderBox childBox) {
                 float inlineMinimum = floats.isEmpty() || inlineBuffer.isEmpty()
-                        ? 0 : intrinsicWidths(inlineBuffer, contentWidth, graphics).minimum();
+                        ? 0 : intrinsicWidths(inlineBuffer, contentWidth, graphics, false).minimum();
                 currentY = dropBelowFloatsIfNarrow(
                         floats, contentX, contentWidth, currentY, inlineMinimum);
                 FloatArea inlineArea = floatArea(floats, contentX, contentWidth, currentY);
@@ -320,7 +320,7 @@ public final class RenderLayoutEngine {
                 currentY = clearedY(floats, currentY, childBox.style().clear());
                 FloatArea blockArea = floatArea(floats, contentX, contentWidth, currentY);
                 float blockMinimum = floats.isEmpty() ? 0
-                        : intrinsicBoxWidth(childBox, contentWidth, graphics).minimum();
+                        : intrinsicBoxWidth(childBox, contentWidth, graphics, false).minimum();
                 if (blockArea.width() < Math.max(1, blockMinimum)) {
                     currentY = clearedY(floats, currentY, RenderStyle.Clear.BOTH);
                     blockArea = floatArea(floats, contentX, contentWidth, currentY);
@@ -369,7 +369,7 @@ public final class RenderLayoutEngine {
         }
         FloatArea finalArea = floatArea(floats, contentX, contentWidth, currentY);
         float finalMinimum = floats.isEmpty() || inlineBuffer.isEmpty()
-                ? 0 : intrinsicWidths(inlineBuffer, contentWidth, graphics).minimum();
+                ? 0 : intrinsicWidths(inlineBuffer, contentWidth, graphics, false).minimum();
         if (finalArea.width() < Math.max(1, finalMinimum)) {
             currentY = clearedY(floats, currentY, RenderStyle.Clear.BOTH);
             finalArea = floatArea(floats, contentX, contentWidth, currentY);
@@ -377,7 +377,16 @@ public final class RenderLayoutEngine {
         currentY += flushInline(inlineBuffer, finalArea.x(), currentY, finalArea.width(),
                 childContainingHeight, box.style().textAlign(), graphics, childFragments,
                 lineBoxes);
-        return Math.max(0, currentY - contentY);
+        float contentHeight = Math.max(0, currentY - contentY);
+        if (box.style().overflow() != RenderStyle.Overflow.VISIBLE) {
+            // overflow != visible etabliert eine BFC: die Höhe schließt
+            // enthaltene Floats ein (CSS 2.1 §9.4.7 / 10.6.7).
+            for (FloatRegion region : floats) {
+                contentHeight = Math.max(contentHeight,
+                        region.y() + region.height() - contentY);
+            }
+        }
+        return contentHeight;
     }
 
     private static boolean collapsesWithChildren(RenderStyle style) {
@@ -557,20 +566,59 @@ public final class RenderLayoutEngine {
         float used = columnGap * Math.max(0, columnCount - 1);
         float[] fractions = new float[columnCount];
         float fractionSum = 0;
+        List<Integer> growable = new ArrayList<>();
         for (int column = 0; column < columnCount; column++) {
-            columnWidths[column] = trackBase(columns.get(column), contentWidth);
-            float fraction = trackFraction(columns.get(column));
+            RenderStyle.GridTrack track = columns.get(column);
+            columnWidths[column] = trackBase(track, contentWidth);
+            used += columnWidths[column];
+            float fraction = trackFraction(track);
             if (fraction > 0) {
                 fractions[column] = fraction;
                 fractionSum += fraction;
-            } else {
-                used += columnWidths[column];
+            } else if (track.type() == RenderStyle.GridTrack.Type.MINMAX) {
+                float maxPx = track.maxPercent()
+                        ? track.maxFixed() / 100f * contentWidth : track.maxFixed();
+                if (maxPx > columnWidths[column]) {
+                    growable.add(column);
+                }
             }
         }
+        // Maximize (css-grid §12.5 Schritt 3): freien Platz gleichmäßig an
+        // Tracks mit endlichem Wachstumslimit verteilen, am Limit einfrieren.
+        // Tracks mit flexiblem Maximum (fr) nehmen daran nicht teil.
         float free = Math.max(0, contentWidth - used);
+        while (free > 0 && !growable.isEmpty()) {
+            float smallestHeadroom = Float.MAX_VALUE;
+            for (int column : growable) {
+                RenderStyle.GridTrack track = columns.get(column);
+                float maxPx = track.maxPercent()
+                        ? track.maxFixed() / 100f * contentWidth : track.maxFixed();
+                float headroom = maxPx - columnWidths[column];
+                if (headroom < smallestHeadroom) {
+                    smallestHeadroom = headroom;
+                }
+            }
+            if (smallestHeadroom <= 0) {
+                break;
+            }
+            float delta = Math.min(free / growable.size(), smallestHeadroom);
+            for (int column : growable) {
+                columnWidths[column] += delta;
+            }
+            free -= delta * growable.size();
+            List<RenderStyle.GridTrack> columnTracks = columns;
+            growable.removeIf(column -> {
+                RenderStyle.GridTrack track = columnTracks.get(column);
+                float maxPx = track.maxPercent()
+                        ? track.maxFixed() / 100f * contentWidth : track.maxFixed();
+                return columnWidths[column] >= maxPx - 0.001f;
+            });
+        }
+        // Expand Flexible Tracks (css-grid §12.5 Schritt 6)
         for (int column = 0; column < columnCount; column++) {
             if (fractions[column] > 0) {
-                columnWidths[column] = fractions[column] / fractionSum * free;
+                columnWidths[column] = Math.max(columnWidths[column],
+                        fractions[column] / fractionSum * free);
             }
         }
 
@@ -969,7 +1017,7 @@ public final class RenderLayoutEngine {
         float[] shrinkFactors = new float[items.size()];
         float totalGrow = 0;
         for (int index = 0; index < items.size(); index++) {
-            IntrinsicWidths intrinsic = intrinsicBoxWidth(items.get(index), contentWidth, graphics);
+            IntrinsicWidths intrinsic = intrinsicBoxWidth(items.get(index), contentWidth, graphics, false);
             RenderStyle itemStyle = items.get(index).style();
             widths[index] = flexBaseOuterWidth(itemStyle, intrinsic, contentWidth);
             minimums[index] = flexMinimumOuterWidth(items.get(index), contentWidth, graphics);
@@ -1062,7 +1110,7 @@ public final class RenderLayoutEngine {
                                      float contentWidth,
                                      Graphics2D graphics) {
         return flexBaseOuterWidth(item.style(),
-                intrinsicBoxWidth(item, contentWidth, graphics), contentWidth);
+                intrinsicBoxWidth(item, contentWidth, graphics, false), contentWidth);
     }
 
     private float flexBaseOuterWidth(RenderStyle style,
@@ -1088,11 +1136,11 @@ public final class RenderLayoutEngine {
                                         Graphics2D graphics) {
         RenderStyle style = box.style();
         if (box.children().isEmpty() && !style.width().isAuto()) {
-            return intrinsicBoxWidth(box, percentageBase, graphics).minimum();
+            return intrinsicBoxWidth(box, percentageBase, graphics, false).minimum();
         }
         float boxDecoration = style.borderWidth().horizontal() + style.padding().horizontal();
         float outerDecoration = style.margin().horizontal() + boxDecoration;
-        IntrinsicWidths content = intrinsicWidths(box.children(), percentageBase, graphics);
+        IntrinsicWidths content = intrinsicWidths(box.children(), percentageBase, graphics, false);
         Float minConstraint = resolveBoxConstraint(
                 style, style.minWidth(), box, percentageBase, boxDecoration, graphics);
         Float maxConstraint = resolveBoxConstraint(
@@ -1366,7 +1414,7 @@ public final class RenderLayoutEngine {
         for (TableRow row : rows) {
             for (int column = 0; column < row.cells().size(); column++) {
                 IntrinsicWidths intrinsic = intrinsicBoxWidth(
-                        row.cells().get(column), availableContentWidth, graphics);
+                        row.cells().get(column), availableContentWidth, graphics, false);
                 preferred[column] = Math.max(preferred[column], intrinsic.preferred());
                 minimum[column] = Math.max(minimum[column], intrinsic.minimum());
             }
@@ -1771,7 +1819,7 @@ public final class RenderLayoutEngine {
         }
         if (length.unit() == RenderLength.Unit.MAX_CONTENT
                 || length.unit() == RenderLength.Unit.MIN_CONTENT) {
-            IntrinsicWidths intrinsic = intrinsicWidths(box.children(), percentageBase, graphics);
+            IntrinsicWidths intrinsic = intrinsicWidths(box.children(), percentageBase, graphics, false);
             float contentWidth = length.unit() == RenderLength.Unit.MAX_CONTENT
                     ? intrinsic.preferred() : intrinsic.minimum();
             return contentBoxDimension(style, contentWidth, decoration);
@@ -1907,14 +1955,16 @@ public final class RenderLayoutEngine {
     private float shrinkToFitWidth(RenderBox box,
                                    float availableContentWidth,
                                    Graphics2D graphics) {
-        IntrinsicWidths intrinsic = intrinsicWidths(box.children(), availableContentWidth, graphics);
+        IntrinsicWidths intrinsic = intrinsicWidths(
+                box.children(), availableContentWidth, graphics, true);
         return Math.min(Math.max(intrinsic.minimum(), availableContentWidth),
                 intrinsic.preferred());
     }
 
     private IntrinsicWidths intrinsicWidths(List<RenderNode> nodes,
                                             float percentageBase,
-                                            Graphics2D graphics) {
+                                            Graphics2D graphics,
+                                            boolean contentBased) {
         float preferred = 0;
         float minimum = 0;
         float inlinePreferred = 0;
@@ -1925,11 +1975,13 @@ public final class RenderLayoutEngine {
                 minimum = Math.max(minimum, inlineMinimum);
                 inlinePreferred = 0;
                 inlineMinimum = 0;
-                IntrinsicWidths child = intrinsicBoxWidth(block, percentageBase, graphics);
+                IntrinsicWidths child = intrinsicBoxWidth(
+                        block, percentageBase, graphics, contentBased);
                 preferred = Math.max(preferred, child.preferred());
                 minimum = Math.max(minimum, child.minimum());
             } else {
-                IntrinsicWidths child = intrinsicNodeWidth(node, percentageBase, graphics);
+                IntrinsicWidths child = intrinsicNodeWidth(
+                        node, percentageBase, graphics, contentBased);
                 inlinePreferred += child.preferred();
                 inlineMinimum = Math.max(inlineMinimum, child.minimum());
             }
@@ -1941,7 +1993,8 @@ public final class RenderLayoutEngine {
 
     private IntrinsicWidths intrinsicBoxWidth(RenderBox box,
                                               float percentageBase,
-                                              Graphics2D graphics) {
+                                              Graphics2D graphics,
+                                              boolean contentBased) {
         RenderStyle style = box.style();
         float boxDecoration = style.borderWidth().horizontal() + style.padding().horizontal();
         float outerDecoration = style.margin().horizontal() + boxDecoration;
@@ -1950,11 +2003,22 @@ public final class RenderLayoutEngine {
         Float maxConstraint = resolveBoxConstraint(
                 style, style.maxWidth(), box, percentageBase, boxDecoration, graphics);
         if (!style.width().isAuto()) {
+            if (contentBased && style.width().unit() == RenderLength.Unit.PERCENT) {
+                // Für die eigene max-content-Breite tragen Prozentbreiten nichts
+                // bei (css-sizing: Prozent wie auto bei intrinsischer Größe).
+                IntrinsicWidths content = intrinsicWidths(
+                        box.children(), percentageBase, graphics, true);
+                float preferred = constrain(content.preferred(), minConstraint, maxConstraint);
+                float minimum = constrain(content.minimum(), minConstraint, maxConstraint);
+                return new IntrinsicWidths(preferred + outerDecoration,
+                        minimum + outerDecoration);
+            }
             float width;
             RenderLength widthLength = style.width();
             if (widthLength.unit() == RenderLength.Unit.MAX_CONTENT
                     || widthLength.unit() == RenderLength.Unit.MIN_CONTENT) {
-                IntrinsicWidths content = intrinsicWidths(box.children(), percentageBase, graphics);
+                IntrinsicWidths content = intrinsicWidths(
+                        box.children(), percentageBase, graphics, contentBased);
                 width = widthLength.unit() == RenderLength.Unit.MAX_CONTENT
                         ? content.preferred() : content.minimum();
             } else {
@@ -1964,12 +2028,14 @@ public final class RenderLayoutEngine {
                     minConstraint, maxConstraint);
             float minimum = width;
             if (widthLength.unit() == RenderLength.Unit.PERCENT) {
-                IntrinsicWidths content = intrinsicWidths(box.children(), percentageBase, graphics);
+                IntrinsicWidths content = intrinsicWidths(
+                        box.children(), percentageBase, graphics, contentBased);
                 minimum = constrain(content.minimum(), minConstraint, maxConstraint);
             }
             return new IntrinsicWidths(width + outerDecoration, minimum + outerDecoration);
         }
-        IntrinsicWidths content = intrinsicWidths(box.children(), percentageBase, graphics);
+        IntrinsicWidths content = intrinsicWidths(
+                box.children(), percentageBase, graphics, contentBased);
         float preferred = constrain(content.preferred(), minConstraint, maxConstraint);
         float minimum = constrain(content.minimum(), minConstraint, maxConstraint);
         return new IntrinsicWidths(preferred + outerDecoration, minimum + outerDecoration);
@@ -1977,7 +2043,8 @@ public final class RenderLayoutEngine {
 
     private IntrinsicWidths intrinsicNodeWidth(RenderNode node,
                                                float percentageBase,
-                                               Graphics2D graphics) {
+                                               Graphics2D graphics,
+                                               boolean contentBased) {
         if (node instanceof RenderTextRun run) {
             RenderStyle.WhiteSpace mode = run.style().whiteSpace();
             FontMetrics metrics = graphics.getFontMetrics(fontFor(run.style()));
@@ -2009,7 +2076,8 @@ public final class RenderLayoutEngine {
             return new IntrinsicWidths(preferred, minimum);
         }
         if (node instanceof RenderInlineBox inline) {
-            IntrinsicWidths content = intrinsicWidths(inline.children(), percentageBase, graphics);
+            IntrinsicWidths content = intrinsicWidths(
+                    inline.children(), percentageBase, graphics, contentBased);
             RenderStyle style = inline.style();
             float decoration = style.margin().horizontal() + style.borderWidth().horizontal()
                     + style.padding().horizontal();
@@ -2017,7 +2085,8 @@ public final class RenderLayoutEngine {
                     content.minimum() + decoration);
         }
         if (node instanceof RenderInlineBlock inlineBlock) {
-            return intrinsicBoxWidth(inlineBlock.box(), percentageBase, graphics);
+            return intrinsicBoxWidth(
+                    inlineBlock.box(), percentageBase, graphics, contentBased);
         }
         if (node instanceof RenderImage image) {
             ImageLayout layout = imageLayout(image, percentageBase, null);

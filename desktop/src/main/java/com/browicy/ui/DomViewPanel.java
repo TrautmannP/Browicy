@@ -1149,9 +1149,22 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         float vx = (float) Math.sin(radians);
         float vy = (float) -Math.cos(radians);
         float half = (Math.abs(vx) * width + Math.abs(vy) * height) / 2f;
-        java.awt.Paint paint = new java.awt.LinearGradientPaint(
-                cx - vx * half, cy - vy * half, cx + vx * half, cy + vy * half,
-                toFloatArray(positions), toAwtColors(colors));
+        if (half <= 0) {
+            // Nullgroße Box: nichts zu malen (LinearGradientPaint würde werfen).
+            return;
+        }
+        java.awt.Paint paint;
+        try {
+            paint = new java.awt.LinearGradientPaint(
+                    cx - vx * half, cy - vy * half, cx + vx * half, cy + vy * half,
+                    toFloatArray(positions), toAwtColors(colors));
+        } catch (IllegalArgumentException degenerate) {
+            // Nicht streng monoton steigende Stops (harte Farbwechsel) oder
+            // andere degenerierte Verläufe: feste Fläche mit der Endfarbe.
+            graphics.setColor(toAwtColor(colors.getLast()));
+            graphics.fill(new Rectangle2D.Float(x, y, width, height));
+            return;
+        }
         Graphics2D gradientGraphics = (Graphics2D) graphics.create();
         try {
             gradientGraphics.clip(new Rectangle2D.Float(x, y, width, height));

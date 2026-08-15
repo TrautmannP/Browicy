@@ -13,7 +13,7 @@ import java.util.Objects;
 
 public final class JavaScriptEngine {
 
-    public static final long DEFAULT_STATEMENT_LIMIT = 10_000_000;
+    public static final long DEFAULT_STATEMENT_LIMIT = 100_000_000;
 
     static final String BROWSER_BOOTSTRAP = """
             globalThis.window = globalThis;
@@ -333,6 +333,14 @@ public final class JavaScriptEngine {
               toString() { return this._href; }
               toJSON() { return this._href; }
             };
+            let __browicyObjectUrlCounter = 0;
+            URL.createObjectURL = blob => {
+              if (blob == null) {
+                throw new TypeError('URL.createObjectURL: Blob erforderlich');
+              }
+              return 'blob:browicy-' + (++__browicyObjectUrlCounter);
+            };
+            URL.revokeObjectURL = () => {};
             globalThis.Blob = class Blob {
               constructor(parts, options) {
                 this._text = '';
@@ -845,6 +853,76 @@ public final class JavaScriptEngine {
               __browicyMutationObserverData(observer).callback.call(
                   observer, __browicyMutationRecords(records), observer);
             };
+            """;
+
+    static final String CRYPTO_SUBTLE_BOOTSTRAP = """
+            (() => {
+              'use strict';
+              let cryptoObject = globalThis.crypto;
+              if (cryptoObject == null) {
+                cryptoObject = {};
+                try {
+                  globalThis.crypto = cryptoObject;
+                } catch (error) {
+                  // Kontext erlaubt kein Überschreiben; weiter unten definieren.
+                }
+              }
+              if (typeof cryptoObject.getRandomValues !== 'function') {
+                cryptoObject.getRandomValues = array => {
+                  for (let index = 0; index < array.length; index++) {
+                    array[index] = Math.floor(Math.random() * 256);
+                  }
+                  return array;
+                };
+              }
+              if (typeof cryptoObject.randomUUID !== 'function') {
+                cryptoObject.randomUUID = () => {
+                  const bytes = new Uint8Array(16);
+                  cryptoObject.getRandomValues(bytes);
+                  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+                  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+                  const hex = Array.from(bytes,
+                      byte => byte.toString(16).padStart(2, '0')).join('');
+                  return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-'
+                      + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-'
+                      + hex.slice(20);
+                };
+              }
+              if (cryptoObject.subtle) return;
+              const subtle = {
+                digest: (algorithm, data) => new Promise((resolve, reject) => {
+                  let bytes;
+                  try {
+                    const source = data instanceof ArrayBuffer
+                        ? new Uint8Array(data)
+                        : data != null && typeof data === 'object'
+                            && data.buffer instanceof ArrayBuffer
+                          ? new Uint8Array(data.buffer, data.byteOffset || 0,
+                              data.byteLength)
+                          : new Uint8Array(data);
+                    bytes = Array.from(source);
+                  } catch (error) {
+                    reject(error);
+                    return;
+                  }
+                  const name = algorithm == null ? ''
+                      : (typeof algorithm === 'string' ? algorithm
+                          : (algorithm.name || ''));
+                  __browicySubtleDigest(name, bytes, result => {
+                    const out = new Uint8Array(result.length);
+                    for (let index = 0; index < result.length; index++) {
+                      out[index] = result[index] & 0xff;
+                    }
+                    resolve(out.buffer);
+                  }, reject);
+                })
+              };
+              try {
+                Object.defineProperty(cryptoObject, 'subtle', { value: subtle });
+              } catch (error) {
+                cryptoObject.subtle = subtle;
+              }
+            })();
             """;
 
     static final String CUSTOM_ELEMENTS_BOOTSTRAP = """

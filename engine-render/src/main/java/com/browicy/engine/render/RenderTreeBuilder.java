@@ -194,6 +194,10 @@ public final class RenderTreeBuilder {
     private void collectChildren(Node parent, RenderStyle parentStyle, List<RenderNode> output) {
         if (parent instanceof Element element) {
             collectGeneratedContent(element, "before", parentStyle, output);
+            if ("input".equals(element.getTagName())
+                    && !"hidden".equals(element.getAttribute("type"))) {
+                addInputText(element, parentStyle, output);
+            }
         }
         for (Node child : parent.getChildren()) {
             if (child instanceof TextNode text) {
@@ -272,6 +276,29 @@ public final class RenderTreeBuilder {
         if (parent instanceof Element element) {
             collectGeneratedContent(element, "after", parentStyle, output);
         }
+    }
+
+    private void addInputText(Element element,
+                              RenderStyle parentStyle,
+                              List<RenderNode> output) {
+        String value = element.getAttribute("value");
+        boolean fromValue = value != null && !value.isBlank();
+        String text = fromValue ? value : element.getAttribute("placeholder");
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        RenderStyle textStyle = fromValue ? parentStyle
+                : placeholderTextStyle(element, parentStyle);
+        output.add(new RenderTextRun(null, text, textStyle));
+    }
+
+    private RenderStyle placeholderTextStyle(Element element,
+                                             RenderStyle parentStyle) {
+        Map<String, String> declarations = new java.util.HashMap<>(
+                element.getPseudoComputedStyles("placeholder"));
+        // Browser-Default: grauer Platzhalter, falls die Seite keine Farbe setzt.
+        declarations.putIfAbsent("color", "#767676");
+        return resolveStyle("span", false, declarations, parentStyle);
     }
 
     private void collectGeneratedContent(Element element,

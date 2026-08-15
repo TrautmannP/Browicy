@@ -15,6 +15,7 @@ import com.browicy.engine.render.RenderNode;
 import com.browicy.engine.render.RenderTextRun;
 import com.browicy.engine.render.RenderTreeBuilder;
 import com.browicy.ui.DomViewPanel;
+import com.browicy.ui.render.RenderLayoutMetrics;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -45,6 +46,9 @@ public final class BrowserInspector {
         Map<String, Object> report;
         try (BrowicyEngine engine = new BrowicyEngine()) {
             engine.addRequestObserver(network::add);
+            engine.setLayoutMetricsAccess(styleSheets ->
+                    new RenderLayoutMetrics(styleSheets,
+                            options.viewportWidth(), options.viewportHeight()));
             try (PageSession session = engine.loadPageSession(options.url(), ignored -> { })) {
                 session.awaitResources();
                 clickAndFollowNavigation(session, options.clickSelector());

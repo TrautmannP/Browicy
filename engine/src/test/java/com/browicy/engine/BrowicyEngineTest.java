@@ -275,25 +275,32 @@ public class BrowicyEngineTest {
 
     @Test
     public void loadsDataUriImagesWithoutNetworkRequest() throws Exception {
-        server.serveHtml("/datauri", """
-                <html><body>
-                  <img id="icon" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'
-                       width='64' height='64'><rect width='64' height='64' fill='%23aa0000'/></svg>">
-                </body></html>
-                """);
+        List<NetworkRequestEvent> events = new CopyOnWriteArrayList<>();
+        try (BrowicyEngine observedEngine = new BrowicyEngine()) {
+            observedEngine.addRequestObserver(events::add);
+            server.serveHtml("/datauri", """
+                    <html><body>
+                      <img id="icon" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'
+                           width='64' height='64'><rect width='64' height='64' fill='%23aa0000'/></svg>">
+                    </body></html>
+                    """);
 
-        try (PageSession session = engine.loadPageSession(
-                server.url("/datauri"), PageUpdateListener.NO_OP)) {
-            session.awaitResources();
+            try (PageSession session = observedEngine.loadPageSession(
+                    server.url("/datauri"), PageUpdateListener.NO_OP)) {
+                session.awaitResources();
 
-            byte[] content = session.images().find(
-                    session.document().getElementById("icon"))
-                    .orElseThrow().content();
-            String svg = new String(content, StandardCharsets.UTF_8);
-            assertTrue(svg.contains("<svg"));
-            assertTrue(svg.contains("#aa0000"));
+                byte[] content = session.images().find(
+                        session.document().getElementById("icon"))
+                        .orElseThrow().content();
+                String svg = new String(content, StandardCharsets.UTF_8);
+                assertTrue(svg.contains("<svg"));
+                assertTrue(svg.contains("#aa0000"));
+            }
         }
-        assertTrue(events.stream().noneMatch(event -> event.url().toString().startsWith("data:")));
+        assertTrue(events.stream()
+                .filter(NetworkRequestEvent.Started.class::isInstance)
+                .map(NetworkRequestEvent.Started.class::cast)
+                .noneMatch(event -> event.url().startsWith("data:")));
     }
 
     @Test

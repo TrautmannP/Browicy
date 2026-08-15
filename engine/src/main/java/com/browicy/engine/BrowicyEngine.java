@@ -38,7 +38,7 @@ public final class BrowicyEngine implements AutoCloseable {
     private final PageResourceCoordinator resourceCoordinator;
     private final JsCookieStore cookieStore = new JsCookieStore();
     private final Map<Document, PageSession> activeSessions = new ConcurrentHashMap<>();
-    private volatile com.browicy.engine.js.LayoutMetricsAccess layoutMetricsAccess;
+    private volatile com.browicy.engine.js.LayoutMetricsAccessFactory metricsAccessFactory;
 
     private static final System.Logger LOGGER = System.getLogger(BrowicyEngine.class.getName());
 
@@ -75,12 +75,16 @@ public final class BrowicyEngine implements AutoCloseable {
     }
 
     /**
-     * Registriert den Layout-Zugriff für die JS-APIs ({@code getBoundingClientRect},
-     * {@code offset*} / {@code client*}, Used Values in {@code getComputedStyle}).
-     * Ohne Registrierung liefern diese APIs Nullen bzw. Rohwerte der Kaskade.
+     * Registriert die Fabrik für den Layout-Zugriff der JS-APIs
+     * ({@code getBoundingClientRect}, {@code offset*} / {@code client*},
+     * Used Values in {@code getComputedStyle}). Die Fabrik erhält die
+     * {@link StyleSheetRegistry} der Seite und die Viewport-Maße, damit sie
+     * einen Forced Reflow gegen das aktuelle Dokument ausführen kann. Ohne
+     * Registrierung liefern diese APIs Nullen beziehungsweise Rohwerte.
      */
-    public void setLayoutMetricsAccess(com.browicy.engine.js.LayoutMetricsAccess access) {
-        this.layoutMetricsAccess = access;
+    public void setLayoutMetricsAccess(
+            com.browicy.engine.js.LayoutMetricsAccessFactory factory) {
+        this.metricsAccessFactory = Objects.requireNonNull(factory, "factory");
     }
 
     public void removeNetworkObserver(PageLoadObserver observer) {
@@ -155,7 +159,7 @@ public final class BrowicyEngine implements AutoCloseable {
                 new SessionNavigationHandler(this, listener, progress);
         PageSession session = resourceCoordinator.load(
                 document, listener, () -> activeSessions.remove(document), progress,
-                cookieStore, navigationHandler, layoutMetricsAccess);
+                cookieStore, navigationHandler, metricsAccessFactory);
         activeSessions.put(document, session);
         return session;
     }
@@ -176,7 +180,7 @@ public final class BrowicyEngine implements AutoCloseable {
                 Document document = parser.parse(page.html(), page.uri().toString());
                 PageSession replacement = resourceCoordinator.load(
                         document, listener, () -> activeSessions.remove(document), progress,
-                        cookieStore, navigationHandler, layoutMetricsAccess);
+                        cookieStore, navigationHandler, metricsAccessFactory);
                 activeSessions.put(document, target);
                 target.replaceState(replacement.state());
                 LOGGER.log(System.Logger.Level.INFO,

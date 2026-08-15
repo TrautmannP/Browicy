@@ -33,6 +33,12 @@ public final class LayoutComparator {
         for (Map.Entry<String, ElementLayoutBox> entry : expectedChrome.entrySet()) {
             String selector = entry.getKey();
             ElementLayoutBox expected = entry.getValue();
+            if ("html".equals(expected.tagName())) {
+                // Die Root-Box ist bei beiden Extractoren ein Artefakt (Chrome
+                // misst die html-Rect, Browicy synthetisiert sie aus der
+                // Layout-Höhe); sie trägt nichts zur Layout-Treue bei.
+                continue;
+            }
             ElementLayoutBox actual = actualBrowicy.get(selector);
             if (actual == null) {
                 diffs.add(new LayoutDiff(selector, "missing", expected.x(), Float.NaN,

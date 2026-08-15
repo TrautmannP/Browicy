@@ -28,6 +28,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             "tagName", "nodeName", "nodeType", "nodeValue", "namespaceURI", "prefix", "localName",
             "id", "className", "classList", "dataset", "name", "type", "value", "checked", "defaultChecked", "indeterminate", "selected", "defaultSelected",
             "href",
+            "protocol", "host", "hostname", "port", "pathname", "search", "hash", "origin",
             "src", "srcdoc", "contentDocument", "contentWindow", "content",
             "textContent", "innerHTML", "style", "sheet", "children", "childNodes", "length", "elements", "form", "options", "selectedIndex",
             "caption", "tHead", "tFoot", "tBodies", "rows", "cells", "rowIndex", "sectionRowIndex", "cellIndex",
@@ -74,7 +75,15 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "prefix" -> element.getPrefix();
             case "localName" -> element.getLocalName();
             case "id" -> orEmpty(element.getAttribute("id"));
-            case "href" -> orEmpty(element.getAttribute("href"));
+            case "href" -> isUrlElement() ? resolvedUrl() : orEmpty(element.getAttribute("href"));
+            case "protocol" -> urlPart("protocol");
+            case "host" -> urlPart("host");
+            case "hostname" -> urlPart("hostname");
+            case "port" -> urlPart("port");
+            case "pathname" -> urlPart("pathname");
+            case "search" -> urlPart("search");
+            case "hash" -> urlPart("hash");
+            case "origin" -> urlPart("origin");
             case "className" -> orEmpty(element.getAttribute("class"));
             case "classList" -> classList == null
                     ? classList = new JsDomTokenList(element.getClassList(), document) : classList;
@@ -193,6 +202,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
                         element.appendChild(element.getOwnerDocument().createTextNode(toText(value)));
                     }
                 }
+                styleContentMaybeChanged();
                 return null;
             };
             case "prepend" -> (ProxyExecutable) args -> {
@@ -205,28 +215,33 @@ final class JsElement implements ProxyObject, JsNodeLike {
                                 .createTextNode(toText(value)), element.getFirstChild());
                     }
                 }
+                styleContentMaybeChanged();
                 return null;
             };
             case "appendChild" -> (ProxyExecutable) args -> {
                 JsNodeLike child = expectNode(args, 0, false);
                 element.appendChild(child.unwrapNode());
+                styleContentMaybeChanged();
                 return child;
             };
             case "insertBefore" -> (ProxyExecutable) args -> {
                 JsNodeLike child = expectNode(args, 0, false);
                 JsNodeLike reference = expectNode(args, 1, true);
                 element.insertBefore(child.unwrapNode(), reference == null ? null : reference.unwrapNode());
+                styleContentMaybeChanged();
                 return child;
             };
             case "replaceChild" -> (ProxyExecutable) args -> {
                 JsNodeLike replacement = expectNode(args, 0, false);
                 JsNodeLike oldChild = expectNode(args, 1, false);
                 element.replaceChild(replacement.unwrapNode(), oldChild.unwrapNode());
+                styleContentMaybeChanged();
                 return oldChild;
             };
             case "removeChild" -> (ProxyExecutable) args -> {
                 JsNodeLike child = expectNode(args, 0, false);
                 element.removeChild(child.unwrapNode());
+                styleContentMaybeChanged();
                 return child;
             };
             case "hasChildNodes" -> (ProxyExecutable) args -> element.hasChildNodes();
@@ -398,8 +413,18 @@ final class JsElement implements ProxyObject, JsNodeLike {
     @Override
     public void putMember(String key, Value value) {
         switch (key) {
-            case "textContent" -> element.setTextContent(toText(value));
-            case "innerHTML" -> setInnerHtml(toText(value));
+            case "textContent" -> {
+                element.setTextContent(toText(value));
+                if ("style".equals(tag())) {
+                    document.styleSheetContentChanged(element);
+                }
+            }
+            case "innerHTML" -> {
+                setInnerHtml(toText(value));
+                if ("style".equals(tag())) {
+                    document.styleSheetContentChanged(element);
+                }
+            }
             case "style" -> {
                 if (style == null) style = new JsStyleDeclaration(element);
                 style.setCssText(toText(value));
@@ -414,6 +439,7 @@ final class JsElement implements ProxyObject, JsNodeLike {
             case "indeterminate" -> element.setIndeterminate(value.asBoolean());
             case "selected", "defaultSelected" -> booleanAttribute("selected", value.asBoolean());
             case "selectedIndex" -> setSelectedIndex(value.asInt());
+            case "href" -> element.setAttribute("href", toText(value));
             case "src", "srcdoc" -> element.setAttribute(key, toText(value));
             default -> {
                 Value previous = expandos.put(key, value);
@@ -484,6 +510,35 @@ final class JsElement implements ProxyObject, JsNodeLike {
         } catch (IllegalArgumentException invalid) {
             return value;
         }
+    }
+
+    private boolean isUrlElement() {
+        String name = tag();
+        return "a".equals(name) || "area".equals(name);
+    }
+
+    /** Nach Kinder-Mutationen: CSS von {@code <style>}-Elementen neu registrieren. */
+    private void styleContentMaybeChanged() {
+        if ("style".equals(tag())) {
+            document.styleSheetContentChanged(element);
+        }
+    }
+
+    /** Aufgelöste absolute URL eines Anker-/Area-Elements (wie im Browser). */
+    private String resolvedUrl() {
+        return reflectedUrl("href");
+    }
+
+    /** URL-Komponente eines Anker-Elements; leer ohne href/bei anderen Elementen. */
+    private Object urlPart(String part) {
+        if (!isUrlElement()) {
+            return "";
+        }
+        String href = resolvedUrl();
+        if (href.isEmpty()) {
+            return "";
+        }
+        return GraalPageRuntime.locationParts(href).get(part);
     }
 
     private void setInnerHtml(String html) {

@@ -1,5 +1,6 @@
 package com.browicy.engine.js;
 
+import com.browicy.engine.css.StyleSheetRegistry;
 import com.browicy.engine.dom.Element;
 
 /**

@@ -94,6 +94,59 @@ box are not transformed (they are painted after their containing block's fragmen
 Known flaky test (snapshot-race family, passes isolated and on retry):
 `DomViewPanelTest.laysOutAndPaintsInlineBackgroundPaddingAndBorder`.
 
+## wetter.de-Rendering (2026-08-15)
+
+Entwicklungsziel: `www.wetter.de` (Nuxt/Vue 3 SSR + Tailwind + Slick-Slider, API-geladene
+Wetterdaten) korrekt darstellen. Baseline war eine komplett leere Seite trotz
+2075 DOM-Knoten. Referenz via Chromium (`xd://browser` auf das Playwright-Chromium),
+Verifikation über `browicy-inspect.jar`. Gefunden und behoben:
+
+- **Hex-Escapes im SelectorParser**: Tailwind-Arbitrary-Klassen wie
+  `.lg\:grid-cols-\[minmax\(100px\2c 1fr\)_…\]` (Komma als `\2c `) wurden verworfen.
+  `decodeEscape()` dekodiert jetzt 1–6 Hex-Ziffern mit Whitespace-Terminator, U+FFFD
+  für invalide Sequenzen; genutzt in Identifier-/String-Pfaden.
+- **Grid-Track-Maximierung** (css-grid §12.5): `minmax(0,1220px)`-Tracks blieben
+  0px→1px; Tracks werden jetzt gleichmäßig an endliche Größen maximiert (Einfrieren am
+  Limit) und fr-Tracks bekommen `max(base, fr-Anteil)`. Seitenhöhe 43.850px→8.179px.
+- **Anker-URL-Properties**: `n.pathname.charAt(0)` brach; `<a>`/`<area>` bekommen
+  `href` (aufgelöst) sowie `protocol/host/hostname/port/pathname/search/hash/origin`
+  via `GraalPageRuntime.locationParts`.
+- **`globalThis.crypto`** fehlte komplett: Bootstrap mit `getRandomValues`,
+  `randomUUID`, `subtle.digest` (SHA-1/256/384/512 über `__browicySubtleDigest`);
+  Digest-Ergebnis als `ProxyArray` (unsigned).
+- **`URL.createObjectURL`** (Worker-Feature-Detection) mit `blob:browicy-N`.
+- **JS-injizierte `<style>`-Tags** (vue-style-loader `appendChild(createTextNode)`):
+  `StyleSheetRegistry.updateStyleSheet(ownerNode, css)`; Hooks in `JsElement.putMember`
+  und allen Kind-Mutationen. Live: 114 Stylesheets / 3634 Regeln statt 1/2307.
+- **`RenderLayoutMetrics` nie verdrahtet** (offsetWidth/getBoundingClientRect=0 → Slick
+  setzte Slides auf width:0): neues `LayoutMetricsAccessFactory`, verdrahtet in
+  `BrowserInspector` (CLI-Viewport) und `BrowserFrame` (Panelgröße).
+- **Statement-Limit 10M→100M**: Nuxt+Tracker überschritten 10M Statements.
+- **Degenerierter `LinearGradientPaint`** (Start==End bei 0-Größe): `half<=0`→return,
+  try/catch mit Endfarben-Füllung.
+- **Float-Shrink-Wrap**: Prozent-Breiten trugen zur max-content-Breite bei (Slick-Slides
+  mit `float:left` stapelten vertikal); `contentBased` durch
+  `intrinsicWidths/intrinsicBoxWidth/intrinsicNodeWidth` ersetzt — nur
+  `shrinkToFitWidth` nutzt `true`, alle anderen Aufrufer `false`; Float-Branch wieder
+  auf `blockArea.width()`.
+- **Placeholder-Rendering**: `RenderTreeBuilder.addInputText` rendert den Placeholder
+  (Default `#767676`), Vendor-Pseudos `-webkit-input-placeholder`/`-moz-placeholder`
+  werden zu `placeholder` normalisiert (Parser + `PseudoElementSupport` +
+  `CompoundSelector`).
+- **BFC-Overflow enthält Floats**: `overflow:hidden`-Boxen (Slick-Track) schließen
+  Floats in ihre Höhe ein (CSS 2.1 §9.4.7) statt sie überlaufen zu lassen.
+- **LayoutComparator**: Root-`html`-Box vom Vergleich ausgeschlossen — beide
+  Extractoren liefern dort Artefakte (Chrome-Rect vs. synthetisierte Layout-Höhe).
+
+Verifikation: `mvn install` grün (inkl. neuer `FloatConformanceTest` mit
+Chromium-Vergleich für Slick-Float-Slides und Prozent-Kind im Float,
+`PlaceholderRenderingTest`, Selector-Parser-Tests, `BrowicyEngineTest`-Reparatur aus
+Commit 9b69d07). End-to-End: wetter.de rendert komplett — Header (Logo, Suche mit
+Placeholder, Berlin/Köln-Pills, 18°), Hero-Slider mit echten API-Daten
+(„Es bleibt trocken…", Heute 36°/17°, Sonntag 26°/17°, Montag 22°/15°), Regenradar mit
+Kartenbild. Verbleibende Differenzen zu Chromium: Font-Zeilenhöhen (~76px Hero-Höhe),
+Mapbox-Karteninteraktion (WebGL) mit Fallback-Meldung.
+
 ## sparkasse.de-Rendering (2026-08-15)
 
 Entwicklungsziel: `www.sparkasse.de` (Next.js + MUI, CSS-in-JS) korrekt darstellen.

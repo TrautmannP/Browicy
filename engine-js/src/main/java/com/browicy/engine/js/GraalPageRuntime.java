@@ -11,6 +11,8 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -323,6 +325,32 @@ final class GraalPageRuntime implements PageRuntime {
             return ProxyObject.fromMap(locationParts(url));
         });
         context.eval("js", JavaScriptEngine.BROWSER_BOOTSTRAP);
+        bindings.putMember("__browicySubtleDigest", (ProxyExecutable) args -> {
+            String algorithm = args.length == 0 || args[0].isNull()
+                    ? "" : asText(args[0]);
+            if (args.length < 3) {
+                return null;
+            }
+            Value resolve = args[2];
+            Value reject = args.length > 3 && !args[3].isNull() ? args[3] : null;
+            try {
+                MessageDigest digest = MessageDigest.getInstance(
+                        normalizeDigestAlgorithm(algorithm));
+                byte[] hashed = digest.digest(toByteArray(args[1]));
+                Object[] unsigned = new Object[hashed.length];
+                for (int index = 0; index < hashed.length; index++) {
+                    unsigned[index] = hashed[index] & 0xff;
+                }
+                executeCallback(resolve,
+                        new Object[]{ProxyArray.fromArray(unsigned)});
+            } catch (NoSuchAlgorithmException unsupported) {
+                if (reject != null) {
+                    executeCallback(reject, new Object[]{"NotSupportedError: " + unsupported.getMessage()});
+                }
+            }
+            return null;
+        });
+        context.eval("js", JavaScriptEngine.CRYPTO_SUBTLE_BOOTSTRAP);
         Value promiseGlobal = context.getBindings("js").getMember("Promise");
         jsDocument.setPromiseGlobal(promiseGlobal);
         jsDocument.setExpando("fonts", context.eval("js", "Object.freeze({"
@@ -747,6 +775,31 @@ final class GraalPageRuntime implements PageRuntime {
 
     private static String asText(Value value) {
         return value.isString() ? value.asString() : value.toString();
+    }
+
+    private static String normalizeDigestAlgorithm(String algorithm) {
+        String normalized = algorithm.strip().replace("-", "").replace("_", "")
+                .toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "SHA1", "SHA" -> "SHA-1";
+            case "SHA256" -> "SHA-256";
+            case "SHA384" -> "SHA-384";
+            case "SHA512" -> "SHA-512";
+            case "MD5" -> "MD5";
+            default -> algorithm.strip();
+        };
+    }
+
+    private static byte[] toByteArray(Value value) {
+        if (value.hasArrayElements()) {
+            int size = Math.toIntExact(value.getArraySize());
+            byte[] bytes = new byte[size];
+            for (int index = 0; index < size; index++) {
+                bytes[index] = (byte) value.getArrayElement(index).asInt();
+            }
+            return bytes;
+        }
+        return value.as(byte[].class);
     }
 
     static Map<String, Object> locationParts(String url) {

@@ -1360,6 +1360,67 @@ public class JavaScriptEngineTest {
     }
 
     @Test
+    public void anchorElementsExposeResolvedUrlParts() {
+        Document document = parser.parse("""
+                <html><body>
+                  <area id="map" href="/karte">
+                  <span id="plain">x</span>
+                  <script>
+                  // Muster von axios isURLSameOrigin: <a> als URL-Referenz nutzen.
+                  const n = document.createElement('a');
+                  n.setAttribute('href', window.location.href);
+                  const first = n.href;
+                  n.setAttribute('href', '/pfad?x=1#anker');
+                  console.log(first === window.location.href,
+                              n.protocol, n.host, n.hostname, n.port, n.pathname,
+                              n.search, n.hash, n.origin, n.href);
+                  const area = document.getElementById('map');
+                  console.log(area.hostname, area.pathname);
+                  const plain = document.getElementById('plain');
+                  console.log(plain.href, plain.pathname, typeof plain.pathname);
+                  </script></body></html>
+                """, "http://example.test:8080/base/index.html");
+        JsExecutionResult result = engine.runScripts(document);
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                "log: true http: example.test:8080 example.test 8080 "
+                        + "/pfad ?x=1 #anker http://example.test:8080 "
+                        + "http://example.test:8080/pfad?x=1#anker",
+                "log: example.test /karte",
+                "log:   string"), result.consoleMessages());
+    }
+
+    @Test
+    public void cryptoSubtleDigestHashesBytes() {
+        Document document = parser.parse("""
+                <html><body><script>
+                  // Muster von h3/ofetch: crypto.subtle.digest für Request-Hashing.
+                  const subtle = globalThis.crypto && globalThis.crypto.subtle;
+                  console.log(typeof subtle, typeof subtle.digest);
+                  const data = new TextEncoder().encode('browicy');
+                  subtle.digest('SHA-256', data).then(result => {
+                    const hex = Array.from(new Uint8Array(result))
+                        .map(byte => byte.toString(16).padStart(2, '0')).join('');
+                    console.log(hex);
+                  }).catch(error => console.log('FEHLER', String(error)));
+                  subtle.digest({ name: 'SHA-1' }, data).then(result => {
+                    console.log(new Uint8Array(result).length);
+                  });
+                  subtle.digest('NOPE', data).then(
+                      () => console.log('unexpected'),
+                      error => console.log('abgelehnt', String(error).slice(0, 20)));
+                </script></body></html>
+                """, "http://example.test/index.html");
+        JsExecutionResult result = engine.runScripts(document);
+        assertFalse(String.valueOf(result.errors()), result.hasErrors());
+        assertEquals(List.of(
+                "log: object function",
+                "log: 22ea6b7ff506049ada6da7f78903fd0874486c1f0c1f36fceb16a60648cedfe2",
+                "log: 20",
+                "log: abgelehnt NotSupportedError: N"), result.consoleMessages());
+    }
+
+    @Test
     public void urlConstructorResolvesRelativeUrlsAndExposesParts() {
         Document document = parser.parse("""
                 <html><body><script>

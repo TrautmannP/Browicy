@@ -81,7 +81,7 @@ final class PageResourceCoordinator {
     PageSession load(Document document, PageUpdateListener listener, Runnable onClose,
                      PageLoadProgress progress, JsCookieStore cookies,
                      SessionNavigationHandler navigationHandler,
-                     com.browicy.engine.js.LayoutMetricsAccess layoutMetrics) {
+                     com.browicy.engine.js.LayoutMetricsAccessFactory metricsFactory) {
         Objects.requireNonNull(document, "document");
         Objects.requireNonNull(listener, "listener");
         Objects.requireNonNull(onClose, "onClose");
@@ -96,6 +96,8 @@ final class PageResourceCoordinator {
                 document, styleSheets, styleApplicator, listener);
         PageFetchBackend fetchBackend = new PageFetchBackend(
                 resourceLoader, document.getUrl(), cookies);
+        com.browicy.engine.js.LayoutMetricsAccess layoutMetrics =
+                metricsFactory == null ? null : metricsFactory.create(styleSheets);
         PageRuntime runtime = javaScriptEngine.createPageRuntime(
                 document, ignored -> updates.flush(), fetchBackend, cookies,
                 styleSheets, () -> updates.invalidate(InvalidationType.STYLE),

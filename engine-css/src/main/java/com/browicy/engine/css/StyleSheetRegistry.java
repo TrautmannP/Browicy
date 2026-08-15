@@ -66,6 +66,22 @@ public final class StyleSheetRegistry {
         return register(sourceOrder, ownerNode, css);
     }
 
+    /**
+     * Aktualisiert das Stylesheet eines {@code <style>}-Elements nach JS-Änderungen
+     * des Textinhalts; unbekannte Elemente werden am Ende der Kaskadenreihenfolge
+     * neu registriert.
+     */
+    public synchronized CssStyleSheet updateStyleSheet(Element ownerNode, String css) {
+        Objects.requireNonNull(ownerNode, "ownerNode");
+        CssStyleSheet existing = sheetsByOwner.get(ownerNode);
+        if (existing != null) {
+            existing.replaceRules(css);
+            return existing;
+        }
+        int sourceOrder = sheetsBySource.isEmpty() ? 0 : sheetsBySource.lastKey() + 1;
+        return register(sourceOrder, ownerNode, css);
+    }
+
     public synchronized boolean contains(int sourceOrder) {
         return sheetsBySource.containsKey(sourceOrder);
     }

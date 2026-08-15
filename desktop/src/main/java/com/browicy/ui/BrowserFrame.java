@@ -4,6 +4,7 @@ import com.browicy.devtools.network.NetworkLog;
 import com.browicy.devtools.ui.DevToolsPanel;
 import com.browicy.engine.BrowicyEngine;
 import com.browicy.model.BrowserState;
+import com.browicy.ui.render.RenderLayoutMetrics;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.Frame;
@@ -45,6 +46,10 @@ public final class BrowserFrame extends JFrame {
 
         engine.addRequestObserver(networkLog);
         content = new ContentPanel(state, engine);
+        engine.setLayoutMetricsAccess(styleSheets ->
+                new RenderLayoutMetrics(styleSheets,
+                        Math.max(1, content.getWidth()),
+                        Math.max(1, content.getHeight())));
         devTools = new DevToolsPanel(networkLog, this::hideDevTools);
 
         JPanel root = new JPanel(new BorderLayout());
