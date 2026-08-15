@@ -6,32 +6,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import javax.imageio.ImageIO;
 
-/**
- * Test-Driven-Development-Harness: rendert jeden Test der W3C CSS2.1-Suite
- * in Chrome (Referenz, „so soll es aussehen") und in Browicy, vergleicht die
- * Screenshots pixelweise und schreibt Berichte plus Diff-Bilder.
- *
- * <p>Steuerung über System-Properties:</p>
- * <ul>
- *   <li>{@code browicy.refreshReferences=true} – Chrome-Referenzen neu
- *       erzeugen/überschreiben (neuer Baseline-/TDD-Zyklus)</li>
- *   <li>{@code browicy.viewport=800x600} – Viewport für beide Browser</li>
- *   <li>{@code browicy.tests=<regex>} – nur Tests mit passendem Pfad laufen
- *       lassen (z. B. {@code abspos/.*} oder ein einzelner Test)</li>
- *   <li>{@code browicy.passRatio=0.0} – maximale Diff-Quote für PASS</li>
- *   <li>{@code browicy.outputDir=target/w3c-css21} – Ausgabeverzeichnis</li>
- * </ul>
- *
- * <p>Artefakte unter {@code outputDir}: {@code references/<test>.png}
- * (Chrome-Sollbilder), {@code comparisons/<test>/{chrome,browicy,diff}.png}
- * sowie {@code latest.json} und {@code latest.html}.</p>
- */
 public final class W3cCss21Harness {
 
     private static final System.Logger LOGGER =
@@ -41,9 +20,9 @@ public final class W3cCss21Harness {
 
     public record TestResult(String relativePath, Status status, double diffRatio,
                              long differingPixels, long totalPixels,
-                             double meanAbsDiff, double maxAbsDiff, String message) {
-
-        /** Für das JUnit-Gate: SKIP ist kein Fehler. */
+                             double meanAbsDiff, double maxAbsDiff,
+                             int layoutMismatches, double maxLayoutPositionDelta,
+                             String message) {
         public boolean passed() {
             return status == Status.PASS || status == Status.SKIP;
         }
@@ -51,10 +30,6 @@ public final class W3cCss21Harness {
 
     public record RunResult(List<TestResult> tests, Path outputDirectory,
                             int viewportWidth, int viewportHeight) {
-
-        public long count(Status status) {
-            return tests.stream().filter(test -> test.status() == status).count();
-        }
     }
 
     private static final Pattern VIEWPORT = Pattern.compile("(\\d+)x(\\d+)");
@@ -63,55 +38,47 @@ public final class W3cCss21Harness {
     }
 
     public static RunResult run() {
-        Config config = Config.fromSystemProperties();
-        try {
-            return execute(config);
-        } catch (RuntimeException setupFailure) {
-            // Z. B. Playwright-Browser nicht installiert: als ein einzelner
-            // fehlschlagender Test melden statt die JVM abzuschießen.
-            TestResult failure = new TestResult("<harness>", Status.ERROR, 0, 0, 0, 0, 0,
-                    setupFailure.getMessage());
-            return new RunResult(List.of(failure), config.outputDirectory,
-                    config.viewportWidth, config.viewportHeight);
-        }
+        return execute(Config.fromSystemProperties());
     }
 
     private static RunResult execute(Config config) {
-        List<Css21Suite.TestCase> tests = Css21Suite.catalog().stream()
-                .filter(test -> config.testsFilter.matcher(test.relativePath()).find())
-                .toList();
-        if (tests.isEmpty()) {
-            throw new IllegalStateException("Kein Test der CSS2.1-Suite passt zum Filter '"
-                    + config.testsFilter.pattern() + "' (browicy.tests)");
-        }
-
-        Path output = config.outputDirectory.toAbsolutePath().normalize();
-        Path references = output.resolve("references");
-        Path comparisons = output.resolve("comparisons");
+        Path references = config.outputDirectory().resolve("references");
+        Path comparisons = config.outputDirectory().resolve("comparisons");
         try {
             Files.createDirectories(references);
             Files.createDirectories(comparisons);
-        } catch (IOException failure) {
-            throw new IllegalStateException("Ausgabeverzeichnis nicht erstellbar: " + output,
-                    failure);
+        } catch (IOException e) {
+            throw new IllegalStateException("Ausgabeverzeichnisse anlegen fehlgeschlagen: " + e.getMessage(), e);
         }
 
-        LOGGER.log(System.Logger.Level.INFO,
-                "W3C CSS2.1-Harness: {0} Tests, Viewport {1}x{2}, refreshReferences={3}",
-                tests.size(), config.viewportWidth, config.viewportHeight,
-                config.refreshReferences);
+        List<Css21Suite.TestCase> tests = new ArrayList<>();
+        for (Css21Suite.TestCase test : Css21Suite.catalog()) {
+            if (config.testsFilter().matcher(test.relativePath()).matches()) {
+                tests.add(test);
+            }
+        }
 
-        List<TestResult> results = new ArrayList<>(tests.size());
+        List<TestResult> results = new ArrayList<>();
         try (Css21TestServer server = Css21TestServer.start();
              ChromeReferenceRenderer chrome = new ChromeReferenceRenderer();
              BrowicyRenderer browicy = new BrowicyRenderer()) {
+
+            int done = 0;
             for (Css21Suite.TestCase test : tests) {
-                results.add(runTest(test, server, chrome, browicy,
-                        references, comparisons, config));
+                TestResult result = runTest(test, server, chrome, browicy,
+                        references, comparisons, config);
+                results.add(result);
+                done++;
+                if (done % 10 == 0 || done == tests.size()) {
+                    LOGGER.log(System.Logger.Level.INFO,
+                            "Harness-Fortschritt: {0}/{1} ({2}%)",
+                            done, tests.size(), Math.round(100.0 * done / tests.size()));
+                }
             }
         }
-        RunResult runResult = new RunResult(List.copyOf(results), output,
-                config.viewportWidth, config.viewportHeight);
+
+        RunResult runResult = new RunResult(results, config.outputDirectory(),
+                config.viewportWidth(), config.viewportHeight());
         writeReports(runResult);
         return runResult;
     }
@@ -121,85 +88,68 @@ public final class W3cCss21Harness {
                                       BrowicyRenderer browicy,
                                       Path references, Path comparisons,
                                       Config config) {
-        String path = test.relativePath();
-        if (Css21Suite.isSkipped(path)) {
-            return new TestResult(path, Status.SKIP, 0, 0, 0, 0, 0, "auf skip.txt");
-        }
+        int width = config.viewportWidth();
+        int height = config.viewportHeight();
+        Path reference = references.resolve(test.relativePath().replace('/', '_') + ".png");
+        Path artifacts = comparisons.resolve(test.relativePath().replace('/', '_'));
 
-        Path reference = references.resolve(path.replace('/', '_') + ".png");
-        Path artifacts = comparisons.resolve(path.replace('/', '_'));
         try {
-            Files.createDirectories(artifacts);
-        } catch (IOException failure) {
-            return new TestResult(path, Status.ERROR, 0, 0, 0, 0, 0,
-                    "Artefaktordner nicht erstellbar: " + failure.getMessage());
-        }
-
-        byte[] referenceBytes;
-        if (config.refreshReferences || !Files.isRegularFile(reference)) {
-            // Fehlende Referenzen werden automatisch erzeugt; refresh=true
-            // überschreibt vorhandene (neue Baseline/geänderte Erwartung).
-            try {
-                referenceBytes = chrome.screenshot(server.url(path),
-                        config.viewportWidth, config.viewportHeight);
-            } catch (RuntimeException failure) {
-                return new TestResult(path, Status.ERROR, 0, 0, 0, 0, 0,
-                        "Chrome: " + failure.getMessage());
+            if (Css21Suite.isSkipped(test.relativePath())) {
+                return new TestResult(test.relativePath(), Status.SKIP, 0, 0, 0,
+                        0, 0, 0, 0, "Übersprungen (skip.txt)");
             }
-            try {
+
+            String testUrl = server.url(test.relativePath());
+            byte[] referenceBytes;
+            List<ElementGeometrySnapshot> chromeGeometry;
+            if (config.refreshReferences() || !Files.exists(reference)) {
+                referenceBytes = chrome.screenshot(testUrl, width, height);
+                chromeGeometry = chrome.extractGeometry(testUrl, width, height);
+                Files.createDirectories(artifacts);
                 Files.write(reference, referenceBytes);
-            } catch (IOException failure) {
-                return new TestResult(path, Status.ERROR, 0, 0, 0, 0, 0,
-                        "Referenz nicht schreibbar: " + failure.getMessage());
-            }
-        } else {
-            try {
+            } else {
                 referenceBytes = Files.readAllBytes(reference);
-            } catch (IOException failure) {
-                return new TestResult(path, Status.ERROR, 0, 0, 0, 0, 0,
-                        "Referenz nicht lesbar: " + failure.getMessage());
+                chromeGeometry = chrome.extractGeometry(testUrl, width, height);
             }
-        }
 
-        BufferedImage browicyImage;
-        try {
-            browicyImage = browicy.screenshot(server.url(path),
-                    config.viewportWidth, config.viewportHeight);
-        } catch (RuntimeException failure) {
-            return new TestResult(path, Status.ERROR, 0, 0, 0, 0, 0,
-                    "Browicy: " + failure.getMessage());
-        }
+            BufferedImage referenceImage = ImageIO.read(new java.io.ByteArrayInputStream(referenceBytes));
+            BufferedImage browicyImage = browicy.screenshot(testUrl, width, height);
+            List<ElementGeometrySnapshot> browicyGeometry =
+                    browicy.extractGeometry(testUrl, width, height);
 
-        BufferedImage referenceImage;
-        try {
-            referenceImage = ImageIO.read(new java.io.ByteArrayInputStream(referenceBytes));
-        } catch (IOException failure) {
-            return new TestResult(path, Status.ERROR, 0, 0, 0, 0, 0,
-                    "Referenz-PNG nicht dekodierbar: " + failure.getMessage());
-        }
-        if (referenceImage == null) {
-            return new TestResult(path, Status.ERROR, 0, 0, 0, 0, 0,
-                    "Referenz-PNG leer");
-        }
+            PixelComparator.Metrics metrics = PixelComparator.compare(referenceImage, browicyImage);
+            LayoutTreeComparator.ComparisonResult layoutResult =
+                    LayoutTreeComparator.compare(chromeGeometry, browicyGeometry);
 
-        PixelComparator.Metrics metrics;
-        try {
-            metrics = PixelComparator.compare(referenceImage, browicyImage);
-        } catch (IllegalArgumentException mismatch) {
-            return new TestResult(path, Status.ERROR, 0, 0, 0, 0, 0,
-                    mismatch.getMessage());
+            Files.createDirectories(artifacts);
+            writeImages(artifacts, referenceBytes, browicyImage, referenceImage);
+            Files.writeString(artifacts.resolve("layout-diff.txt"),
+                    LayoutTreeComparator.formatTable(layoutResult), StandardCharsets.UTF_8);
+            Files.writeString(artifacts.resolve("layout-diff.json"),
+                    LayoutTreeComparator.toJson(layoutResult), StandardCharsets.UTF_8);
+
+            double diffRatio = metrics.diffRatio();
+            Status status = diffRatio <= config.passRatio() ? Status.PASS : Status.DIFF;
+            String message = String.format(java.util.Locale.ROOT,
+                    "diffRatio=%.4f%% (mean=%.1f, max=%.1f, layoutDiffs=%d, maxΔPos=%.1fpx)",
+                    diffRatio * 100, metrics.meanAbsDiff(), metrics.maxAbsDiff(),
+                    layoutResult.mismatchedElements() + layoutResult.missingInActual()
+                            + layoutResult.extraInActual(),
+                    layoutResult.maxPositionDelta());
+
+            return new TestResult(test.relativePath(), status, diffRatio,
+                    metrics.differingPixels(), metrics.totalPixels(),
+                    metrics.meanAbsDiff(), metrics.maxAbsDiff(),
+                    layoutResult.mismatchedElements() + layoutResult.missingInActual()
+                            + layoutResult.extraInActual(),
+                    layoutResult.maxPositionDelta(),
+                    message);
+        } catch (Exception e) {
+            LOGGER.log(System.Logger.Level.WARNING,
+                    "Test fehlgeschlagen (ERROR): " + test.relativePath() + " – " + e, e);
+            return new TestResult(test.relativePath(), Status.ERROR, 0, 0, 0,
+                    0, 0, 0, 0, "Fehler: " + e.getMessage());
         }
-
-        writeImages(artifacts, referenceBytes, browicyImage, referenceImage);
-
-        Status status = metrics.diffRatio() <= config.passRatio ? Status.PASS : Status.DIFF;
-        String message = status == Status.PASS
-                ? "pixelidentisch (diffRatio=" + formatRatio(metrics.diffRatio()) + ")"
-                : "diffRatio=" + formatRatio(metrics.diffRatio())
-                        + " (mean=" + format(metrics.meanAbsDiff())
-                        + ", max=" + format(metrics.maxAbsDiff()) + ")";
-        return new TestResult(path, status, metrics.diffRatio(), metrics.differingPixels(),
-                metrics.totalPixels(), metrics.meanAbsDiff(), metrics.maxAbsDiff(), message);
     }
 
     private static void writeImages(Path artifacts, byte[] referenceBytes,
@@ -208,92 +158,88 @@ public final class W3cCss21Harness {
         try {
             Files.write(artifacts.resolve("chrome.png"), referenceBytes);
             ImageIO.write(browicyImage, "png", artifacts.resolve("browicy.png").toFile());
-            ImageIO.write(PixelComparator.diffImage(referenceImage, browicyImage), "png",
-                    artifacts.resolve("diff.png").toFile());
-        } catch (IOException failure) {
-            LOGGER.log(System.Logger.Level.WARNING,
-                    "Diff-Artefakte nicht schreibbar: " + failure.getMessage());
+            BufferedImage diffImage = PixelComparator.diffImage(referenceImage, browicyImage);
+            ImageIO.write(diffImage, "png", artifacts.resolve("diff.png").toFile());
+        } catch (IOException e) {
+            throw new IllegalStateException("Bilder schreiben fehlgeschlagen: " + e.getMessage(), e);
         }
     }
 
     private static void writeReports(RunResult runResult) {
-        StringBuilder json = new StringBuilder();
-        json.append("{\n  \"summary\": {");
-        json.append("\"tests\": ").append(runResult.tests().size());
-        for (Status status : Status.values()) {
-            json.append(", \"").append(status.name()).append("\": ")
-                    .append(runResult.count(status));
-        }
-        json.append("},\n  \"tests\": [");
-        boolean first = true;
-        for (TestResult test : runResult.tests()) {
-            if (!first) {
-                json.append(',');
-            }
-            first = false;
-            json.append("\n    {\"path\": \"").append(jsonEscape(test.relativePath()))
-                    .append("\", \"status\": \"").append(test.status())
-                    .append("\", \"diffRatio\": ").append(test.diffRatio())
-                    .append(", \"differingPixels\": ").append(test.differingPixels())
-                    .append(", \"totalPixels\": ").append(test.totalPixels())
-                    .append(", \"meanAbsDiff\": ").append(test.meanAbsDiff())
-                    .append(", \"maxAbsDiff\": ").append(test.maxAbsDiff())
-                    .append(", \"message\": \"").append(jsonEscape(test.message()))
-                    .append("\"}");
-        }
-        json.append("\n  ]\n}\n");
         try {
+            StringBuilder json = new StringBuilder();
+            json.append("{\n");
+            json.append("  \"viewport\": \"").append(runResult.viewportWidth())
+                    .append('x').append(runResult.viewportHeight()).append("\",\n");
+            json.append("  \"tests\": [\n");
+            for (int i = 0; i < runResult.tests().size(); i++) {
+                TestResult result = runResult.tests().get(i);
+                json.append("    {\n");
+                json.append("      \"path\": \"").append(jsonEscape(result.relativePath())).append("\",\n");
+                json.append("      \"status\": \"").append(result.status()).append("\",\n");
+                json.append("      \"diffRatio\": ").append(result.diffRatio()).append(",\n");
+                json.append("      \"differingPixels\": ").append(result.differingPixels()).append(",\n");
+                json.append("      \"totalPixels\": ").append(result.totalPixels()).append(",\n");
+                json.append("      \"meanAbsDiff\": ").append(result.meanAbsDiff()).append(",\n");
+                json.append("      \"maxAbsDiff\": ").append(result.maxAbsDiff()).append(",\n");
+                json.append("      \"layoutMismatches\": ").append(result.layoutMismatches()).append(",\n");
+                json.append("      \"maxLayoutPositionDelta\": ").append(result.maxLayoutPositionDelta()).append(",\n");
+                json.append("      \"message\": \"").append(jsonEscape(result.message())).append("\"\n");
+                json.append("    }").append(i < runResult.tests().size() - 1 ? ",\n" : "\n");
+            }
+            json.append("  ]\n");
+            json.append("}\n");
             Files.writeString(runResult.outputDirectory().resolve("latest.json"),
                     json.toString(), StandardCharsets.UTF_8);
             Files.writeString(runResult.outputDirectory().resolve("latest.html"),
                     htmlReport(runResult), StandardCharsets.UTF_8);
-        } catch (IOException failure) {
-            throw new IllegalStateException("Berichte nicht schreibbar", failure);
+        } catch (IOException e) {
+            throw new IllegalStateException("Berichte schreiben fehlgeschlagen: " + e.getMessage(), e);
         }
     }
 
     private static String htmlReport(RunResult runResult) {
         StringBuilder html = new StringBuilder();
-        html.append("<!DOCTYPE html>\n<html lang=\"de\">\n<head>\n<meta charset=\"utf-8\">\n")
-                .append("<title>W3C CSS2.1 – Chrome vs. Browicy</title>\n")
-                .append("<style>")
-                .append("body{font-family:sans-serif;margin:1em}td,th{padding:2px 8px;")
-                .append("text-align:left;vertical-align:top;font-size:13px}")
-                .append("img{max-width:200px;max-height:150px;border:1px solid #ccc}")
-                .append(".PASS{color:green;font-weight:bold}.DIFF{color:#b06a00;font-weight:bold}")
-                .append(".ERROR,.NO_REFERENCE{color:red;font-weight:bold}")
-                .append(".SKIP{color:#888}table{border-collapse:collapse}")
-                .append("th{border-bottom:2px solid #333}")
-                .append("</style>\n</head>\n<body>\n");
-        html.append("<h1>W3C CSS2.1 – Chrome vs. Browicy</h1>\n");
-        html.append("<p>Viewport ").append(runResult.viewportWidth()).append("x")
-                .append(runResult.viewportHeight()).append(" · ")
-                .append(runResult.tests().size()).append(" Tests · ");
-        for (Status status : Status.values()) {
-            html.append("<span class=\"").append(status).append("\">")
-                    .append(status).append(": ").append(runResult.count(status))
-                    .append("</span> · ");
+        html.append("<!DOCTYPE html>\n<html lang=\"de\">\n<head>\n")
+                .append("<meta charset=\"utf-8\">\n")
+                .append("<title>W3C CSS2.1 Harness – Chrome vs. Browicy</title>\n")
+                .append("<style>\n")
+                .append("body{font-family:sans-serif;margin:1rem}\n")
+                .append("table{border-collapse:collapse;width:100%}\n")
+                .append("th,td{border:1px solid #ccc;padding:4px 8px;text-align:left}\n")
+                .append(".PASS{background:#dfd}.DIFF{background:#fdd}.ERROR{background:#fcc}.SKIP{background:#eee}\n")
+                .append("img{max-width:220px;border:1px solid #999}\n")
+                .append("</style>\n</head>\n<body>\n")
+                .append("<h1>W3C CSS2.1 Harness – Chrome vs. Browicy</h1>\n")
+                .append("<p>Viewport: ").append(runResult.viewportWidth()).append('x')
+                .append(runResult.viewportHeight()).append("</p>\n")
+                .append("<table>\n<tr><th>Status</th><th>Test</th><th>Diff-Ratio</th>")
+                .append("<th>Layout</th><th>Chrome</th><th>Browicy</th><th>Diff</th></tr>\n");
+
+        for (TestResult result : runResult.tests()) {
+            String key = result.relativePath().replace('/', '_');
+            String artifactDir = "comparisons/" + key;
+            String layoutClass = result.layoutMismatches() == 0 ? "PASS" : "DIFF";
+            html.append("<tr class=\"").append(result.status()).append("\">\n")
+                    .append("<td>").append(result.status()).append("</td>\n")
+                    .append("<td>").append(htmlEscape(result.relativePath())).append("</td>\n")
+                    .append("<td>").append(formatRatio(result.diffRatio()))
+                    .append("<br><small>mean ").append(format(result.meanAbsDiff()))
+                    .append(", max ").append(format(result.maxAbsDiff())).append("</small></td>\n")
+                    .append("<td class=\"").append(layoutClass).append("\">")
+                    .append(result.layoutMismatches()).append(" Abweichung(en), max ΔPos ")
+                    .append(format(result.maxLayoutPositionDelta())).append("px<br>")
+                    .append("<a href=\"").append(artifactDir).append("/layout-diff.txt\">Layout-Diff (TXT)</a> · ")
+                    .append("<a href=\"").append(artifactDir).append("/layout-diff.json\">JSON</a></td>\n")
+                    .append("<td><a href=\"").append(artifactDir).append("/chrome.png\"><img src=\"")
+                    .append(artifactDir).append("/chrome.png\" alt=\"Chrome\"></a></td>\n")
+                    .append("<td><a href=\"").append(artifactDir).append("/browicy.png\"><img src=\"")
+                    .append(artifactDir).append("/browicy.png\" alt=\"Browicy\"></a></td>\n")
+                    .append("<td><a href=\"").append(artifactDir).append("/diff.png\"><img src=\"")
+                    .append(artifactDir).append("/diff.png\" alt=\"Diff\"></a></td>\n")
+                    .append("</tr>\n");
         }
-        html.append("</p>\n");
-        html.append("<table>\n<tr><th>Status</th><th>Test</th><th>Diff</th>")
-                .append("<th>Chrome</th><th>Browicy</th><th>Diff-Bild</th><th>Meldung</th></tr>\n");
-        for (TestResult test : runResult.tests()) {
-            String base = "comparisons/" + test.relativePath().replace('/', '_');
-            html.append("<tr><td class=\"").append(test.status()).append("\">")
-                    .append(test.status()).append("</td>")
-                    .append("<td>").append(htmlEscape(test.relativePath())).append("</td>")
-                    .append("<td>").append(formatRatio(test.diffRatio())).append("</td>")
-                    .append("<td><a href=\"").append(base).append("/chrome.png\">")
-                    .append("<img src=\"").append(base).append("/chrome.png\" alt=\"chrome\">")
-                    .append("</a></td>")
-                    .append("<td><a href=\"").append(base).append("/browicy.png\">")
-                    .append("<img src=\"").append(base).append("/browicy.png\" alt=\"browicy\">")
-                    .append("</a></td>")
-                    .append("<td><a href=\"").append(base).append("/diff.png\">")
-                    .append("<img src=\"").append(base).append("/diff.png\" alt=\"diff\">")
-                    .append("</a></td>")
-                    .append("<td>").append(htmlEscape(test.message())).append("</td></tr>\n");
-        }
+
         html.append("</table>\n</body>\n</html>\n");
         return html.toString();
     }
@@ -318,23 +264,24 @@ public final class W3cCss21Harness {
     private record Config(boolean refreshReferences, int viewportWidth, int viewportHeight,
                           Pattern testsFilter, double passRatio, Path outputDirectory) {
 
-        private static Config fromSystemProperties() {
-            boolean refresh = Boolean.getBoolean("browicy.refreshReferences");
-            int[] viewport = parseViewport(System.getProperty("browicy.viewport", "800x600"));
-            Pattern filter = Pattern.compile(System.getProperty("browicy.tests", ".*"));
-            double passRatio = Double.parseDouble(System.getProperty("browicy.passRatio", "0.0"));
-            Path output = Path.of(System.getProperty("browicy.outputDir", "target/w3c-css21"));
-            return new Config(refresh, viewport[0], viewport[1], filter, passRatio, output);
-        }
-
-        private static int[] parseViewport(String value) {
-            var matcher = VIEWPORT.matcher(value.strip());
-            if (!matcher.matches()) {
-                throw new IllegalArgumentException(
-                        "Ungültiger Viewport '" + value + "' (erwartet WIDTHxHEIGHT)");
+        static Config fromSystemProperties() {
+            boolean refresh = Boolean.parseBoolean(
+                    System.getProperty("browicy.refreshReferences", "false"));
+            int width = 800;
+            int height = 600;
+            String viewport = System.getProperty("browicy.viewport", "800x600");
+            var viewportMatcher = VIEWPORT.matcher(viewport);
+            if (viewportMatcher.matches()) {
+                width = Integer.parseInt(viewportMatcher.group(1));
+                height = Integer.parseInt(viewportMatcher.group(2));
             }
-            return new int[]{Integer.parseInt(matcher.group(1)),
-                    Integer.parseInt(matcher.group(2))};
+            String filter = System.getProperty("browicy.tests", ".*");
+            Pattern testsFilter = Pattern.compile(filter);
+            double passRatio = Double.parseDouble(
+                    System.getProperty("browicy.passRatio", "0.0"));
+            Path output = Path.of(System.getProperty("browicy.outputDir",
+                    "target/w3c-css21"));
+            return new Config(refresh, width, height, testsFilter, passRatio, output);
         }
     }
 }

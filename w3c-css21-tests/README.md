@@ -3,7 +3,7 @@
 Dieses optionale Modul nutzt die [W3C CSS 2.1 Conformance Test
 Suite](https://www.w3.org/Style/CSS/Test/) (Quelle und Pin: siehe
 [`UPSTREAM.md`](UPSTREAM.md)) und vergleicht die Darstellung jedes Tests
-pixelweise zwischen **headless Chromium (Playwright)** und **Browicy**:
+pixelweise sowie auf **DOM-Box-Geometrie-Ebene** zwischen **headless Chromium (Playwright)** und **Browicy**:
 
 > Chrome zeigt, wie es richtig aussehen soll. Browicy wird gegen diese
 > Referenz getestet – Test-Driven Development für die Engine.
@@ -16,7 +16,8 @@ lädt sie beim ersten Lauf von der gepinnten Upstream-Revision
 ## Voraussetzungen
 
 1. Playwright-Chromium einmalig installieren (lädt ~160 MB nach
-   `%LOCALAPPDATA%\ms-playwright`):
+   `%LOCALAPPDATA%\ms-playwright`; das `desktop`-Modul schaltet
+   `exec.skip` frei, deshalb ohne zusätzliches Flag):
 
    ```bash
    mvn -pl desktop exec:java \
@@ -59,6 +60,41 @@ mvn -Pw3c-css21 -pl w3c-css21-tests -am test \
   -Dmaven.test.failure.ignore=true
 ```
 
+## Schnelles Layout-Debugging via CLI (`LayoutTreeDiffer`)
+
+Um ohne kompletten Harness-Lauf die exakten Pixel- und Box-Modell-Deltas
+zwischen Chrome und Browicy auf der Konsole auszugeben:
+
+```bash
+# Einmalig: Modul-Abhängigkeiten installieren (Standard-Build)
+mvn -q install -DskipTests
+
+# Layout-Tree-Diff eines Tests (headless Chromium + Browicy in-process;
+# exec.skip=false ist nötig, weil der Parent-POM exec global sperrt;
+# ohne -am, damit exec:java nur auf diesem Modul läuft)
+mvn -Pw3c-css21 -pl w3c-css21-tests compile exec:java \
+  -Dexec.mainClass=com.browicy.css21.LayoutTreeDiffer \
+  -Dexec.skip=false \
+  "-Dexec.args=floats/floats-rule7-outside-left-001.xht"
+```
+
+Ausgabebeispiel:
+```text
+Layout-Tree-Vergleich: 5 Elemente, 0 PASS, 5 DIFF, 0 Fehlt, 0 Extra (Max dPos: 8.0px, Max dSize: 16.0px)
+------------------------------------------------------------------------------------------------------------------------
+Status | Element (Pfad)                  | Chrome (x,y wxh)       | Browicy (x,y wxh)      | Delta (dx,dy dwxdh)
+------------------------------------------------------------------------------------------------------------------------
+DIFF   | html > body:nth-of-type(1)      | (8.0, 8.0) 784.0x0.0   | (0.0, 0.0) 800.0x0.0   | (-8.0, -8.0) +16.0x+0.0
+       -> Style-Diff [margin-top]: Chrome='8px', Browicy='0px'
+DIFF   | ...of-type(1) > div:nth-of-type(1) | (108.0, 8.0) 400.0x0.0 | (100.0, 0.0) 400.0x0.0 | (-8.0, -8.0) +0.0x+0.0
+------------------------------------------------------------------------------------------------------------------------
+```
+
+Optionen: `--json` (strukturierte JSON-Ausgabe), `--out <datei>` (Ergebnis
+zusätzlich in Datei schreiben). Exit-Codes: `0` = alle Boxen passen,
+`1` = Layout-Diffs, `2` = Aufruf-/Laufzeitfehler. Der Browser wird am Ende
+immer geschlossen (try-with-resources; Chromium läuft headless).
+
 ## Steuerung
 
 | System-Property | Bedeutung | Standard |
@@ -69,41 +105,13 @@ mvn -Pw3c-css21 -pl w3c-css21-tests -am test \
 | `browicy.passRatio` | max. Diff-Quote für PASS | `0.0` (pixelidentisch) |
 | `browicy.outputDir` | Berichts-/Artefaktverzeichnis | `target/w3c-css21` |
 
-Achtung: `mvn clean` löscht `target/w3c-css21` – fehlende Referenzen werden
-beim nächsten Lauf automatisch neu erzeugt. Der Suite-Cache
-(`~/.browicy/w3c-css21-suite/`) überlebt `mvn clean`.
-
-## Status je Test
-
-- **PASS** – Browicy-Darstellung pixelidentisch (bzw. ≤ `passRatio`) zur Chrome-Referenz
-- **DIFF** – sichtbare Abweichung; Diff-Bild und Metriken im Report
-- **ERROR** – Chrome oder Browicy konnte den Test nicht rendern (Meldung im Report)
-- **SKIP** – auf `skip.txt` (interaktive/Nicht-Visual-Tests)
-
-Fehlende Referenzen erzeugt der Harness automatisch beim ersten Lauf (Chrome
-rendert sie). `-Dbrowicy.refreshReferences=true` überschreibt vorhandene
-Referenzen – nötig, wenn sich die Erwartung ändern soll (neue Chrome-Version,
-geänderte Baseline).
-
 ## Artefakte
 
 `target/w3c-css21/`:
 
-- `latest.html` – Triage-Seite mit Chrome/Browicy/Diff-Bildern je Test
-- `latest.json` – maschinenlesbarer Report (Status + Metriken)
+- `latest.html` – Triage-Seite mit Chrome/Browicy/Diff-Bildern und Links zu den Layout-Diffs je Test
+- `latest.json` – maschinenlesbarer Report (Status + Pixel- & Layout-Metriken)
 - `references/<test>.png` – Chrome-Sollbilder (die Test-Erwartung)
 - `comparisons/<test>/{chrome,browicy,diff}.png` – Paar plus Diff je Test
-
-## Grenzen
-
-- Vergleich auf **Viewport-Ebene** (kein Full-Page-Rolling); beide Browser
-  rendern dieselbe `800x600`-Fläche.
-- Browicy parst `.xht`-Dateien mit seinem HTML-Parser, Chrome als XML
-  (`application/xhtml+xml`). Inhaltlich identische Tests; Parser-Differenzen
-  können einzelne DIFFs erklären.
-- Schrift-Rendering ohne Ahem weicht ab (siehe oben). Zudem kann die
-  Java2D-Schriftrasterung zwischen JVMs minimal variieren (Font-Cache):
-  Referenzen und Browicy-Bilder stammen dann aus verschiedenen JVM-Läufen.
-  Bei Bedarf Baseline mit `-Dbrowicy.refreshReferences=true` neu erzeugen.
-- Der volle Lauf (~9 800 Tests) dauert je nach Rechner 1–3 Stunden –
-  gezielte Teilmengen über `browicy.tests` sind der empfohlene Weg.
+- `comparisons/<test>/layout-diff.txt` – Tabellarischer Bounding-Box-Vergleich
+- `comparisons/<test>/layout-diff.json` – Strukturierte JSON-Element-Geometriedaten
