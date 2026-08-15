@@ -821,13 +821,13 @@ public final class RenderTreeBuilder {
                 case "inherit" -> parent.display();
                 case "-webkit-box" -> RenderStyle.Display.FLEX;
                 case "contents" -> RenderStyle.Display.BLOCK;
-                case "block" -> RenderStyle.Display.BLOCK;
+                case "block", "flow-root" -> RenderStyle.Display.BLOCK;
                 case "inline-block" -> RenderStyle.Display.INLINE_BLOCK;
+                case "none" -> RenderStyle.Display.NONE;
                 case "flex" -> RenderStyle.Display.FLEX;
                 case "inline-flex" -> RenderStyle.Display.INLINE_FLEX;
                 case "grid" -> RenderStyle.Display.GRID;
                 case "inline-grid" -> RenderStyle.Display.INLINE_GRID;
-                case "none" -> RenderStyle.Display.NONE;
                 case "table" -> RenderStyle.Display.TABLE;
                 case "inline-table" -> RenderStyle.Display.INLINE_TABLE;
                 case "table-row-group" -> RenderStyle.Display.TABLE_ROW_GROUP;
@@ -1777,6 +1777,8 @@ public final class RenderTreeBuilder {
             ParsedLength parsed = parseLength(normalized);
             return switch (parsed.unit()) {
                 case "em" -> parsed.value() * emBase;
+                // ch hängt von der Nullglyphenbreite ab; im Renderbaum steht dafür nur em zur Verfügung.
+                case "ch" -> parsed.value() * emBase * 0.5f;
                 case "rem" -> parsed.value() * remBase;
                 case "vw" -> parsed.value() * viewportWidth / 100f;
                 case "vh" -> parsed.value() * viewportHeight / 100f;
@@ -1962,6 +1964,8 @@ public final class RenderTreeBuilder {
             ParsedLength parsed = parseLength(value);
             return switch (parsed.unit()) {
                 case "em" -> new RenderLength(parsed.value() * emBase, RenderLength.Unit.PX);
+                // ch hängt von der Nullglyphenbreite ab; im Renderbaum steht dafür nur em zur Verfügung.
+                case "ch" -> new RenderLength(parsed.value() * emBase * 0.5f, RenderLength.Unit.PX);
                 case "rem" -> new RenderLength(parsed.value(), RenderLength.Unit.REM);
                 case "vw" -> new RenderLength(parsed.value(), RenderLength.Unit.VW);
                 case "vh" -> new RenderLength(parsed.value(), RenderLength.Unit.VH);
@@ -2051,7 +2055,7 @@ public final class RenderTreeBuilder {
 
     private static ParsedLength parseLength(String value) {
         String normalized = value.toLowerCase(Locale.ROOT);
-        for (String unit : List.of("rem", "px", "em", "vw", "vh", "dvh", "svh", "lvh", "%")) {
+        for (String unit : List.of("rem", "px", "em", "vw", "vh", "dvh", "svh", "lvh", "ch", "%")) {
             if (normalized.endsWith(unit)) {
                 float number = Float.parseFloat(
                         normalized.substring(0, normalized.length() - unit.length()));

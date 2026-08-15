@@ -41,6 +41,18 @@ public class RenderTreeBuilderTest {
     }
 
     @Test
+    public void treatsHeiseFlowRootAndCharacterWidthsAsBlockSizing() {
+        RenderBox container = boxChildren(build("""
+                <body><div style="font-size:20px"><span style="display:flow-root;width:10ch">headline</span></div></body>
+                """).root()).getFirst();
+        RenderBox headline = boxChildren(container).getFirst();
+
+        assertEquals(RenderStyle.Display.BLOCK, headline.style().display());
+        assertEquals(100f, headline.style().width().value(), 0.001f);
+        assertEquals(RenderLength.Unit.PX, headline.style().width().unit());
+    }
+
+    @Test
     public void resolvesBoxModelLengthsBackgroundAndBorder() {
         RenderBox box = boxChildren(build("""
                 <body><div style="font-size: 20px; margin: 1px 2px 3px 4px;

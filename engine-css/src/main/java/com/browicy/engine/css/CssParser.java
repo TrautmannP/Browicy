@@ -838,7 +838,7 @@ public final class CssParser {
                 }
             }
             case "display" -> {
-                if (value.equals("block") || value.equals("inline")
+                if (value.equals("block") || value.equals("flow-root") || value.equals("inline")
                         || value.equals("inline-block") || value.equals("none")
                         || value.equals("flex") || value.equals("inline-flex")
                         || value.equals("grid") || value.equals("inline-grid")
