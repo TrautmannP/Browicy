@@ -20,12 +20,6 @@ import java.awt.image.BufferedImage;
 import java.util.Locale;
 import java.util.Objects;
 
-/**
- * Produktions-Implementierung von {@link LayoutMetricsAccess} auf Basis der
- * {@link RenderLayoutEngine}: führt bei jeder Anfrage synchron einen vollständigen
- * Style-/Render-Tree-/Layout-Durchlauf gegen das aktuelle Dokument aus (Forced
- * Reflow wie in Browsern) und liefert die berechneten Pixelwerte.
- */
 public final class RenderLayoutMetrics implements LayoutMetricsAccess {
 
     private final StyleSheetRegistry styleSheets;
@@ -53,7 +47,6 @@ public final class RenderLayoutMetrics implements LayoutMetricsAccess {
             return LayoutElementMetrics.ZERO;
         }
         if (element == document.getDocumentElement()) {
-            // Das html-Element erzeugt keine eigene Box, deckt aber den Viewport ab.
             return new LayoutElementMetrics(true, 0, 0, viewportWidth, viewportHeight,
                     0, 0, 0, 0, 0, 0, 0, 0);
         }
@@ -106,10 +99,6 @@ public final class RenderLayoutMetrics implements LayoutMetricsAccess {
         };
     }
 
-    /**
-     * Aggregierte Border-Box eines Elements aus den Layout-Fragmenten
-     * (Vereinigung aller Fragmente, wie getBoundingClientRect es verlangt).
-     */
     private ElementLayout findElementLayout(Element element, LayoutResult layout) {
         MutableBox box = null;
         RenderStyle style = null;
@@ -153,7 +142,6 @@ public final class RenderLayoutMetrics implements LayoutMetricsAccess {
                 box.left, box.top, box.right, box.bottom, style);
     }
 
-    /** Erste Box-Style eines Elements im Layout (für Padding/Border/Font-Werte). */
     private RenderStyle findStyle(Element element, LayoutResult layout) {
         ElementLayout found = findElementLayout(element, layout);
         return found == null ? null : found.style();
@@ -186,7 +174,6 @@ public final class RenderLayoutMetrics implements LayoutMetricsAccess {
         return style == null ? null : side.apply(style);
     }
 
-    /** Used Value horizontaler Margins: Position relativ zur Content-Box des Eltern-Elements. */
     private String horizontalMargin(Element element, Document document, Pass pass,
                                     String normalized) {
         if (isPositioned(element)) {
@@ -215,12 +202,6 @@ public final class RenderLayoutMetrics implements LayoutMetricsAccess {
         return cssPx(value);
     }
 
-    /**
-     * Vertikale Margins kollabieren zwischen Geschwistern und Eltern/Kind;
-     * die Geometrie ist daher nicht eindeutig ableitbar. Stattdessen wird der
-     * deklarierte Wert gegen die eigene Fontgröße aufgelöst (wie der Builder
-     * es tut); {@code auto} wird zum Used Value {@code 0px}.
-     */
     private String verticalMargin(Element element, Document document, Pass pass,
                                   String normalized) {
         String cascade = cascade(element, normalized);
@@ -265,13 +246,11 @@ public final class RenderLayoutMetrics implements LayoutMetricsAccess {
             };
             return cssPx(used);
         }
-        // relative / sticky: deklarierter Versatz gegen die eigene Fontgröße.
         Float resolved = resolveLengthValue(cascade, fontSizeOf(element, document, pass),
                 pass.tree().rootFontSizePx());
         return resolved == null ? null : cssPx(resolved);
     }
 
-    /** Element-Fontgröße aus dem Layout, sonst aus der Kaskade gegen Root/Parent. */
     private float fontSizeOf(Element element, Document document, Pass pass) {
         if (element == document.getDocumentElement()) {
             return pass.tree().rootFontSizePx();
@@ -292,7 +271,6 @@ public final class RenderLayoutMetrics implements LayoutMetricsAccess {
         return resolved == null ? pass.tree().rootFontSizePx() : resolved;
     }
 
-    /** Deklarierter Wert einer Eigenschaft aus der Kaskade (inkl. Inline-Styles). */
     private static String cascade(Element element, String property) {
         return element.getComputedStyles().get(property);
     }
@@ -310,7 +288,6 @@ public final class RenderLayoutMetrics implements LayoutMetricsAccess {
         return element.getParent() instanceof Element parent ? parent : null;
     }
 
-    /** Nächster positionierter Vorfahre = Containing Block (Padding-Box) für absolute Elemente. */
     private static Element containingBlockElement(Element element) {
         for (com.browicy.engine.dom.Node node = element.getParent(); node != null;
              node = node.getParent()) {
@@ -322,10 +299,6 @@ public final class RenderLayoutMetrics implements LayoutMetricsAccess {
         return null;
     }
 
-    /**
-     * Längenwert der Kaskade gegen Font- und Root-Fontgröße auflösen
-     * (px/em/rem; % nur für Margin/Padding, konsistent zum RenderTreeBuilder).
-     */
     private static Float resolveLengthValue(String value, float fontSize, float rootFontSize) {
         String normalized = value.strip().toLowerCase(Locale.ROOT);
         if ("0".equals(normalized)) {
@@ -355,6 +328,10 @@ public final class RenderLayoutMetrics implements LayoutMetricsAccess {
         } catch (NumberFormatException invalid) {
             return null;
         }
+    }
+
+    private static String cssPx(Float value) {
+        return value == null ? null : cssPx(value.floatValue());
     }
 
     private static String cssPx(float value) {

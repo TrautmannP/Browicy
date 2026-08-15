@@ -13,6 +13,7 @@ import com.browicy.engine.render.RenderTextRun;
 import com.browicy.engine.render.RenderTree;
 import com.browicy.ui.render.FloatExclusionSpace.FloatArea;
 import com.browicy.ui.render.FloatExclusionSpace.FloatRegion;
+import com.browicy.ui.render.FloatExclusionSpace.LineSlot;
 import com.browicy.engine.render.Transform;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -392,14 +393,9 @@ public final class RenderLayoutEngine {
         boolean parentCollapsesBottom = collapsesWithChildren(box.style());
         for (RenderNode child : box.children()) {
             if (child instanceof RenderBox childBox) {
-                float inlineMinimum = floats.isEmpty() || inlineBuffer.isEmpty()
-                        ? 0 : intrinsicWidths(inlineBuffer, contentWidth, graphics, false).minimum();
-                currentY = floats.dropBelowFloatsIfNarrow(
-                        contentX, contentWidth, currentY, inlineMinimum);
-                FloatArea inlineArea = floats.floatArea(contentX, contentWidth, currentY);
-                float inlineHeight = flushInline(inlineBuffer, inlineArea.x(), currentY,
-                        inlineArea.width(), childContainingHeight, box.style().textAlign(),
-                        graphics, childFragments, lineBoxes);
+                float inlineHeight = flushInline(inlineBuffer, contentX, contentWidth, currentY,
+                        childContainingHeight, box.style().textAlign(), floats, graphics,
+                        childFragments, lineBoxes);
                 currentY += inlineHeight;
                 if (inlineHeight > 0) previousBottomMargin = null;
                 if (childBox.style().position() == RenderStyle.Position.ABSOLUTE
@@ -408,19 +404,11 @@ public final class RenderLayoutEngine {
                             new AbsoluteRequest(childBox, contentX, currentY));
                     continue;
                 }
-                currentY = floats.clearedY(currentY, childBox.style().clear());
-                FloatArea blockArea = floats.floatArea(contentX, contentWidth, currentY);
+                float placementY = floats.clearedY(currentY, childBox.style().clear());
+                FloatArea blockArea = floats.floatArea(contentX, contentWidth, placementY);
                 float blockMinimum = floats.isEmpty() ? 0
                         : intrinsicBoxWidth(childBox, contentWidth, graphics, false, true).minimum();
                 if (blockArea.width() < Math.max(1, blockMinimum)) {
-                    // Float-Regel 7 (§9.5.1): Ein Float, dessen äußere Kante an
-                    // der Kante seines Containing Blocks anliegt ("so weit links
-                    // bzw. rechts wie möglich"), darf über die gegenüberliegende
-                    // Kante hinausragen (Ausnahme zu Regel 3). Die Ausnahme
-                    // greift nur, wenn im Containing Block kein Float der
-                    // Gegenseite steht (Regel 4): Andernfalls überlappt der
-                    // herausragende Float ihn und wird unter die Floats
-                    // verschoben.
                     boolean floatSticksOut = switch (childBox.style().floatMode()) {
                         case LEFT -> blockArea.x() <= contentX + 0.5f
                                 && blockArea.x() + blockArea.width()
@@ -431,14 +419,14 @@ public final class RenderLayoutEngine {
                         case NONE -> false;
                     };
                     if (!floatSticksOut) {
-                        currentY = floats.clearedY(currentY, RenderStyle.Clear.BOTH);
-                        blockArea = floats.floatArea(contentX, contentWidth, currentY);
+                        placementY = floats.clearedY(placementY, RenderStyle.Clear.BOTH);
+                        blockArea = floats.floatArea(contentX, contentWidth, placementY);
                     }
                 }
                 if (childBox.style().floatMode() != RenderStyle.FloatMode.NONE) {
                     int floatFirstLine = lineBoxes.size();
                     BlockLayout floatLayout = layoutBlock(
-                            childBox, blockArea.x(), currentY, blockArea.width(),
+                            childBox, blockArea.x(), placementY, blockArea.width(),
                             childContainingHeight, true, graphics, lineBoxes,
                             childPositionedContext);
                     BoxFragment root = (BoxFragment) floatLayout.fragments().getFirst();
@@ -447,42 +435,66 @@ public final class RenderLayoutEngine {
                             : blockArea.x() + blockArea.width()
                                     - childBox.style().margin().right() - root.width();
                     float dx = desiredX - root.x();
-                    // Mal-Reihenfolge nach CSS2.1 Anhang E: Float-Fragmente
-                    // werden über den Hintergründen der In-Flow-Blöcke des BFC
-                    // gemalt (nicht in Quellreihenfolge), aber unter dem
-                    // Inline-Inhalt. Deshalb sammeln wir sie und hängen sie
-                    // nach der Kinderschleife an.
                     floatLayout.fragments().stream().map(fragment -> translate(fragment, dx, 0))
                             .forEach(deferredFloats::add);
                     translateLines(lineBoxes, floatFirstLine, dx, 0);
                     floats.add(new FloatRegion(
                             childBox.style().floatMode(),
-                            desiredX - childBox.style().margin().left(), currentY,
+                            desiredX - childBox.style().margin().left(), placementY,
                             root.width() + childBox.style().margin().horizontal(),
-                            floatLayout.outerHeight()));                    previousBottomMargin = null;
+                            floatLayout.outerHeight()));
+                    previousBottomMargin = null;
                     continue;
                 }
+                currentY = placementY;
                 float collapsedOverlap = previousBottomMargin == null ? 0
                         : previousBottomMargin + effectiveTopMargin(childBox)
                         - Math.max(previousBottomMargin, effectiveTopMargin(childBox));
                 currentY -= collapsedOverlap;
                 boolean collapseTop = parentCollapsesTop && childBox == firstBlockChild;
-                // §9.5.1: Normale In-Flow-Blockboxen fließen vertikal und
-                // horizontal "als gäbe es den Float nicht" – sie erhalten die
-                // volle Containing-Block-Breite; nur ihre Zeilenboxen weichen
-                // den Floats des BFC aus. Dafür wird die aktive Float-Liste
-                // des BFC an Nicht-BFC-Kinder weitergereicht (gemeinsame,
-                // mutierbare Liste). Boxen, die selbst einen neuen BFC erzeugen
-                // (overflow ≠ visible, table, inline-block, Flex/Grid), dürfen
-                // Floats dagegen nicht überlappen (Regel 5) und bekommen eine
-                // eigene Float-Liste.
                 boolean childEstablishesBfc = establishesBfc(childBox);
-                BlockLayout childLayout = layoutBlock(
-                        childBox, childEstablishesBfc ? blockArea.x() : contentX, currentY,
-                        childEstablishesBfc ? blockArea.width() : contentWidth,
-                        childContainingHeight, false, graphics, lineBoxes,
-                        childPositionedContext, collapseTop,
-                        childEstablishesBfc ? null : floats);
+                BlockLayout childLayout;
+                if (childEstablishesBfc) {
+                    int bfcFirstLine = lineBoxes.size();
+                    int bfcRequests = childPositionedContext.requests.size();
+                    float childY = currentY;
+                    childLayout = layoutBlock(
+                            childBox, blockArea.x(), childY, blockArea.width(),
+                            childContainingHeight, false, graphics, lineBoxes,
+                            childPositionedContext, collapseTop, null);
+                    for (int attempt = 0; attempt < 2; attempt++) {
+                        float measuredHeight = childLayout.outerHeight();
+                        float measuredWidth = childLayout.fragments().getFirst() instanceof BoxFragment root
+                                ? root.width() + childBox.style().margin().horizontal() : blockArea.width();
+                        LineSlot slot = floats.lineSlot(contentX, contentWidth, currentY,
+                                Math.max(1, measuredHeight), Math.max(1, measuredWidth));
+                        boolean moved = slot.y() > currentY + 0.5f
+                                || Math.abs(slot.x() - blockArea.x()) > 0.5f
+                                || Math.abs(slot.width() - blockArea.width()) > 0.5f;
+                        if (!moved) {
+                            break;
+                        }
+                        while (lineBoxes.size() > bfcFirstLine) {
+                            lineBoxes.remove(lineBoxes.size() - 1);
+                        }
+                        while (childPositionedContext.requests.size() > bfcRequests) {
+                            childPositionedContext.requests.remove(
+                                    childPositionedContext.requests.size() - 1);
+                        }
+                        blockArea = new FloatArea(slot.x(), slot.width());
+                        childY = slot.y();
+                        childLayout = layoutBlock(
+                                childBox, blockArea.x(), childY, blockArea.width(),
+                                childContainingHeight, false, graphics, lineBoxes,
+                                childPositionedContext, collapseTop, null);
+                    }
+                    currentY = childY;
+                } else {
+                    childLayout = layoutBlock(
+                            childBox, contentX, currentY, contentWidth,
+                            childContainingHeight, false, graphics, lineBoxes,
+                            childPositionedContext, collapseTop, floats);
+                }
                 childFragments.addAll(childLayout.fragments());
                 float bottomAbsorbed = childBox == lastBlockChild && parentCollapsesBottom
                         ? effectiveBottomMargin(childBox) : 0;
@@ -493,19 +505,10 @@ public final class RenderLayoutEngine {
                 inlineBuffer.add(child);
             }
         }
-        FloatArea finalArea = floats.floatArea(contentX, contentWidth, currentY);
-        float finalMinimum = floats.isEmpty() || inlineBuffer.isEmpty()
-                ? 0 : intrinsicWidths(inlineBuffer, contentWidth, graphics, false).minimum();
-        if (finalArea.width() < Math.max(1, finalMinimum)) {
-            currentY = floats.clearedY(currentY, RenderStyle.Clear.BOTH);
-            finalArea = floats.floatArea(contentX, contentWidth, currentY);
-        }
-        // Nachlaufende Inline-Inhalte (Anhang E, Schritt 5) malen über den
-        // Floats; deshalb erst die Float-Fragmente anhängen, dann flushInline.
         childFragments.addAll(deferredFloats);
-        currentY += flushInline(inlineBuffer, finalArea.x(), currentY, finalArea.width(),
-                childContainingHeight, box.style().textAlign(), graphics, childFragments,
-                lineBoxes);
+        currentY += flushInline(inlineBuffer, contentX, contentWidth, currentY,
+                childContainingHeight, box.style().textAlign(), floats, graphics,
+                childFragments, lineBoxes);
         float contentHeight = Math.max(0, currentY - contentY);
         if (box.style().overflow() != RenderStyle.Overflow.VISIBLE) {
             for (FloatRegion region : floats.regions()) {
@@ -516,12 +519,6 @@ public final class RenderLayoutEngine {
         return contentHeight;
     }
 
-    /** CSS2.1 §9.4.1: Erzeugt die Box einen neuen Block-Formatierungskontext
-     *  (overflow ≠ visible sowie tabellarische, inline-block- und
-     *  Flex-/Grid-Container)? Positionierung (absolut/fixed) und float werden
-     *  vom Aufrufer bereits vorher abgezweigt. BFC-Wurzeln dürfen die
-     *  Margin-Boxen der Floats des äußeren BFC nicht überlappen (Regel 5,
-     *  §9.5.1) und isolieren ihre eigenen Floats. */
     private static boolean establishesBfc(RenderBox box) {
         RenderStyle style = box.style();
         return style.overflow() != RenderStyle.Overflow.VISIBLE
@@ -2250,9 +2247,6 @@ public final class RenderLayoutEngine {
         return new Font(family, awtStyle, Math.max(1, Math.round(style.fontSizePx())));
     }
 
-    /** Layoutet einen Atomic-Inline (inline-block, ersetzte Elemente) in
-     *  Isolation: eigener PositionedContext, eigene Zeilenboxen, danach die
-     *  Absolut-Positionierten. Dient InlineLayout als Host-Leistung. */
     private AtomicLayout layoutAtomic(RenderInlineBlock inlineBlock,
                                       float width,
                                       Float containingHeight,
@@ -2280,11 +2274,12 @@ public final class RenderLayoutEngine {
     }
 
     private float flushInline(List<RenderNode> inlineNodes,
-                              float x,
+                              float contentX,
+                              float contentWidth,
                               float y,
-                              float width,
                               Float containingHeight,
                               RenderStyle.TextAlign textAlign,
+                              FloatExclusionSpace floats,
                               Graphics2D graphics,
                               List<PaintFragment> target,
                               List<LineBox> lineBoxes) {
@@ -2292,8 +2287,9 @@ public final class RenderLayoutEngine {
             return 0;
         }
         InlineLayout layouter = new InlineLayout(
-                inlineServices, x, y, width, containingHeight, textAlign, graphics,
-                target, lineBoxes);
+                inlineServices,
+                new InlineLayout.LineConstraints(floats, contentX, contentWidth),
+                y, contentWidth, containingHeight, textAlign, graphics, target, lineBoxes);
         layouter.layout(inlineNodes);
         inlineNodes.clear();
         return layouter.finish();

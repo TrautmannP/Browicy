@@ -9,6 +9,7 @@ import com.browicy.engine.render.RenderLineBreak;
 import com.browicy.engine.render.RenderNode;
 import com.browicy.engine.render.RenderStyle;
 import com.browicy.engine.render.RenderTextRun;
+import com.browicy.ui.render.FloatExclusionSpace.LineSlot;
 import com.browicy.ui.render.RenderLayoutEngine.ImageFragment;
 import com.browicy.ui.render.RenderLayoutEngine.InlineBoxFragment;
 import com.browicy.ui.render.RenderLayoutEngine.InlineFragment;
@@ -23,26 +24,14 @@ import java.awt.Graphics2D;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Zeilen-Layout: tokenisiert Inline-Inhalte und baut Zeilenboxen
- *  (Line-Breaking, Anhänge, Struts, Atomic-Inlines, Fragmente).
- *
- *  <p>Früher die private innere Klasse InlineLayouter von
- *  RenderLayoutEngine; Verhalten unverändert übernommen (Refactoring ohne
- *  Diff). Engine-Leistungen (Fonts, Bilder, Atomic-Blöcke, relative
- *  Offsets) laufen über {@link Host}.
- */
 final class InlineLayout {
 
-    /** Engine-Leistungen, die das Zeilenlayout braucht, aber nicht selbst
-     *  besitzt. */
     interface Host {
         Font fontFor(RenderStyle style);
 
         ImageLayout imageLayout(RenderImage image, float percentageBase,
                                 Float containingHeight);
 
-        /** Layoutet einen Atomic-Inline (inline-block etc.) inklusive seiner
-         *  Absolut-Positionierten; liefert Breite, Höhe und Baseline-Offset. */
         AtomicLayout layoutAtomic(RenderInlineBlock inlineBlock, float width,
                                   Float containingHeight, Graphics2D graphics);
 
@@ -51,10 +40,26 @@ final class InlineLayout {
         float relativeVerticalOffset(RenderStyle style, Float containingHeight);
     }
 
+    static final class LineConstraints {
+        private final FloatExclusionSpace floats;
+        private final float contentX;
+        private final float contentWidth;
+
+        LineConstraints(FloatExclusionSpace floats, float contentX, float contentWidth) {
+            this.floats = floats;
+            this.contentX = contentX;
+            this.contentWidth = contentWidth;
+        }
+
+        LineSlot slot(float y, float minHeight, float minWidth) {
+            return floats.lineSlot(contentX, contentWidth, y, minHeight, minWidth);
+        }
+    }
+
     private final Host host;
+    private final LineConstraints constraints;
     private final float startY;
-    private final float x;
-    private final float width;
+    private final float contentWidth;
     private final Float containingHeight;
     private final RenderStyle.TextAlign textAlign;
     private final Graphics2D graphics;
@@ -64,30 +69,41 @@ final class InlineLayout {
     private final List<InlineToken> tokens = new ArrayList<>();
     private LineBuilder line;
     private float y;
+    private float lineX;
+    private float lineWidth;
     private boolean pendingSpace;
     private String pendingSpaceText = " ";
     private RenderStyle pendingSpaceStyle;
 
     InlineLayout(Host host,
-                 float x,
+                 LineConstraints constraints,
                  float y,
-                 float width,
+                 float contentWidth,
                  Float containingHeight,
                  RenderStyle.TextAlign textAlign,
                  Graphics2D graphics,
                  List<PaintFragment> target,
                  List<LineBox> lineTarget) {
         this.host = host;
-        this.x = x;
+        this.constraints = constraints;
         this.y = y;
         this.startY = y;
-        this.width = width;
+        this.contentWidth = contentWidth;
         this.containingHeight = containingHeight;
         this.textAlign = textAlign;
         this.graphics = graphics;
         this.target = target;
         this.lineTarget = lineTarget;
-        this.line = new LineBuilder(graphics, activeBoxes, width, containingHeight);
+        this.lineX = 0;
+        this.lineWidth = contentWidth;
+        this.line = new LineBuilder(graphics, activeBoxes, contentWidth, containingHeight);
+    }
+
+    private void placeLine(float minHeight, float minWidth) {
+        LineSlot slot = constraints.slot(y, minHeight, minWidth);
+        y = slot.y();
+        lineX = slot.x();
+        lineWidth = slot.width();
     }
 
     void layout(List<RenderNode> nodes) {
@@ -146,13 +162,17 @@ final class InlineLayout {
     }
 
     private void addImage(RenderImage image) {
-        ImageLayout layout = host.imageLayout(image, width, containingHeight);
+        ImageLayout layout = host.imageLayout(image, contentWidth, containingHeight);
+        if (!line.hasPlacedContent()) {
+            placeLine(layout.height(), layout.width());
+        }
         float pendingWidth = pendingSpaceWidth();
         if (line.hasPlacedContent()
-                && line.width() + pendingWidth + layout.width() > width) {
+                && line.width() + pendingWidth + layout.width() > lineWidth) {
             pendingSpace = false;
             pendingSpaceStyle = null;
             flushLine(false, null);
+            placeLine(layout.height(), layout.width());
         } else {
             materializePendingSpace();
         }
@@ -160,14 +180,17 @@ final class InlineLayout {
     }
 
     private void addAtomicBlock(RenderInlineBlock inlineBlock) {
-        AtomicLayout atomic = host.layoutAtomic(inlineBlock, width, containingHeight, graphics);
-
+        AtomicLayout atomic = host.layoutAtomic(inlineBlock, contentWidth, containingHeight, graphics);
+        if (!line.hasPlacedContent()) {
+            placeLine(atomic.height(), atomic.width());
+        }
         float pendingWidth = pendingSpaceWidth();
         if (line.hasPlacedContent()
-                && line.width() + pendingWidth + atomic.width() > width) {
+                && line.width() + pendingWidth + atomic.width() > lineWidth) {
             pendingSpace = false;
             pendingSpaceStyle = null;
             flushLine(false, null);
+            placeLine(atomic.height(), atomic.width());
         } else {
             materializePendingSpace();
         }
@@ -223,11 +246,15 @@ final class InlineLayout {
         float pendingWidth = pendingSpaceWidth();
         float openingWidth = style.margin().left()
                 + style.borderWidth().left() + style.padding().left();
+        if (!line.hasContent()) {
+            placeLine(0, openingWidth);
+        }
         if (line.hasPlacedContent()
-                && line.width() + pendingWidth + openingWidth > width) {
+                && line.width() + pendingWidth + openingWidth > lineWidth) {
             pendingSpace = false;
             pendingSpaceStyle = null;
             flushLine(false, null);
+            placeLine(0, openingWidth);
         } else {
             materializePendingSpace();
         }
@@ -255,12 +282,20 @@ final class InlineLayout {
             case NOWRAP, PRE -> false;
             default -> true;
         };
+        float lineHeight = style.usedLineHeightPx() > 0
+                ? style.usedLineHeightPx() : metrics.getHeight();
 
+        if (!line.hasPlacedContent()) {
+            lineHeight = style.usedLineHeightPx() > 0
+                    ? style.usedLineHeightPx() : metrics.getHeight();
+            placeLine(lineHeight, wordWidth + trailingDecorationWidth);
+        }
         if (wrapAllowed && line.hasPlacedContent()
-                && line.width() + spaceWidth + wordWidth + trailingDecorationWidth > width) {
+                && line.width() + spaceWidth + wordWidth + trailingDecorationWidth > lineWidth) {
             pendingSpace = false;
             pendingSpaceStyle = null;
             flushLine(false, null);
+            placeLine(lineHeight, wordWidth + trailingDecorationWidth);
         }
 
         materializePendingSpace();
@@ -272,12 +307,12 @@ final class InlineLayout {
         while (offset < word.length()) {
             float finalWidth = textWidth(word.substring(offset), metrics,
                     style.letterSpacingPx());
-            if (finalWidth + trailingDecorationWidth <= width - line.width()) {
+            if (finalWidth + trailingDecorationWidth <= lineWidth - line.width()) {
                 line.addText(word.substring(offset), font, metrics, style);
                 return;
             }
 
-            float remaining = Math.max(1, width - line.width());
+            float remaining = Math.max(1, lineWidth - line.width());
             int end = longestFittingEnd(word, offset, metrics, remaining,
                     style.letterSpacingPx());
             line.addText(word.substring(offset, end), font, metrics, style);
@@ -325,24 +360,24 @@ final class InlineLayout {
             if (force && fallbackStyle != null) {
                 line.addStrut(host.fontFor(fallbackStyle), fallbackStyle);
             } else {
-                line = new LineBuilder(graphics, activeBoxes, width, containingHeight);
+                line = new LineBuilder(graphics, activeBoxes, contentWidth, containingHeight);
                 return;
             }
         }
 
         float alignmentOffset = switch (textAlign) {
-            case CENTER -> Math.max(0, width - line.width()) / 2f;
-            case RIGHT -> Math.max(0, width - line.width());
+            case CENTER -> Math.max(0, lineWidth - line.width()) / 2f;
+            case RIGHT -> Math.max(0, lineWidth - line.width());
             case LEFT -> 0;
         };
-        FinishedLine finished = line.finish(x + alignmentOffset, y);
+        FinishedLine finished = line.finish(lineX + alignmentOffset, y);
         LineBox lineBox = finished.line();
         lineTarget.add(lineBox);
         lineTarget.addAll(finished.atomicLines());
         target.addAll(lineBox.fragments());
         target.addAll(finished.atomicFragments());
         y += lineBox.height();
-        line = new LineBuilder(graphics, activeBoxes, width, containingHeight);
+        line = new LineBuilder(graphics, activeBoxes, contentWidth, containingHeight);
     }
 
     private static int longestFittingEnd(String text,
@@ -792,8 +827,6 @@ final class InlineLayout {
     }
 }
 
-/** Layout eines Atomic-Inline-Blocks: der Block selbst plus seine
- *  Zeilenboxen und Basline-Position. */
 record AtomicLayout(RenderLayoutEngine.BlockLayout block,
                     List<LineBox> lines,
                     float width,
@@ -803,7 +836,6 @@ record AtomicLayout(RenderLayoutEngine.BlockLayout block,
                     float baselineOffset) {
 }
 
-/** Gemessene Bildbox (inklusive CSS-aspect-ratio-/min/max-Korrekturen). */
 record ImageLayout(java.awt.image.BufferedImage bitmap,
                    float width,
                    float height,
@@ -811,7 +843,6 @@ record ImageLayout(java.awt.image.BufferedImage bitmap,
                    float fontSize) {
 }
 
-/** Eine fertiggestellte Zeilenbox samt ihrer Atomic-Fragmente/-Zeilen. */
 record FinishedLine(LineBox line,
                     List<PaintFragment> atomicFragments,
                     List<LineBox> atomicLines) {

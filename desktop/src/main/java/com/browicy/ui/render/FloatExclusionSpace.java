@@ -4,24 +4,6 @@ import com.browicy.engine.render.RenderStyle;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Die Float-Exclusions eines Block-Formatierungskontexts (CSS2.1 §9.5.1).
- *  Hält die Float-Regionen eines BFC und beantwortet die Platzierungsfragen
- *  der In-Flow-Boxen: Wie breit ist der freie Bereich auf Zeilenhöhe y
- *  ({@link #floatArea(float, float, float)}), ab welcher Höhe ist der
- *  Kontext frei ({@link #clearedY}), und passt eine minimale Breite auf der
- *  Zeile ({@link #dropBelowFloatsIfNarrow(float, float, float, float)}).
- *
- *  <p>Ein neuer BFC bekommt eine eigene Instanz (sie isoliert ihre Floats);
- *  Nicht-BFC-Kinder teilen die Instanz ihres BFC (gemeinsame, mutierbare
- *  Liste – §9.5.1: Normale In-Flow-Blockboxen fließen "als gäbe es den
- *  Float nicht" und reichen die aktive Float-Liste unverändert weiter).
- *  Deshalb wird die Content-Origin (contentX/contentWidth) des <em>aktuellen
- *  Containers</em> jeder Abfrage mitgegeben – bei geteilten Spaces weicht
- *  sie vom Erstellungsort des BFC ab.
- *
- *  <p>Früher Teil von RenderLayoutEngine; Verhalten unverändert übernommen
- *  (Refactoring ohne Diff).
- */
 final class FloatExclusionSpace {
 
     private final List<FloatRegion> floats = new ArrayList<>();
@@ -41,11 +23,6 @@ final class FloatExclusionSpace {
         return floats;
     }
 
-    /** Freie Zeilenbreite auf Höhe y: schmalste horizontale Lücke zwischen
-     *  linken und rechten Floats, die y überspannen. Mindestens 1px, damit
-     *  Platzierungslogik nie durch 0 dividiert. contentX/contentWidth sind
-     *  die des aktuellen Containers – bei geteilten Spaces (Nicht-BFC-Kinder
-     *  teilen den Space ihres BFC) können sie vom Erstellungsort abweichen. */
     FloatArea floatArea(float contentX, float contentWidth, float y) {
         float left = contentX;
         float right = contentX + contentWidth;
@@ -60,8 +37,6 @@ final class FloatExclusionSpace {
         return new FloatArea(left, Math.max(1, right - left));
     }
 
-    /** Sinkt y unter die Floats ab, falls die freie Zeilenbreite bei y die
-     *  Mindestbreite unterschreitet (Zeilenboxen weichen Floats aus). */
     float dropBelowFloatsIfNarrow(float contentX, float contentWidth,
                                   float y, float minimumWidth) {
         if (floats.isEmpty() || minimumWidth <= 0) {
@@ -73,8 +48,6 @@ final class FloatExclusionSpace {
         return clearedY(y, RenderStyle.Clear.BOTH);
     }
 
-    /** Kleinste Höhe ≥ y, unter der die Floats der geforderten Seite(n) frei
-     *  sind (CSS2.1 §9.5.2 clear). */
     float clearedY(float y, RenderStyle.Clear clear) {
         if (clear == RenderStyle.Clear.NONE) return y;
         float result = y;
@@ -91,7 +64,100 @@ final class FloatExclusionSpace {
         return result;
     }
 
-    /** Äußere Box (x, y, width, height) eines Floats dieses BFC. */
+    float firstFitY(float contentX, float contentWidth, float y, float minimumWidth) {
+        if (floats.isEmpty() || minimumWidth <= 0) {
+            return y;
+        }
+        float current = y;
+        while (true) {
+            if (floatArea(contentX, contentWidth, current).width()
+                    >= Math.max(1, minimumWidth)) {
+                return current;
+            }
+            float next = Float.POSITIVE_INFINITY;
+            for (FloatRegion region : floats) {
+                if (current < region.y() || current >= region.y() + region.height()) continue;
+                next = Math.min(next, region.y() + region.height());
+            }
+            if (!Float.isFinite(next) || next <= current) {
+                return current;
+            }
+            current = next;
+        }
+    }
+
+    LineSlot lineSlot(float contentX, float contentWidth, float y,
+                      float minHeight, float minWidth) {
+        if (floats.isEmpty()) {
+            return new LineSlot(y, contentX, contentWidth);
+        }
+        float minW = Math.max(1, minWidth);
+        float current = y;
+        while (true) {
+            float[][] occupied = new float[floats.size()][2];
+            int count = 0;
+            for (FloatRegion region : floats) {
+                if (current >= region.y() + region.height()
+                        || current + minHeight <= region.y()) {
+                    continue;
+                }
+                occupied[count][0] = region.x();
+                occupied[count][1] = region.x() + region.width();
+                count++;
+            }
+            if (count > 0) {
+                java.util.Arrays.sort(occupied, 0, count,
+                        (a, b) -> Float.compare(a[0], b[0]));
+            }
+            float freeStart = contentX;
+            float freeWidth = 0;
+            float mergedEnd = contentX;
+            for (int index = 0; index < count; index++) {
+                float start = occupied[index][0];
+                float end = occupied[index][1];
+                if (start <= mergedEnd) {
+                    mergedEnd = Math.max(mergedEnd, end);
+                    continue;
+                }
+                float gap = start - mergedEnd;
+                if (gap >= minW) {
+                    freeStart = mergedEnd;
+                    freeWidth = gap;
+                    break;
+                }
+                mergedEnd = end;
+            }
+            if (freeWidth == 0) {
+                float gap = contentX + contentWidth - mergedEnd;
+                if (gap >= minW) {
+                    freeStart = mergedEnd;
+                    freeWidth = gap;
+                }
+            }
+            if (freeWidth >= minW) {
+                return new LineSlot(current, freeStart, freeWidth);
+            }
+            float next = Float.POSITIVE_INFINITY;
+            for (FloatRegion region : floats) {
+                if (current >= region.y() + region.height()
+                        || current + minHeight <= region.y()) {
+                    continue;
+                }
+                if (region.y() > current) {
+                    next = Math.min(next, region.y());
+                }
+                next = Math.min(next, region.y() + region.height());
+            }
+            if (!Float.isFinite(next) || next <= current) {
+                return new LineSlot(current, freeStart, Math.max(1, freeWidth));
+            }
+            current = next;
+        }
+    }
+
+    record LineSlot(float y, float x, float width) {
+    }
+
     record FloatRegion(RenderStyle.FloatMode mode,
                        float x,
                        float y,
@@ -99,8 +165,6 @@ final class FloatExclusionSpace {
                        float height) {
     }
 
-    /** Freier Zeilenbereich auf einer Höhe y: x = linke Kante, width =
-     *  verfügbare Breite rechts davon. */
     record FloatArea(float x, float width) {
     }
 }
