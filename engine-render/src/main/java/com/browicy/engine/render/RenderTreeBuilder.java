@@ -1611,6 +1611,7 @@ public final class RenderTreeBuilder {
             case "p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol" ->
                     new BoxEdges(0, 0, 8, 0);
             case "blockquote" -> new BoxEdges(8, 24, 8, 24);
+            case "body" -> new BoxEdges(8, 8, 8, 8);
             default -> BoxEdges.ZERO;
         };
     }

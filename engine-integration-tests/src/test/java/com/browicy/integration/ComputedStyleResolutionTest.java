@@ -8,12 +8,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
-/**
- * Verifiziert, dass {@code getComputedStyle()} für dimensionale Eigenschaften
- * aufgelöste Pixelwerte (Used Values) liefert statt der Rohwerte der Kaskade:
- * {@code font-size} gegen Root-/Parent-Fontgröße, {@code width} / Margins aus
- * dem Layout.
- */
 public class ComputedStyleResolutionTest {
 
     private static final int VIEWPORT_WIDTH = 800;
@@ -86,7 +80,6 @@ public class ComputedStyleResolutionTest {
             assertFalse(String.valueOf(result.errors()), result.hasErrors());
             String[] values = harness.document().getElementById("out").getTextContent().split("\\|");
             assertEquals("400px", values[0]);
-            // Höhe ohne explizites height: gemessener Inhalt (>= 1px), kein Rohwert "auto".
             assertNotEquals("auto", values[1]);
             assertTrue("height war: '" + values[1] + "'", values[1].endsWith("px"));
         }
@@ -98,7 +91,7 @@ public class ComputedStyleResolutionTest {
                 <html><head><style>
                   #auto { width: 400px; margin: 0 auto; }
                 </style></head>
-                <body><div id="out"></div><div id="auto">zentriert</div></body></html>
+                <body style="margin: 0"><div id="out"></div><div id="auto">zentriert</div></body></html>
                 """;
         try (JsLayoutHarness harness = JsLayoutHarness.open(
                 html, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)) {
@@ -109,7 +102,6 @@ public class ComputedStyleResolutionTest {
                     """);
             assertFalse(String.valueOf(result.errors()), result.hasErrors());
             String[] values = harness.document().getElementById("out").getTextContent().split("\\|");
-            // (800 - 400) / 2 = 200px auf jeder Seite
             assertEquals("200px", values[0]);
             assertEquals("200px", values[1]);
         }
@@ -137,16 +129,16 @@ public class ComputedStyleResolutionTest {
                     """);
             assertFalse(String.valueOf(result.errors()), result.hasErrors());
             String[] values = harness.document().getElementById("out").getTextContent().split("\\|");
-            assertEquals("3px", values[0]);   // paddingTop
-            assertEquals("7px", values[1]);   // paddingLeft
-            assertEquals("7px", values[2]);   // paddingRight
-            assertEquals("3px", values[3]);   // paddingBottom
-            assertEquals("2px", values[4]);   // borderLeftWidth
-            assertEquals("2px", values[5]);   // borderTopWidth
-            assertEquals("10px", values[6]);  // left (relative Versatz)
-            assertEquals("5px", values[7]);   // top
-            assertEquals("100px", values[8]); // width (Content-Box)
-            assertEquals("100px", values[9]); // height (Content-Box)
+            assertEquals("3px", values[0]);
+            assertEquals("7px", values[1]);
+            assertEquals("7px", values[2]);
+            assertEquals("3px", values[3]);
+            assertEquals("2px", values[4]);
+            assertEquals("2px", values[5]);
+            assertEquals("10px", values[6]);
+            assertEquals("5px", values[7]);
+            assertEquals("100px", values[8]);
+            assertEquals("100px", values[9]);
         }
     }
 
@@ -169,7 +161,6 @@ public class ComputedStyleResolutionTest {
                     """);
             assertFalse(String.valueOf(result.errors()), result.hasErrors());
             String[] values = harness.document().getElementById("out").getTextContent().split("\\|");
-            // Kein Layout-Fragment: Kaskade liefert den Rohwert "120px".
             assertEquals("120px", values[0]);
             assertEquals("static", values[1]);
         }

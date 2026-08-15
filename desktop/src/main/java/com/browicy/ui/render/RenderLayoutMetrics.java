@@ -205,12 +205,24 @@ public final class RenderLayoutMetrics implements LayoutMetricsAccess {
     private String verticalMargin(Element element, Document document, Pass pass,
                                   String normalized) {
         String cascade = cascade(element, normalized);
-        if (cascade == null || "auto".equals(cascade)) {
+        if ("auto".equals(cascade)) {
             return "0px";
         }
-        Float resolved = resolveLengthValue(cascade, fontSizeOf(element, document, pass),
-                pass.tree().rootFontSizePx());
-        return resolved == null ? null : cssPx(resolved);
+        if (cascade != null) {
+            Float resolved = resolveLengthValue(cascade, fontSizeOf(element, document, pass),
+                    pass.tree().rootFontSizePx());
+            return resolved == null ? null : cssPx(resolved);
+        }
+        if (element == document.getDocumentElement()) {
+            return "0px";
+        }
+        RenderStyle style = findStyle(element, pass.layout());
+        if (style == null) {
+            return null;
+        }
+        float value = normalized.equals("margin-top")
+                ? style.margin().top() : style.margin().bottom();
+        return cssPx(value);
     }
 
     private String offset(Element element, Document document, Pass pass, String normalized) {

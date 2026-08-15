@@ -205,7 +205,7 @@ public class DomViewPanelTest {
     @Test
     public void blockBoxGeometryIncludesMarginBorderAndPadding() {
         DomViewPanel panel = new DomViewPanel(parse("""
-                <body><div style="margin: 5px; padding: 10px;
+                <body style="margin: 0"><div style="margin: 5px; padding: 10px;
                   border: 3px solid blue; background-color: yellow">X</div></body>
                 """));
 
@@ -220,7 +220,7 @@ public class DomViewPanelTest {
         assertEquals(5f, box.y(), 0.001f);
         assertEquals(290f, box.width(), 0.001f);
 
-        DomViewPanel plain = new DomViewPanel(parse("<body><div>X</div></body>"));
+        DomViewPanel plain = new DomViewPanel(parse("<body style=\"margin: 0\"><div>X</div></body>"));
         panel.setSize(300, 1);
         plain.setSize(300, 1);
         assertTrue(panel.getPreferredSize().height >= plain.getPreferredSize().height + 35);
@@ -229,7 +229,7 @@ public class DomViewPanelTest {
     @Test
     public void paintLoopDrawsBlockBackgroundBorderAndStyledText() {
         DomViewPanel panel = new DomViewPanel(parse("""
-                <body><div style="margin: 5px; padding: 10px; border: 3px solid blue;
+                <body style="margin: 0"><div style="margin: 5px; padding: 10px; border: 3px solid blue;
                   background-color: yellow; color: red; font-size: 30px">MMMM</div></body>
                 """));
         panel.setSize(300, panel.getPreferredSize().height);
@@ -445,7 +445,7 @@ public class DomViewPanelTest {
     @Test
     public void appliesFixedAndPercentageBlockDimensions() {
         DomViewPanel panel = new DomViewPanel(parse("""
-                <body><div id="fixed" style="width:100px;height:40px"></div>
+                <body style="margin: 0"><div id="fixed" style="width:100px;height:40px"></div>
                 <div id="percent" style="width:50%"></div></body>
                 """));
 
@@ -485,10 +485,10 @@ public class DomViewPanelTest {
     @Test
     public void alignsInlineLinesWithinTheirContainingBlock() {
         DomViewPanel centered = new DomViewPanel(parse("""
-                <body><p style="text-align:center">centered</p></body>
+                <body style="margin: 0"><p style="text-align:center">centered</p></body>
                 """));
         DomViewPanel right = new DomViewPanel(parse("""
-                <body><p style="text-align:right">right</p></body>
+                <body style="margin: 0"><p style="text-align:right">right</p></body>
                 """));
 
         LineBox centerLine = centered.layoutForTesting(400).lineBoxes().getFirst();
@@ -717,7 +717,7 @@ public class DomViewPanelTest {
     @Test
     public void resolvesSimpleCalcPercentageDimensions() {
         DomViewPanel panel = new DomViewPanel(parse("""
-                <body><div id="box" style="width:calc(100% - 40px);height:200px">
+                <body style="margin: 0"><div id="box" style="width:calc(100% - 40px);height:200px">
                   <div id="child" style="height:calc(100% - 25px)"></div>
                 </div></body>
                 """));
@@ -849,7 +849,7 @@ public class DomViewPanelTest {
     @Test
     public void resolvesRemAndViewportUnitsFromTheCurrentViewport() {
         DomViewPanel panel = new DomViewPanel(parse("""
-                <html style="font-size:20px"><body>
+                <html style="font-size:20px"><body style="margin: 0">
                   <div id="viewport-box" style="width:50vw;height:25vh;margin-left:1rem"></div>
                 </body></html>
                 """));
@@ -1240,7 +1240,7 @@ public class DomViewPanelTest {
     @Test
     public void floatsBlocksAndHonorsClear() {
         DomViewPanel panel = new DomViewPanel(parse("""
-                <body>
+                <body style="margin: 0">
                   <div id="float" style="float:right;width:100px;height:70px">float</div>
                   <div id="beside" style="height:20px">beside</div>
                   <div id="clear" style="clear:both;height:10px">clear</div>
@@ -1253,9 +1253,6 @@ public class DomViewPanelTest {
         BoxFragment clear = boxById(layout, "clear");
 
         assertEquals(300f, floated.x(), 0.001f);
-        // §9.5.1: Die In-Flow-Blockbox fließt "als gäbe es den Float nicht" –
-        // volle Containing-Block-Breite (400); nur ihre Zeilenboxen weichen
-        // dem Float aus. Vor dem Regel-7-Fix wurde die Box auf 300 geschmälert.
         assertEquals(400f, beside.width(), 0.001f);
         assertEquals(floated.y(), beside.y(), 0.001f);
         assertEquals(floated.y() + floated.height(), clear.y(), 0.001f);

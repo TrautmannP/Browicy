@@ -17,11 +17,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-/**
- * Verifiziert, dass {@code getBoundingClientRect()}, {@code offset*} und
- * {@code client*} die echten berechneten Layout-Werte aus der
- * {@link RenderLayoutEngine} liefern statt statischer Mock-Werte.
- */
 public class ElementMetricsIntegrationTest {
 
     private static final int VIEWPORT_WIDTH = 800;
@@ -32,7 +27,7 @@ public class ElementMetricsIntegrationTest {
               #box { position: absolute; left: 25px; top: 30px; width: 120px; height: 60px;
                      padding: 5px 10px; border: 2px solid black; }
             </style></head>
-            <body><div id="out"></div><div id="box">Inhalt</div></body></html>
+            <body style="margin: 0"><div id="out"></div><div id="box">Inhalt</div></body></html>
             """;
 
     @Test
@@ -47,7 +42,6 @@ public class ElementMetricsIntegrationTest {
             assertFalse(String.valueOf(result.errors()), result.hasErrors());
 
             double[] rect = parseDoubles(harness.document().getElementById("out").getTextContent());
-            // width = 120 + padding 10+10 + border 2+2 = 144; height = 60 + 5+5 + 2+2 = 74
             assertRect(25, 30, 144, 74, rect);
         }
     }
@@ -87,14 +81,10 @@ public class ElementMetricsIntegrationTest {
 
             double[] values = parseDoubles(
                     harness.document().getElementById("out").getTextContent());
-            // offsetWidth = width + padding + border = 120 + 20 + 4 = 144
             assertEquals(144, values[0], 0.01);
-            // offsetHeight = 60 + 10 + 4 = 74
             assertEquals(74, values[1], 0.01);
-            // clientWidth = width + padding = 140; clientHeight = 60 + 10 = 70
             assertEquals(140, values[2], 0.01);
             assertEquals(70, values[3], 0.01);
-            // offsetLeft/Top relativ zur Padding-Kante des offsetParent (body, 0/0)
             assertEquals(25, values[4], 0.01);
             assertEquals(30, values[5], 0.01);
         }
@@ -161,13 +151,12 @@ public class ElementMetricsIntegrationTest {
         assertEquals(y, rect[1], 0.01);
         assertEquals(width, rect[2], 0.01);
         assertEquals(height, rect[3], 0.01);
-        assertEquals(y, rect[4], 0.01);          // top
-        assertEquals(x + width, rect[5], 0.01);  // right
-        assertEquals(y + height, rect[6], 0.01); // bottom
-        assertEquals(x, rect[7], 0.01);          // left
+        assertEquals(y, rect[4], 0.01);
+        assertEquals(x + width, rect[5], 0.01);
+        assertEquals(y + height, rect[6], 0.01);
+        assertEquals(x, rect[7], 0.01);
     }
 
-    /** Aggregierte Border-Box des Elements direkt aus den Layout-Fragmenten. */
     private static ElementBox aggregateFragment(Document document,
                                                 StyleSheetRegistry styleSheets,
                                                 String id,

@@ -23,12 +23,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-/**
- * Verifiziert die Reaktivitäts-Pipeline in SPA-Szenarien: DOM-Mutationen aus
- * JavaScript fließen über MutationObserver (Microtask) und
- * {@link DocumentUpdateCoordinator} (Invalidierung) bis in den Render-Tree und
- * das {@link LayoutResult}.
- */
 public class ReactiveLifecycleIntegrationTest {
 
     private static final int VIEWPORT_WIDTH = 800;
@@ -40,7 +34,7 @@ public class ReactiveLifecycleIntegrationTest {
                 <html><head><style>
                   #neu { width: 100px; height: 50px; margin-top: 10px; }
                 </style></head>
-                <body><div id="out"></div><div id="container"></div></body></html>
+                <body style="margin: 0"><div id="out"></div><div id="container"></div></body></html>
                 """;
         try (JsLayoutHarness harness = JsLayoutHarness.open(
                 html, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)) {
@@ -63,11 +57,9 @@ public class ReactiveLifecycleIntegrationTest {
                         """);
                 assertFalse(String.valueOf(result.errors()), result.hasErrors());
 
-                // MutationObserver wurde im Microtask bedient (kein Sleep, awaitIdle reicht).
                 assertEquals("mutiert",
                         harness.document().getElementById("out").getTextContent());
 
-                // DocumentUpdateCoordinator hat die Kind-Liste als STYLE-Invalidierung erfasst.
                 coordinator.flush();
                 assertFalse("Coordinator muss die Mutation liefern", updates.isEmpty());
                 PageUpdate update = updates.get(updates.size() - 1);
@@ -78,14 +70,11 @@ public class ReactiveLifecycleIntegrationTest {
                 assertFalse("Mutation muss im Update gelistet sein",
                         update.mutations().isEmpty());
 
-                // Render-Tree + Layout enthalten das neue Element mit korrekten Koordinaten.
                 LayoutResult layout = layoutOf(harness.document(), harness.styleSheets());
                 BoxFragment out = boxById(layout, "out");
                 BoxFragment container = boxById(layout, "container");
                 BoxFragment neu = boxById(layout, "neu");
                 assertNotNull("Das neue Element muss einen Box-Fragment haben", neu);
-                // Die 10px margin-top des neuen Elements kollabieren mit dem Container:
-                // der Container rückt um 10px ab, das Element sitzt an dessen Content-Kante.
                 assertEquals(10f, container.y() - (out.y() + out.height()), 0.01f);
                 assertEquals(container.y(), neu.y(), 0.01f);
                 assertEquals(0f, neu.x(), 0.01f);
@@ -108,7 +97,6 @@ public class ReactiveLifecycleIntegrationTest {
                 """;
         try (JsLayoutHarness harness = JsLayoutHarness.open(
                 html, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)) {
-            // Vor dem Toggle: display:none -> kein Fragment, Layout ohne die Höhe.
             LayoutResult before = layoutOf(harness.document(), harness.styleSheets());
             assertFalse("display:none darf kein Fragment erzeugen",
                     hasBox(before, "target"));
@@ -127,13 +115,11 @@ public class ReactiveLifecycleIntegrationTest {
                 assertFalse(String.valueOf(result.errors()), result.hasErrors());
                 coordinator.flush();
 
-                // Attribut-Mutation wurde als STYLE-Invalidierung erfasst.
                 assertFalse("Coordinator muss die Klassen-Mutation liefern",
                         updates.isEmpty());
                 assertTrue(updates.get(updates.size() - 1).invalidation()
                         .requires(InvalidationType.STYLE));
 
-                // Nach awaitIdle: Element wieder sichtbar, Höhe neu berechnet.
                 LayoutResult after = layoutOf(harness.document(), harness.styleSheets());
                 BoxFragment target = boxById(after, "target");
                 assertNotNull("Element muss nach dem Toggle ein Fragment haben", target);

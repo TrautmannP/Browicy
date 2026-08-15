@@ -80,15 +80,19 @@ mvn -Pw3c-css21 -pl w3c-css21-tests compile exec:java \
 
 Ausgabebeispiel:
 ```text
-Layout-Tree-Vergleich: 5 Elemente, 0 PASS, 5 DIFF, 0 Fehlt, 0 Extra (Max dPos: 8.0px, Max dSize: 16.0px)
+Layout-Tree-Vergleich: 5 Elemente, 2 PASS, 3 DIFF, 0 Fehlt, 0 Extra (Max dPos: 0.0px, Max dSize: 0.0px)
 ------------------------------------------------------------------------------------------------------------------------
 Status | Element (Pfad)                  | Chrome (x,y wxh)       | Browicy (x,y wxh)      | Delta (dx,dy dwxdh)
 ------------------------------------------------------------------------------------------------------------------------
-DIFF   | html > body:nth-of-type(1)      | (8.0, 8.0) 784.0x0.0   | (0.0, 0.0) 800.0x0.0   | (-8.0, -8.0) +16.0x+0.0
-       -> Style-Diff [margin-top]: Chrome='8px', Browicy='0px'
-DIFF   | ...of-type(1) > div:nth-of-type(1) | (108.0, 8.0) 400.0x0.0 | (100.0, 0.0) 400.0x0.0 | (-8.0, -8.0) +0.0x+0.0
+PASS   | html > body:nth-of-type(1)      | (8.0, 8.0) 784.0x0.0   | (8.0, 8.0) 784.0x0.0   | (+0.0, +0.0) +0.0x+0.0
+DIFF   | ...of-type(1) > div:nth-of-type(1) | (8.0, 8.0) 500.0x500.0 | (8.0, 8.0) 500.0x500.0 | (+0.0, +0.0) +0.0x+0.0
+       -> Style-Diff [margin-right]: Chrome='0px', Browicy='284px'
 ------------------------------------------------------------------------------------------------------------------------
 ```
+
+Verbleibende `DIFF`-Zeilen bei passenden Rects sind Reporting-Quirks der
+`RenderLayoutMetrics` (positionsabgeleitete Used Values für `margin-left`/
+`margin-right` auf Floats) — kein Layout-Effekt, siehe RUNBOOK.
 
 Optionen: `--json` (strukturierte JSON-Ausgabe), `--out <datei>` (Ergebnis
 zusätzlich in Datei schreiben). Exit-Codes: `0` = alle Boxen passen,

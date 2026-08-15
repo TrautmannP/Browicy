@@ -25,6 +25,9 @@ public final class CssParser {
     private static final String LENGTH_UNIT = "(?:px|em|rem|vw|vh|dvh|svh|lvh|ch|lh|%)";
     private static final Pattern POSITIVE_LENGTH = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)" + LENGTH_UNIT + "|0)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern BORDER_WIDTH = Pattern.compile(
+            "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)" + LENGTH_UNIT + "|0|thin|medium|thick)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern RADIUS_LENGTH = Pattern.compile(
             "(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:" + LENGTH_UNIT + "|%)|0)",
             Pattern.CASE_INSENSITIVE);
@@ -264,8 +267,6 @@ public final class CssParser {
                 continue;
             }
             if (container || layer) {
-                // Container- und Layer-Blöcke halten ihre Regeln; Queries werden
-                // als immer-wahr angenähert, Layer als ungruppiert.
                 parseRuleList(body, condition, sourceOrder, rules, keyframes);
                 offset = close + 1;
                 continue;
@@ -1567,7 +1568,7 @@ public final class CssParser {
             case "max-inline-size", "max-block-size" -> putIfMatches(target,
                     property.equals("max-inline-size") ? "max-width" : "max-height",
                     value, MAX_DIMENSION);
-            case "border-width" -> expandLengths(target, "border", value, POSITIVE_LENGTH, "-width");
+            case "border-width" -> expandBorderWidths(target, value);
             case "border-color" -> {
                 if (value.equals("none")) {
                     target.put(property, "transparent");
@@ -1782,7 +1783,7 @@ public final class CssParser {
                  "inset-block" -> List.of("top", "bottom");
             case "padding-block-start", "margin-block-start", "border-block-start",
                  "inset-block-start" -> List.of("top");
-            default -> List.of("bottom"); // *-block-end
+            default -> List.of("bottom");
         };
     }
 
@@ -1797,7 +1798,8 @@ public final class CssParser {
                  "-webkit-box-orient", "-webkit-appearance", "-webkit-hyphens",
                  "-moz-text-size-adjust", "-webkit-text-size-adjust" ->
                     target.put(property, value);
-            default -> { /* unbekannte Präfix-Property ignorieren */ }
+            default -> {
+            }
         }
     }
 
@@ -2407,7 +2409,6 @@ public final class CssParser {
             }
             target.put(property, value);
         } else {
-            // direction/fill-mode: normale Werte reichen
             target.put(property, value);
         }
     }
@@ -2695,8 +2696,6 @@ public final class CssParser {
         String[] tokens = normalized.split("\\s+");
         if (tokens.length == 1) {
             if (tokens[0].matches("[-_a-zA-Z][-_a-zA-Z0-9]*")) {
-                // Ein einzelner Name (Bereich oder Linie) setzt alle vier
-                // Linien; die Auflösung gegen grid-template-areas erfolgt im Layout.
                 target.put("grid-row-start", tokens[0]);
                 target.put("grid-column-start", tokens[0]);
                 target.put("grid-row-end", tokens[0]);
@@ -2753,7 +2752,6 @@ public final class CssParser {
         if (value.matches("[-+]?[0-9]+")) {
             return true;
         }
-        // Benannter Linienname oder Bereichsname (Custom-Ident).
         return value.matches("[-_a-zA-Z][-_a-zA-Z0-9]*");
     }
 
@@ -2954,8 +2952,14 @@ public final class CssParser {
                 putIfMatches(target, property, value, MARGIN_LENGTH);
                 return;
             }
-            if (property.equals("padding-" + side) || property.equals("border-" + side + "-width")) {
+            if (property.equals("padding-" + side)) {
                 putIfMatches(target, property, value, POSITIVE_LENGTH);
+                return;
+            }
+            if (property.equals("border-" + side + "-width")) {
+                if (BORDER_WIDTH.matcher(value).matches()) {
+                    target.put(property, normalizeBorderWidth(value));
+                }
                 return;
             }
             if (property.equals("border-" + side + "-color")) {
@@ -2993,6 +2997,32 @@ public final class CssParser {
         for (int index = 0; index < SIDES.size(); index++) {
             target.put(prefix + "-" + SIDES.get(index) + suffix, expanded[index]);
         }
+    }
+
+    private static void expandBorderWidths(Map<String, String> target, String value) {
+        String[] values = splitBoxValues(value);
+        if (values == null) {
+            return;
+        }
+        for (String entry : values) {
+            if (!BORDER_WIDTH.matcher(entry).matches()) {
+                return;
+            }
+        }
+        String[] expanded = expandFour(values);
+        for (int index = 0; index < SIDES.size(); index++) {
+            target.put("border-" + SIDES.get(index) + "-width",
+                    normalizeBorderWidth(expanded[index]));
+        }
+    }
+
+    private static String normalizeBorderWidth(String value) {
+        return switch (value.toLowerCase(Locale.ROOT)) {
+            case "thin" -> "1px";
+            case "medium" -> "3px";
+            case "thick" -> "5px";
+            default -> value;
+        };
     }
 
     private static void expandColors(Map<String, String> target, String value) {
@@ -3037,7 +3067,7 @@ public final class CssParser {
             if (token.isBlank()) {
                 continue;
             }
-            if (POSITIVE_LENGTH.matcher(token).matches() && width == null) {
+            if (width == null && BORDER_WIDTH.matcher(token).matches()) {
                 width = token;
             } else if ((token.equals("none") || token.equals("solid")
                     || token.equals("dotted") || token.equals("dashed")
@@ -3060,7 +3090,7 @@ public final class CssParser {
         }
         List<String> targetSides = side == null ? SIDES : List.of(side);
         for (String targetSide : targetSides) {
-            target.put("border-" + targetSide + "-width", width);
+            target.put("border-" + targetSide + "-width", normalizeBorderWidth(width));
             target.put("border-" + targetSide + "-style", style);
             if (color != null) {
                 target.put("border-" + targetSide + "-color", color);

@@ -80,9 +80,9 @@ Abhängigkeiten; das Modul selbst gehört nicht zum Standard-Reaktor).
 
 ### Interpretations-Hinweise (Erfahrungswerte)
 
-- **8-px-Versatz bei `html > body`**: bekanntes UA-body-Margin-Artefakt
-  (Browicy: `defaultMargin("body") = 0`, Chrome: 8 px) – bewusst offenes
-  Thema, kein neuer Fix nötig.
+- **`html > body` bei (8, 8)**: UA-`body`-Margin (Chrome wie Browicy: 8 px
+  auf allen vier Seiten) — umgesetzt, kein Artefakt mehr; die floats-
+  Familien (rule3/rule7/wrap-top-below) sind dadurch auf PASS bzw. maxΔPos 0.
 - **Style-Diff `margin-left`/`margin-right` auf Floats** (z. B. Chrome
   `0px` vs. Browicy `300px`): Browicys `RenderLayoutMetrics` meldet dort
   positionsabgeleitete Used Values statt Computed Values – bekanntes
