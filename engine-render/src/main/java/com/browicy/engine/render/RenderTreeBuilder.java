@@ -752,8 +752,63 @@ public final class RenderTreeBuilder {
     }
 
     private RenderStyle resolveStyle(Element element, RenderStyle parent) {
+        Map<String, String> declarations = element.getComputedStyles();
+        if ("table".equalsIgnoreCase(element.getTagName())) {
+            Map<String, String> merged = applyTablePreshints(element, declarations);
+            if (merged != null) {
+                declarations = merged;
+            }
+        }
         return resolveStyle(element.getTagName(), element == documentElement,
-                element.getComputedStyles(), parent);
+                declarations, parent);
+    }
+
+    /**
+     * CSS2.1 §6.4.4: HTML-Attribute als Presentational Hints auf {@code table}
+     * (Priorität: UA-Defaults &lt; Attribut &lt; Autor-CSS). Die
+     * {@code width}/{@code height}-Attribute sind HTML4-{@code %Length}
+     * (Integer = px oder Prozentwert) und werden nur übernommen, wenn keine
+     * Autor-Deklaration existiert — Autor-CSS gewinnt. Andere Elemente
+     * (img, td/th, …): eigene Zyklen (CSS2-TODO Kap. 6).
+     *
+     * @return gemergte Deklarationen oder {@code null}, wenn keine Attribut-
+     *         Dimension übernommen wurde
+     */
+    private static Map<String, String> applyTablePreshints(Element element,
+                                                           Map<String, String> declarations) {
+        String widthHint = normalizePreshintDimension(element.getAttribute("width"));
+        String heightHint = normalizePreshintDimension(element.getAttribute("height"));
+        boolean hasWidth = widthHint != null && !declarations.containsKey("width");
+        boolean hasHeight = heightHint != null && !declarations.containsKey("height");
+        if (!hasWidth && !hasHeight) {
+            return null;
+        }
+        Map<String, String> merged = new java.util.HashMap<>(declarations);
+        if (hasWidth) {
+            merged.put("width", widthHint);
+        }
+        if (hasHeight) {
+            merged.put("height", heightHint);
+        }
+        return merged;
+    }
+
+    /**
+     * Normalisiert einen HTML4-{@code %Length}-Attributwert zu einer
+     * CSS-Dimension: "300" → "300px", "50%" bleibt; Nicht-Längen → {@code null}.
+     */
+    private static String normalizePreshintDimension(String value) {
+        if (value == null) {
+            return null;
+        }
+        String stripped = value.strip();
+        if (stripped.matches("\\d+(?:\\.\\d+)?")) {
+            return stripped + "px";
+        }
+        if (stripped.matches("\\d+(?:\\.\\d+)?%")) {
+            return stripped;
+        }
+        return null;
     }
 
     private RenderStyle resolveStyle(String tag, boolean rootElement,

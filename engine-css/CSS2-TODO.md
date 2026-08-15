@@ -16,7 +16,7 @@ Abgeglichen gegen die [CSS 2.1 Spezifikation (W3C Recommendation, 07.06.2011)](h
 |---|---|
 | [4 Syntax & Datentypen](https://www.w3.org/TR/CSS2/syndata.html#q4.0) | weitgehend, Lücken bei Einheiten, Zählern, At-Rules |
 | [5 Selektoren](https://www.w3.org/TR/CSS2/selector.html#q5.0) | fast vollständig; `\|=`, `:lang()` fehlen |
-| [6 Kaskade & Vererbung](https://www.w3.org/TR/CSS2/cascade.html#q6.0) | `@import`, Origins, Presentational Hints offen |
+| [6 Kaskade & Vererbung](https://www.w3.org/TR/CSS2/cascade.html#q6.0) | `@import`, Origins offen; Preshints `table[width/height]` umgesetzt |
 | [7 Medientypen](https://www.w3.org/TR/CSS2/media.html#q7.0) | nur `screen`/`all` + min/max-width/height |
 | [8 Boxmodell](https://www.w3.org/TR/CSS2/box.html#box-model) | Rahmenwerte unvollständig, kein Margin-Kollaps |
 | [9 Visuelles Formatierungsmodell](https://www.w3.org/TR/CSS2/visuren.html#q9.0) | `run-in`, 9.7-Regeln, `unicode-bidi` offen |
@@ -58,7 +58,7 @@ Stand: Autoren-Stylesheets mit Reihenfolge, Spezifität, `!important`, Inline-`s
 
 - [ ] **P1 · `@import` fehlt und verschluckt die erste Regel** — `@import` vor einer Regel wird in die Prelude der Folge-Regel gezogen, die damit unparsebar wird und verworfen wird ([6.3 The @import rule](https://www.w3.org/TR/CSS2/cascade.html#at-import)).
 - [ ] **P2 · Kaskaden-Origins fehlen** — es gibt nur Autoren-Stylesheets; keine UA-/User-Origin-Sortierung, kein separater `!important`-Durchlauf pro Origin ([6.4.1 Cascading order](https://www.w3.org/TR/CSS2/cascade.html#cascading-order)).
-- [ ] **P2 · Presentational Hints nicht in der Kaskade** — HTML-Attribute wie `bgcolor`/`align`/`width` haben keine festgelegte Priorität gegenüber Autoren-CSS ([6.4.4 Precedence of non-CSS presentational hints](https://www.w3.org/TR/CSS2/cascade.html#preshint)).
+- [x] **P2 · Presentational Hints: `table[width/height]` umgesetzt** — die HTML-Attribute `width`/`height` auf `table` fließen als CSS-Dimensionen in `RenderTreeBuilder.resolveStyle` ein (Priorität: UA-Defaults &lt; Attribut &lt; Autor-CSS, §6.4.4). Werte sind HTML4-`%Length` (Integer → px, `%` bleibt Prozent); Autor-CSS überschreibt das Attribut. Belegt: `floats-wrap-bfc-00{1,3,4,5}`-Familie — äußere Tabelle rendert 300px statt shrink-to-fit 150–250px (LayoutTreeDiffer maxLayoutPositionDelta 50–200px → 0px), inkl. innerer Tabellen mit `width="50%" height="20"`. Andere Elemente (`img`, `td`/`th`, `bgcolor`/`align`) weiterhin offen ([6.4.4 Precedence of non-CSS presentational hints](https://www.w3.org/TR/CSS2/cascade.html#preshint)).
 - [ ] **P2 · Vererbung nicht in der Kaskade modelliert** — vererbende Properties werden im Renderer über Parent-Chaining weitergereicht, nicht als Vererbungsregel der Kaskade; `inherit` wird nur für eine Teilmenge der Properties unterstützt ([6.2 Inheritance](https://www.w3.org/TR/CSS2/cascade.html#inheritance)).
 
 ## 7 Medientypen
@@ -154,7 +154,7 @@ Stand: `display`-Werte `table`/`inline-table`/`table-row-group`/`table-header-gr
 - [ ] **P1 · `caption-side` fehlt** ([17.4.1 Caption position and alignment](https://www.w3.org/TR/CSS2/tables.html#caption-position)).
 - [ ] **P1 · `border-spacing` fehlt** — Basis des separierten Rahmenmodells ([17.6.1 The separated borders model](https://www.w3.org/TR/CSS2/tables.html#separated-borders)).
 - [ ] **P1 · `empty-cells` fehlt** ([17.6.1.1 Borders and backgrounds around empty cells](https://www.w3.org/TR/CSS2/tables.html#empty-cells)).
-- [ ] **P3 · Tabellen-Layout-Algorithmen fehlen** — feste und automatische Tabellenbreite, Tabellenhöhe, Spaltenausrichtung ([17.5.2 Table width algorithms](https://www.w3.org/TR/CSS2/tables.html#width-layout), [17.5.3 Table height algorithms](https://www.w3.org/TR/CSS2/tables.html#height-layout)).
+- [x] **P3 · Tabellen-Breiten-/Höhen-Algorithmen (Teilmenge) umgesetzt** — `layoutTable` (RenderLayoutEngine) löst die automatische Breite (shrink-to-fit gegen Zellen-Minimum/Maximum, `fitColumns`), spezifizierte Breiten (inkl. `%`; aufgelöst gegen die Containing-Block-Breite — wichtig für BFC-Wurzeln neben Floats) und die Mindesthöhe (`height`-Attribut/CSS = Minimum, Extrahöhe proportional auf die Zeilen verteilt, §17.5.3). Belegt: `floats-wrap-bfc-00{1,3,4,5}` (300px-Soll, LayoutTreeDiffer maxΔPos 0). Offen: `table-layout: fixed`, Spaltenausrichtung, Zeilen-/Zellen-`height`-Hinweise, Caption-Layout ([17.5.2 Table width algorithms](https://www.w3.org/TR/CSS2/tables.html#width-layout), [17.5.3 Table height algorithms](https://www.w3.org/TR/CSS2/tables.html#height-layout)).
 - [ ] **P3 · Kollabierendes Rahmenmodell fehlt** — Rahmenkonfliktauflösung und `hidden`-Semantik ([17.6.2 The collapsing border model](https://www.w3.org/TR/CSS2/tables.html#collapsing-borders), [17.6.2.1 Border conflict resolution](https://www.w3.org/TR/CSS2/tables.html#border-conflict-resolution)).
 - [ ] **P3 · Anonyme Tabellenobjekte fehlen** — Umschlag-Elemente (`table`/`table-row` um Zellen, die direkt in falschen Eltern stehen) ([17.2.1 Anonymous table objects](https://www.w3.org/TR/CSS2/tables.html#anonymous-boxes)).
 

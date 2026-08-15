@@ -83,6 +83,10 @@ Abhängigkeiten; das Modul selbst gehört nicht zum Standard-Reaktor).
 - **`html > body` bei (8, 8)**: UA-`body`-Margin (Chrome wie Browicy: 8 px
   auf allen vier Seiten) — umgesetzt, kein Artefakt mehr; die floats-
   Familien (rule3/rule7/wrap-top-below) sind dadurch auf PASS bzw. maxΔPos 0.
+  `floats-wrap-bfc-00{1,3,4,5}` sind PASS (Presentational Hints
+  `table[width/height]`, 300px-Soll); Rest-Diffs: bfc-006 Caption-Layout,
+  bfc-007 Margin-Kollaps, bfc-outside-001 textarea (replaced),
+  placement-vertical (p-UA-Defaults) — je eigener Zyklus.
 - **Style-Diff `margin-left`/`margin-right` auf Floats** (z. B. Chrome
   `0px` vs. Browicy `300px`): Browicys `RenderLayoutMetrics` meldet dort
   positionsabgeleitete Used Values statt Computed Values – bekanntes

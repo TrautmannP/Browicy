@@ -177,8 +177,9 @@ public final class RenderLayoutEngine {
                                     Graphics2D graphics,
                                     List<LineBox> lineBoxes,
                                     PositionedContext positionedContext) {
-        return layoutBlock(box, containingX, y, availableWidth, containingHeight,
-                shrinkToFitAuto, graphics, lineBoxes, positionedContext, false, null);
+        return layoutBlock(box, containingX, y, availableWidth, availableWidth,
+                containingHeight, shrinkToFitAuto, graphics, lineBoxes,
+                positionedContext, false, null);
     }
 
     private BlockLayout layoutBlock(RenderBox box,
@@ -191,14 +192,16 @@ public final class RenderLayoutEngine {
                                     List<LineBox> lineBoxes,
                                     PositionedContext positionedContext,
                                     boolean collapseTopMargin) {
-        return layoutBlock(box, containingX, y, availableWidth, containingHeight,
-                shrinkToFitAuto, graphics, lineBoxes, positionedContext, collapseTopMargin, null);
+        return layoutBlock(box, containingX, y, availableWidth, availableWidth,
+                containingHeight, shrinkToFitAuto, graphics, lineBoxes,
+                positionedContext, collapseTopMargin, null);
     }
 
     private BlockLayout layoutBlock(RenderBox box,
                                     float containingX,
                                     float y,
                                     float availableWidth,
+                                    float percentageBase,
                                     Float containingHeight,
                                     boolean shrinkToFitAuto,
                                     Graphics2D graphics,
@@ -209,8 +212,8 @@ public final class RenderLayoutEngine {
         int firstLine = lineBoxes.size();
         RenderStyle style = box.style();
         if (style.display() == RenderStyle.Display.TABLE) {
-            return layoutTable(box, containingX, y, availableWidth, containingHeight,
-                    graphics, lineBoxes, positionedContext);
+            return layoutTable(box, containingX, y, availableWidth, percentageBase,
+                    containingHeight, graphics, lineBoxes, positionedContext);
         }
         boolean positioned = switch (style.position()) {
             case STATIC -> false;
@@ -237,14 +240,14 @@ public final class RenderLayoutEngine {
                     intrinsicWidths(box.children(), availableContentWidth, graphics, false).minimum());
         } else {
             contentBoxWidth = contentBoxDimension(
-                    style, resolve(style.width(), availableWidth), horizontalDecoration);
+                    style, resolve(style.width(), percentageBase), horizontalDecoration);
         }
         contentBoxWidth = constrain(contentBoxWidth,
                 resolveBoxConstraint(
-                        style, style.minWidth(), box, availableWidth, horizontalDecoration,
+                        style, style.minWidth(), box, percentageBase, horizontalDecoration,
                         graphics),
                 resolveBoxConstraint(
-                        style, style.maxWidth(), box, availableWidth, horizontalDecoration,
+                        style, style.maxWidth(), box, percentageBase, horizontalDecoration,
                         graphics));
         float borderBoxWidth = contentBoxWidth + horizontalDecoration;
         float freeWidth = Math.max(0,
@@ -408,6 +411,7 @@ public final class RenderLayoutEngine {
                 FloatArea blockArea = floats.floatArea(contentX, contentWidth, placementY);
                 float blockMinimum = floats.isEmpty() ? 0
                         : intrinsicBoxWidth(childBox, contentWidth, graphics, false, true).minimum();
+                boolean childEstablishesBfc = establishesBfc(childBox);
                 if (blockArea.width() < Math.max(1, blockMinimum)) {
                     boolean floatSticksOut = switch (childBox.style().floatMode()) {
                         case LEFT -> blockArea.x() <= contentX + 0.5f
@@ -419,8 +423,29 @@ public final class RenderLayoutEngine {
                         case NONE -> false;
                     };
                     if (!floatSticksOut) {
-                        placementY = floats.clearedY(placementY, RenderStyle.Clear.BOTH);
-                        blockArea = floats.floatArea(contentX, contentWidth, placementY);
+                        if (childEstablishesBfc
+                                && childBox.style().floatMode() == RenderStyle.FloatMode.NONE) {
+                            // BFC-Wurzel (Regel 5): eine FILL-Breite-Box (auto
+                            // width, blockförmig) passt sich der float-geschmälerten
+                            // Breite an und wird NICHT verschoben (Chrome bfc-004,
+                            // overflow:hidden-Div: 100px breit neben den Floats).
+                            // Nur shrink-to-fit-Boxen (auto-Tabellen) und Boxen mit
+                            // expliziter Breite weichen in die erste Y-Position aus,
+                            // an der ihre Mindestbreite passt.
+                            boolean shrinkToFitSized = switch (childBox.style().display()) {
+                                case TABLE, INLINE_TABLE, INLINE_BLOCK -> true;
+                                default -> false;
+                            };
+                            if (shrinkToFitSized || !childBox.style().width().isAuto()) {
+                                placementY = floats.firstFitY(contentX, contentWidth,
+                                        placementY, blockMinimum);
+                                blockArea = floats.floatArea(contentX, contentWidth,
+                                        placementY);
+                            }
+                        } else {
+                            placementY = floats.clearedY(placementY, RenderStyle.Clear.BOTH);
+                            blockArea = floats.floatArea(contentX, contentWidth, placementY);
+                        }
                     }
                 }
                 if (childBox.style().floatMode() != RenderStyle.FloatMode.NONE) {
@@ -452,7 +477,6 @@ public final class RenderLayoutEngine {
                         - Math.max(previousBottomMargin, effectiveTopMargin(childBox));
                 currentY -= collapsedOverlap;
                 boolean collapseTop = parentCollapsesTop && childBox == firstBlockChild;
-                boolean childEstablishesBfc = establishesBfc(childBox);
                 BlockLayout childLayout;
                 if (childEstablishesBfc) {
                     int bfcFirstLine = lineBoxes.size();
@@ -460,7 +484,7 @@ public final class RenderLayoutEngine {
                     float childY = currentY;
                     childLayout = layoutBlock(
                             childBox, blockArea.x(), childY, blockArea.width(),
-                            childContainingHeight, false, graphics, lineBoxes,
+                            contentWidth, childContainingHeight, false, graphics, lineBoxes,
                             childPositionedContext, collapseTop, null);
                     for (int attempt = 0; attempt < 2; attempt++) {
                         float measuredHeight = childLayout.outerHeight();
@@ -485,13 +509,13 @@ public final class RenderLayoutEngine {
                         childY = slot.y();
                         childLayout = layoutBlock(
                                 childBox, blockArea.x(), childY, blockArea.width(),
-                                childContainingHeight, false, graphics, lineBoxes,
-                                childPositionedContext, collapseTop, null);
+                                contentWidth, childContainingHeight, false, graphics,
+                                lineBoxes, childPositionedContext, collapseTop, null);
                     }
                     currentY = childY;
                 } else {
                     childLayout = layoutBlock(
-                            childBox, contentX, currentY, contentWidth,
+                            childBox, contentX, currentY, contentWidth, contentWidth,
                             childContainingHeight, false, graphics, lineBoxes,
                             childPositionedContext, collapseTop, floats);
                 }
@@ -510,7 +534,12 @@ public final class RenderLayoutEngine {
                 childContainingHeight, box.style().textAlign(), floats, graphics,
                 childFragments, lineBoxes);
         float contentHeight = Math.max(0, currentY - contentY);
-        if (box.style().overflow() != RenderStyle.Overflow.VISIBLE) {
+        // CSS2.1 §10.6.7: Die auto-Höhe einer BFC-Wurzel wächst mit ihren
+        // Float-Nachfahren (nicht nur bei overflow≠visible, sondern auch bei
+        // display:table-cell/inline-block/…). Normale Blöcke teilen dagegen
+        // die Float-Liste des BFC-Vorfahren (Regel 7) und schließen Floats
+        // bewusst nicht in ihre Höhe ein.
+        if (establishesBfc(box)) {
             for (FloatRegion region : floats.regions()) {
                 contentHeight = Math.max(contentHeight,
                         region.y() + region.height() - contentY);
@@ -1469,6 +1498,7 @@ public final class RenderLayoutEngine {
                                     float containingX,
                                     float y,
                                     float availableWidth,
+                                    float percentageBase,
                                     Float containingHeight,
                                     Graphics2D graphics,
                                     List<LineBox> lineBoxes,
@@ -1478,6 +1508,7 @@ public final class RenderLayoutEngine {
         BoxEdges padding = style.padding();
         BoxEdges border = style.borderWidth();
         float decoration = border.horizontal() + padding.horizontal();
+        float verticalDecoration = border.vertical() + padding.vertical();
         float availableContentWidth = Math.max(1,
                 availableWidth - margin.horizontal() - decoration);
         List<TableRow> rows = tableRows(table);
@@ -1502,7 +1533,7 @@ public final class RenderLayoutEngine {
                 || style.width().unit() == RenderLength.Unit.MAX_CONTENT
                 || style.width().unit() == RenderLength.Unit.MIN_CONTENT
                 ? Float.NaN
-                : contentBoxDimension(style, resolve(style.width(), availableWidth), decoration);
+                : contentBoxDimension(style, resolve(style.width(), percentageBase), decoration);
         float targetWidth = Float.isNaN(specifiedWidth)
                 ? Math.min(sum(preferred), availableContentWidth)
                 : Math.max(0, specifiedWidth);
@@ -1518,25 +1549,12 @@ public final class RenderLayoutEngine {
         float borderX = containingX + margin.left() + automaticLeft;
         float borderY = y + margin.top();
         float contentX = borderX + border.left() + padding.left();
-        float currentY = borderY + border.top() + padding.top();
-        List<PaintFragment> children = new ArrayList<>();
-
-        RenderBox currentGroup = null;
-        float groupY = currentY;
-        int groupInsertAt = -1;
-        for (TableRow row : rows) {
-            if (row.group() != currentGroup) {
-                if (currentGroup != null) {
-                    children.set(groupInsertAt, new BoxFragment(
-                            currentGroup, contentX, groupY, contentWidth, currentY - groupY));
-                }
-                currentGroup = row.group();
-                groupY = currentY;
-                if (currentGroup != null) {
-                    groupInsertAt = children.size();
-                    children.add(null);
-                }
-            }
+        float contentTop = borderY + border.top() + padding.top();
+        float currentY = contentTop;
+        float[] naturalRowHeights = new float[rows.size()];
+        List<List<List<PaintFragment>>> rowCellFragments = new ArrayList<>(rows.size());
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+            TableRow row = rows.get(rowIndex);
             List<List<PaintFragment>> cellFragments = new ArrayList<>();
             float rowHeight = 0;
             float cellX = contentX;
@@ -1549,7 +1567,44 @@ public final class RenderLayoutEngine {
                 rowHeight = Math.max(rowHeight, cellLayout.outerHeight());
                 cellX += columnWidths[column];
             }
+            naturalRowHeights[rowIndex] = rowHeight;
+            rowCellFragments.add(cellFragments);
+            currentY += rowHeight;
+        }
+        float naturalContentHeight = Math.max(0, currentY - contentTop);
+        float contentHeight = naturalContentHeight;
+        // CSS2.1 §17.5.3: 'height' auf der Tabelle = Mindesthöhe; der
+        // Überschuss wird proportional auf die Zeilen verteilt.
+        Float specifiedContentHeight = resolveContentHeight(
+                style, style.height(), containingHeight, verticalDecoration);
+        if (specifiedContentHeight != null) {
+            contentHeight = Math.max(contentHeight, specifiedContentHeight);
+        }
+        float extra = Math.max(0, contentHeight - naturalContentHeight);
+        float[] rowHeights = distributeRowHeight(extra, naturalRowHeights);
+        List<PaintFragment> children = new ArrayList<>();
+
+        currentY = contentTop;
+        RenderBox currentGroup = null;
+        float groupY = contentTop;
+        int groupInsertAt = -1;
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+            TableRow row = rows.get(rowIndex);
+            if (row.group() != currentGroup) {
+                if (currentGroup != null) {
+                    children.set(groupInsertAt, new BoxFragment(
+                            currentGroup, contentX, groupY, contentWidth, currentY - groupY));
+                }
+                currentGroup = row.group();
+                groupY = currentY;
+                if (currentGroup != null) {
+                    groupInsertAt = children.size();
+                    children.add(null);
+                }
+            }
+            float rowHeight = rowHeights[rowIndex];
             children.add(new BoxFragment(row.box(), contentX, currentY, contentWidth, rowHeight));
+            List<List<PaintFragment>> cellFragments = rowCellFragments.get(rowIndex);
             for (int column = 0; column < cellFragments.size(); column++) {
                 List<PaintFragment> fragments = cellFragments.get(column);
                 BoxFragment cellRoot = (BoxFragment) fragments.getFirst();
@@ -1564,8 +1619,6 @@ public final class RenderLayoutEngine {
             children.set(groupInsertAt, new BoxFragment(
                     currentGroup, contentX, groupY, contentWidth, currentY - groupY));
         }
-        float contentHeight = Math.max(0,
-                currentY - (borderY + border.top() + padding.top()));
         float borderBoxHeight = border.vertical() + padding.vertical() + contentHeight;
         List<PaintFragment> fragments = new ArrayList<>(children.size() + 1);
         fragments.add(new BoxFragment(table, borderX, borderY, borderBoxWidth, borderBoxHeight));
@@ -1635,6 +1688,31 @@ public final class RenderLayoutEngine {
             merged.add(positioned.get(j++));
         }
         return merged;
+    }
+
+    /**
+     * CSS2.1 §17.5.3: Die Tabellen-Extrahöhe (spezifizierte Höhe über der
+     * natürlichen Inhaltshöhe) wird proportional auf die Zeilen verteilt;
+     * bei ausschließlich leeren Zeilen bekommt die letzte den Überschuss.
+     */
+    private static float[] distributeRowHeight(float extra, float[] naturalRowHeights) {
+        float[] result = naturalRowHeights.clone();
+        if (extra <= 0 || result.length == 0) {
+            return result;
+        }
+        float total = sum(result);
+        if (total <= 0.01f) {
+            result[result.length - 1] += extra;
+            return result;
+        }
+        float distributed = 0;
+        for (int index = 0; index < result.length; index++) {
+            float share = extra * result[index] / total;
+            result[index] += share;
+            distributed += share;
+        }
+        result[result.length - 1] += extra - distributed;
+        return result;
     }
 
     private static float[] fitColumns(float[] preferred, float[] minimum, float targetWidth) {
