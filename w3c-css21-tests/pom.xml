@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.browicy</groupId>
+        <artifactId>browicy-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>browicy-w3c-css21-tests</artifactId>
+    <name>browicy-w3c-css21-tests</name>
+    <description>Opt-in Chrome-vs-Browicy Pixel-Harness für die W3C CSS2.1-Testsuite.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.browicy</groupId>
+            <artifactId>browicy-desktop</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>--enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow</argLine>
+                    <testFailureIgnore>${maven.test.failure.ignore}</testFailureIgnore>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

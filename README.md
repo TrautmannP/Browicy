@@ -29,6 +29,7 @@ The Maven modules follow the engine's responsibilities and keep dependencies exp
 - `devtools`: developer tooling built on network observation
 - `desktop`: Swing user interface and Java2D renderer
 - `engine-integration-tests`: cross-module integration tests
+- `w3c-css21-tests`: optional Chrome-vs-Browicy pixel harness over the W3C CSS 2.1 test suite (suite downloaded on demand, not checked in)
 
 ## Requirements
 
@@ -154,6 +155,14 @@ On Linux and macOS the same report can be generated with:
 ```
 
 Expected conformance gaps are reported without failing this reporting build. The stricter Acid3 test command reports every failing subtest as a JUnit failure.
+
+The W3C CSS 2.1 test suite can be run as a pixel harness against headless Chromium (Playwright) as the reference. The suite itself is downloaded on first run from a pinned upstream revision (see `w3c-css21-tests/UPSTREAM.md`); it is not checked in:
+
+```bash
+mvn -Pw3c-css21 -pl w3c-css21-tests -am test -Dbrowicy.tests='abspos/.*'
+```
+
+See [w3c-css21-tests/README.md](w3c-css21-tests/README.md) for the Chrome-reference workflow and [w3c-css21-tests/RUNBOOK.md](w3c-css21-tests/RUNBOOK.md) for the operational runbook (commands, TDD loop, gotchas).
 
 ## Native image
 

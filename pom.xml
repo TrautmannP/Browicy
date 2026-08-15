@@ -46,6 +46,12 @@
                 <conformance.test.exclude>none</conformance.test.exclude>
             </properties>
         </profile>
+        <profile>
+            <id>w3c-css21</id>
+            <modules>
+                <module>w3c-css21-tests</module>
+            </modules>
+        </profile>
         <!-- Auf Windows passt die installierte GraalVM (mvn-graal.cmd:
              D:\Graal\graalvm-25.1.3+9.1) nicht zur Standard-Truffle-Version
              25.0.3. Truffle-Runtime und GraalJS-Jars muessen zur JVMCI- bzw.

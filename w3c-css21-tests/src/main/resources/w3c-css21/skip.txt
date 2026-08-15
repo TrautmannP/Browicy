@@ -1,0 +1,12 @@
+# Skip-Liste der W3C CSS2.1-Suite
+#
+# Eine Zeile = ein Regex, gematcht gegen den relativen Testpfad
+# (z. B. "abspos/abspos-containing-block-initial-001.xht").
+# Leerzeilen und Zeilen, die mit # beginnen, werden ignoriert.
+# Getroffene Tests werden als SKIP gemeldet und brechen das JUnit-Gate nicht.
+#
+# Sinnvolle Kandidaten:
+#  - interaktive Tests (:hover, :active, cursor, focus), die ohne
+#    Benutzereingabe nicht darstellbar sind
+#  - Medientyp-Tests für print/speech, die ein visueller Browser nicht rendert
+#  - Tests, die JS-Harness-Abhängigkeiten haben, die Browicy noch nicht kennt
