@@ -140,7 +140,10 @@ setzen (`"..."`), damit `\.` und `.*` nicht von der Shell gefressen werden.
 
 - `abspos/abspos-containing-block-initial-*` – Initial-Containing-Block /
   Viewport-Positionierung bei `scrollTo` (CSS2 §10.1)
-- `floats/floats-rule3-outside-*` – Float-Regel-3-Interaktion bei zwei
-  Floats im selben BFC (§9.5.1)
+- `floats/floats-rule3-outside-*` / `floats/floats-rule7-outside-*` – Float-Regel-3-
+  Interaktion bei zwei Floats im selben BFC (§9.5.1); Regel-3-Fix umgesetzt (Stand
+  siehe `engine-css/CSS2-TODO.md` Kap. 9), Rest-Diff = UA-body-Margin-Artefakt (8 px)
+- `floats/floats-wrap-*`, `floats/floats-placement-vertical-*`,
+  `floats/floats-zero-height-wrap-*` – weitere Float-Platzierungs-/Wrap-Lücken (§9.5.1)
 - `normal-flow/block-in-inline-margins-001a` – Border leerer
   Block-in-Inline-Boxen wird gefüllt statt als Rahmenring gemalt
