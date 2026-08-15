@@ -1,91 +1,29 @@
 package com.browicy.engine.render;
 
+import java.util.List;
+
+/**
+ * Unveränderlicher Render-Style einer Box, zusammengesetzt aus sechs
+ * logisch kohärenten Sub-Records: {@link BoxModelStyle}, {@link PositionStyle},
+ * {@link TypographyStyle}, {@link ColorBackgroundStyle}, {@link FlexGridStyle}
+ * und {@link EffectsUiStyle}.
+ *
+ * <p>Die bisherigen flachen Getter bleiben als Delegationsmethoden erhalten
+ * (z.&nbsp;B. {@code style.display()} delegiert an
+ * {@code style.box().display()}), damit Aufrufstellen in Layout- und
+ * Paint-Engines unverändert weiterarbeiten. Schlanke {@code with*}-Methoden
+ * kopieren nur den betroffenen Sub-Record statt des gesamten Stils.</p>
+ *
+ * <p>Validierung findet in den kompakten Konstruktoren der Sub-Records statt;
+ * dieser Record selbst validiert nicht mehr.</p>
+ */
 public record RenderStyle(
-        Display display,
-        Position position,
-        int zIndex,
-        FloatMode floatMode,
-        Clear clear,
-        RenderOffset top,
-        RenderOffset right,
-        RenderOffset bottom,
-        RenderOffset left,
-        float fontSizePx,
-        String fontFamily,
-        int fontWeight,
-        boolean italic,
-        float lineHeight,
-        CssColor color,
-        ListStyleType listStyleType,
-        boolean underline,
-        boolean lineThrough,
-        CssColor textDecorationColor,
-        Cursor cursor,
-        CssColor backgroundColor,
-        String backgroundImageUrl,
-        BackgroundRepeat backgroundRepeat,
-        BackgroundPositionX backgroundPositionX,
-        BackgroundPositionY backgroundPositionY,
-        RenderLength backgroundPositionOffsetX,
-        RenderLength backgroundPositionOffsetY,
-        RenderLength backgroundSizeX,
-        RenderLength backgroundSizeY,
-        RenderLength width,
-        RenderLength height,
-        RenderLength minWidth,
-        RenderLength maxWidth,
-        RenderLength minHeight,
-        RenderLength maxHeight,
-        float aspectRatio,
-        ObjectFit objectFit,
-        BoxSizing boxSizing,
-        BoxEdges margin,
-        HorizontalAutoMargins autoMargins,
-        BoxEdges padding,
-        BoxEdges borderWidth,
-        BoxColors borderColor,
-        BoxBorders borderStyle,
-        CornerRadii borderRadius,
-        java.util.List<BoxShadow> boxShadows,
-        Transform transform,
-        float outlineWidth,
-        CssColor outlineColor,
-        boolean outlineVisible,
-        float outlineOffset,
-        boolean visible,
-        boolean pointerEvents,
-        BorderCollapse borderCollapse,
-        TextAlign textAlign,
-        TextTransform textTransform,
-        WhiteSpace whiteSpace,
-        float letterSpacingPx,
-        TextOverflow textOverflow,
-        Overflow overflow,
-        VerticalAlign verticalAlign,
-        FlexDirection flexDirection,
-        FlexWrap flexWrap,
-        JustifyContent justifyContent,
-        AlignItems alignItems,
-        AlignSelf alignSelf,
-        AlignContent alignContent,
-        int order,
-        java.util.List<GridTrack> gridTemplateColumns,
-        java.util.List<GridTrack> gridTemplateRows,
-        java.util.List<GridTrack> gridAutoColumns,
-        java.util.List<GridTrack> gridAutoRows,
-        String[][] gridTemplateAreas,
-        GridAutoFlow gridAutoFlow,
-        GridLine gridColumnStart,
-        GridLine gridColumnEnd,
-        GridLine gridRowStart,
-        GridLine gridRowEnd,
-        float rowGapPx,
-        float columnGapPx,
-        TextShadow textShadow,
-        float flexGrow,
-        float flexShrink,
-        RenderLength flexBasis,
-        float opacity) {
+        BoxModelStyle box,
+        PositionStyle positionStyle,
+        TypographyStyle typography,
+        ColorBackgroundStyle colors,
+        FlexGridStyle flexGrid,
+        EffectsUiStyle effects) {
 
     public enum Display {
         BLOCK, INLINE, INLINE_BLOCK, FLEX, INLINE_FLEX, NONE, GRID, INLINE_GRID,
@@ -146,78 +84,337 @@ public record RenderStyle(
     public enum TextOverflow { CLIP, ELLIPSIS }
     public enum WhiteSpace { NORMAL, NOWRAP, PRE, PRE_WRAP, PRE_LINE, BREAK_SPACES }
 
-    public RenderStyle {
-        if (fontSizePx <= 0) {
-            throw new IllegalArgumentException("fontSizePx must be positive");
-        }
-        if (fontWeight < 100 || fontWeight > 900) {
-            throw new IllegalArgumentException("fontWeight outside 100..900");
-        }
-        if (!Float.isFinite(flexGrow) || flexGrow < 0) {
-            throw new IllegalArgumentException("flexGrow must be a finite non-negative number");
-        }
-        if (!Float.isNaN(aspectRatio)
-                && (!Float.isFinite(aspectRatio) || aspectRatio <= 0)) {
-            throw new IllegalArgumentException("aspectRatio must be positive or NaN");
-        }
-        if (!Float.isFinite(rowGapPx) || rowGapPx < 0
-                || !Float.isFinite(columnGapPx) || columnGapPx < 0) {
-            throw new IllegalArgumentException("flex gaps must be finite and non-negative");
-        }
-        if (!Float.isFinite(flexShrink) || flexShrink < 0) {
-            throw new IllegalArgumentException("flexShrink must be a finite non-negative number");
-        }
-        if (!Float.isFinite(opacity) || opacity < 0 || opacity > 1) {
-            throw new IllegalArgumentException("opacity must be between 0 and 1");
-        }
-    }
-
+    /**
+     * @return {@code true}, wenn das Schriftgewicht fett (≥ 600) ist
+     */
     public boolean bold() {
-        return fontWeight >= 600;
+        return typography.fontWeight() >= 600;
     }
 
+    /**
+     * @return die tatsächlich verwendete Zeilenhöhe in Pixeln; ein negativer
+     *         {@code lineHeight}-Wert wird als Faktor der Schriftgröße aufgelöst
+     */
     public float usedLineHeightPx() {
-        return lineHeight < 0 ? -lineHeight * fontSizePx : lineHeight;
+        return typography.lineHeight() < 0
+                ? -typography.lineHeight() * typography.fontSizePx()
+                : typography.lineHeight();
     }
 
+    // ── Delegations-Getter (Box-Modell) ──────────────────────────────────────
+
+    /** @return der Anzeigetyp der Box (delegiert an {@link #box()}) */
+    public Display display() { return box.display(); }
+
+    /** @return die Box-Sizing-Strategie (delegiert an {@link #box()}) */
+    public BoxSizing boxSizing() { return box.boxSizing(); }
+
+    /** @return die Breite (delegiert an {@link #box()}) */
+    public RenderLength width() { return box.width(); }
+
+    /** @return die Höhe (delegiert an {@link #box()}) */
+    public RenderLength height() { return box.height(); }
+
+    /** @return die Mindestbreite (delegiert an {@link #box()}) */
+    public RenderLength minWidth() { return box.minWidth(); }
+
+    /** @return die Maximalbreite (delegiert an {@link #box()}) */
+    public RenderLength maxWidth() { return box.maxWidth(); }
+
+    /** @return die Mindesthöhe (delegiert an {@link #box()}) */
+    public RenderLength minHeight() { return box.minHeight(); }
+
+    /** @return die Maximalhöhe (delegiert an {@link #box()}) */
+    public RenderLength maxHeight() { return box.maxHeight(); }
+
+    /** @return das Seitenverhältnis (NaN = nicht gesetzt; delegiert an {@link #box()}) */
+    public float aspectRatio() { return box.aspectRatio(); }
+
+    /** @return das Object-Fit-Verhalten (delegiert an {@link #box()}) */
+    public ObjectFit objectFit() { return box.objectFit(); }
+
+    /** @return die Außenabstände (delegiert an {@link #box()}) */
+    public BoxEdges margin() { return box.margin(); }
+
+    /** @return die automatischen horizontalen Ränder (delegiert an {@link #box()}) */
+    public HorizontalAutoMargins autoMargins() { return box.autoMargins(); }
+
+    /** @return die Innenabstände (delegiert an {@link #box()}) */
+    public BoxEdges padding() { return box.padding(); }
+
+    /** @return die Rahmenbreiten (delegiert an {@link #box()}) */
+    public BoxEdges borderWidth() { return box.borderWidth(); }
+
+    /** @return die Rahmenfarben (delegiert an {@link #box()}) */
+    public BoxColors borderColor() { return box.borderColor(); }
+
+    /** @return die Rahmenstile (delegiert an {@link #box()}) */
+    public BoxBorders borderStyle() { return box.borderStyle(); }
+
+    /** @return die Eckradien (delegiert an {@link #box()}) */
+    public CornerRadii borderRadius() { return box.borderRadius(); }
+
+    /** @return das Overflow-Verhalten (delegiert an {@link #box()}) */
+    public Overflow overflow() { return box.overflow(); }
+
+    /** @return die vertikale Ausrichtung (delegiert an {@link #box()}) */
+    public VerticalAlign verticalAlign() { return box.verticalAlign(); }
+
+    /** @return das Border-Collapse-Verhalten (delegiert an {@link #box()}) */
+    public BorderCollapse borderCollapse() { return box.borderCollapse(); }
+
+    // ── Delegations-Getter (Positionierung) ──────────────────────────────────
+
+    /** @return der Positionsmodus (delegiert an {@link #positionStyle()}) */
+    public Position position() { return positionStyle.position(); }
+
+    /** @return der Z-Index (delegiert an {@link #positionStyle()}) */
+    public int zIndex() { return positionStyle.zIndex(); }
+
+    /** @return der Float-Modus (delegiert an {@link #positionStyle()}) */
+    public FloatMode floatMode() { return positionStyle.floatMode(); }
+
+    /** @return das Clear-Verhalten (delegiert an {@link #positionStyle()}) */
+    public Clear clear() { return positionStyle.clear(); }
+
+    /** @return der obere Offset (delegiert an {@link #positionStyle()}) */
+    public RenderOffset top() { return positionStyle.top(); }
+
+    /** @return der rechte Offset (delegiert an {@link #positionStyle()}) */
+    public RenderOffset right() { return positionStyle.right(); }
+
+    /** @return der untere Offset (delegiert an {@link #positionStyle()}) */
+    public RenderOffset bottom() { return positionStyle.bottom(); }
+
+    /** @return der linke Offset (delegiert an {@link #positionStyle()}) */
+    public RenderOffset left() { return positionStyle.left(); }
+
+    /** @return die Transformationsliste (delegiert an {@link #positionStyle()}) */
+    public Transform transform() { return positionStyle.transform(); }
+
+    // ── Delegations-Getter (Typografie) ──────────────────────────────────────
+
+    /** @return die Schriftgröße in Pixeln (delegiert an {@link #typography()}) */
+    public float fontSizePx() { return typography.fontSizePx(); }
+
+    /** @return die Schriftfamilie (delegiert an {@link #typography()}) */
+    public String fontFamily() { return typography.fontFamily(); }
+
+    /** @return das Schriftgewicht (delegiert an {@link #typography()}) */
+    public int fontWeight() { return typography.fontWeight(); }
+
+    /** @return {@code true}, wenn kursiv (delegiert an {@link #typography()}) */
+    public boolean italic() { return typography.italic(); }
+
+    /** @return die Zeilenhöhe (delegiert an {@link #typography()}) */
+    public float lineHeight() { return typography.lineHeight(); }
+
+    /** @return die Textausrichtung (delegiert an {@link #typography()}) */
+    public TextAlign textAlign() { return typography.textAlign(); }
+
+    /** @return die Text-Transformation (delegiert an {@link #typography()}) */
+    public TextTransform textTransform() { return typography.textTransform(); }
+
+    /** @return das White-Space-Verhalten (delegiert an {@link #typography()}) */
+    public WhiteSpace whiteSpace() { return typography.whiteSpace(); }
+
+    /** @return der Buchstabenabstand in Pixeln (delegiert an {@link #typography()}) */
+    public float letterSpacingPx() { return typography.letterSpacingPx(); }
+
+    /** @return das Text-Overflow-Verhalten (delegiert an {@link #typography()}) */
+    public TextOverflow textOverflow() { return typography.textOverflow(); }
+
+    /** @return der Listenmarker-Typ (delegiert an {@link #typography()}) */
+    public ListStyleType listStyleType() { return typography.listStyleType(); }
+
+    // ── Delegations-Getter (Farben & Hintergrund) ────────────────────────────
+
+    /** @return die Textfarbe (delegiert an {@link #colors()}) */
+    public CssColor color() { return colors.color(); }
+
+    /** @return {@code true}, wenn unterstrichen (delegiert an {@link #colors()}) */
+    public boolean underline() { return colors.underline(); }
+
+    /** @return {@code true}, wenn durchgestrichen (delegiert an {@link #colors()}) */
+    public boolean lineThrough() { return colors.lineThrough(); }
+
+    /** @return die Textdekorationsfarbe (delegiert an {@link #colors()}) */
+    public CssColor textDecorationColor() { return colors.textDecorationColor(); }
+
+    /** @return die Hintergrundfarbe (delegiert an {@link #colors()}) */
+    public CssColor backgroundColor() { return colors.backgroundColor(); }
+
+    /** @return die Hintergrundbild-URL (delegiert an {@link #colors()}) */
+    public String backgroundImageUrl() { return colors.backgroundImageUrl(); }
+
+    /** @return die Hintergrundwiederholung (delegiert an {@link #colors()}) */
+    public BackgroundRepeat backgroundRepeat() { return colors.backgroundRepeat(); }
+
+    /** @return die horizontale Hintergrundposition (delegiert an {@link #colors()}) */
+    public BackgroundPositionX backgroundPositionX() { return colors.backgroundPositionX(); }
+
+    /** @return die vertikale Hintergrundposition (delegiert an {@link #colors()}) */
+    public BackgroundPositionY backgroundPositionY() { return colors.backgroundPositionY(); }
+
+    /** @return der horizontale Positions-Offset (delegiert an {@link #colors()}) */
+    public RenderLength backgroundPositionOffsetX() { return colors.backgroundPositionOffsetX(); }
+
+    /** @return der vertikale Positions-Offset (delegiert an {@link #colors()}) */
+    public RenderLength backgroundPositionOffsetY() { return colors.backgroundPositionOffsetY(); }
+
+    /** @return die horizontale Hintergrundgröße (delegiert an {@link #colors()}) */
+    public RenderLength backgroundSizeX() { return colors.backgroundSizeX(); }
+
+    /** @return die vertikale Hintergrundgröße (delegiert an {@link #colors()}) */
+    public RenderLength backgroundSizeY() { return colors.backgroundSizeY(); }
+
+    /** @return die Deckkraft im Intervall [0, 1] (delegiert an {@link #colors()}) */
+    public float opacity() { return colors.opacity(); }
+
+    /** @return {@code true}, wenn die Box sichtbar ist (delegiert an {@link #colors()}) */
+    public boolean visible() { return colors.visible(); }
+
+    // ── Delegations-Getter (Flex & Grid) ─────────────────────────────────────
+
+    /** @return die Flex-Richtung (delegiert an {@link #flexGrid()}) */
+    public FlexDirection flexDirection() { return flexGrid.flexDirection(); }
+
+    /** @return das Flex-Umbruchverhalten (delegiert an {@link #flexGrid()}) */
+    public FlexWrap flexWrap() { return flexGrid.flexWrap(); }
+
+    /** @return die Hauptachsen-Ausrichtung (delegiert an {@link #flexGrid()}) */
+    public JustifyContent justifyContent() { return flexGrid.justifyContent(); }
+
+    /** @return die Querachsen-Ausrichtung (delegiert an {@link #flexGrid()}) */
+    public AlignItems alignItems() { return flexGrid.alignItems(); }
+
+    /** @return die Selbst-Ausrichtung (delegiert an {@link #flexGrid()}) */
+    public AlignSelf alignSelf() { return flexGrid.alignSelf(); }
+
+    /** @return die Ausrichtung mehrerer Zeilen (delegiert an {@link #flexGrid()}) */
+    public AlignContent alignContent() { return flexGrid.alignContent(); }
+
+    /** @return die Reihenfolge im Flex-Container (delegiert an {@link #flexGrid()}) */
+    public int order() { return flexGrid.order(); }
+
+    /** @return der Flex-Wachstumsfaktor (delegiert an {@link #flexGrid()}) */
+    public float flexGrow() { return flexGrid.flexGrow(); }
+
+    /** @return der Flex-Schrumpfungsfaktor (delegiert an {@link #flexGrid()}) */
+    public float flexShrink() { return flexGrid.flexShrink(); }
+
+    /** @return die Flex-Basis (delegiert an {@link #flexGrid()}) */
+    public RenderLength flexBasis() { return flexGrid.flexBasis(); }
+
+    /** @return der Zeilenabstand in Pixeln (delegiert an {@link #flexGrid()}) */
+    public float rowGapPx() { return flexGrid.rowGapPx(); }
+
+    /** @return der Spaltenabstand in Pixeln (delegiert an {@link #flexGrid()}) */
+    public float columnGapPx() { return flexGrid.columnGapPx(); }
+
+    /** @return die Template-Spalten (delegiert an {@link #flexGrid()}) */
+    public List<GridTrack> gridTemplateColumns() { return flexGrid.gridTemplateColumns(); }
+
+    /** @return die Template-Zeilen (delegiert an {@link #flexGrid()}) */
+    public List<GridTrack> gridTemplateRows() { return flexGrid.gridTemplateRows(); }
+
+    /** @return die automatischen Spalten (delegiert an {@link #flexGrid()}) */
+    public List<GridTrack> gridAutoColumns() { return flexGrid.gridAutoColumns(); }
+
+    /** @return die automatischen Zeilen (delegiert an {@link #flexGrid()}) */
+    public List<GridTrack> gridAutoRows() { return flexGrid.gridAutoRows(); }
+
+    /** @return die benannten Template-Areas (delegiert an {@link #flexGrid()}) */
+    public String[][] gridTemplateAreas() { return flexGrid.gridTemplateAreas(); }
+
+    /** @return der Grid-Auto-Flow (delegiert an {@link #flexGrid()}) */
+    public GridAutoFlow gridAutoFlow() { return flexGrid.gridAutoFlow(); }
+
+    /** @return die Start-Spaltenlinie (delegiert an {@link #flexGrid()}) */
+    public GridLine gridColumnStart() { return flexGrid.gridColumnStart(); }
+
+    /** @return die End-Spaltenlinie (delegiert an {@link #flexGrid()}) */
+    public GridLine gridColumnEnd() { return flexGrid.gridColumnEnd(); }
+
+    /** @return die Start-Zeilenlinie (delegiert an {@link #flexGrid()}) */
+    public GridLine gridRowStart() { return flexGrid.gridRowStart(); }
+
+    /** @return die End-Zeilenlinie (delegiert an {@link #flexGrid()}) */
+    public GridLine gridRowEnd() { return flexGrid.gridRowEnd(); }
+
+    // ── Delegations-Getter (Effekte & UI) ────────────────────────────────────
+
+    /** @return die Box-Schattenliste (delegiert an {@link #effects()}) */
+    public List<BoxShadow> boxShadows() { return effects.boxShadows(); }
+
+    /** @return der Textschatten (delegiert an {@link #effects()}) */
+    public TextShadow textShadow() { return effects.textShadow(); }
+
+    /** @return die Outline-Breite (delegiert an {@link #effects()}) */
+    public float outlineWidth() { return effects.outlineWidth(); }
+
+    /** @return die Outline-Farbe (delegiert an {@link #effects()}) */
+    public CssColor outlineColor() { return effects.outlineColor(); }
+
+    /** @return {@code true}, wenn die Outline sichtbar ist (delegiert an {@link #effects()}) */
+    public boolean outlineVisible() { return effects.outlineVisible(); }
+
+    /** @return der Outline-Offset (delegiert an {@link #effects()}) */
+    public float outlineOffset() { return effects.outlineOffset(); }
+
+    /** @return der Cursor (delegiert an {@link #effects()}) */
+    public Cursor cursor() { return effects.cursor(); }
+
+    /** @return {@code true}, wenn Pointer-Events aktiv sind (delegiert an {@link #effects()}) */
+    public boolean pointerEvents() { return effects.pointerEvents(); }
+
+    // ── Schlanke with-Methoden ───────────────────────────────────────────────
+
+    /**
+     * Kopie dieses Stils mit geändertem {@code display}; nur der
+     * {@link BoxModelStyle}-Sub-Record wird kopiert.
+     *
+     * @param value neuer Anzeigetyp
+     * @return neue Instanz mit aktualisiertem {@code display}
+     */
     public RenderStyle withDisplay(Display value) {
-        return copy(value, width, height, flexGrow);
+        return new RenderStyle(box.withDisplay(value), positionStyle, typography,
+                colors, flexGrid, effects);
     }
 
+    /**
+     * Kopie dieses Stils mit geänderter {@code width}; nur der
+     * {@link BoxModelStyle}-Sub-Record wird kopiert.
+     *
+     * @param value neue Breite
+     * @return neue Instanz mit aktualisierter {@code width}
+     */
     public RenderStyle withWidth(RenderLength value) {
-        return copy(display, value, height, flexGrow);
+        return new RenderStyle(box.withWidth(value), positionStyle, typography,
+                colors, flexGrid, effects);
     }
 
+    /**
+     * Kopie dieses Stils mit geänderter {@code height}; nur der
+     * {@link BoxModelStyle}-Sub-Record wird kopiert.
+     *
+     * @param value neue Höhe
+     * @return neue Instanz mit aktualisierter {@code height}
+     */
     public RenderStyle withHeight(RenderLength value) {
-        return copy(display, width, value, flexGrow);
+        return new RenderStyle(box.withHeight(value), positionStyle, typography,
+                colors, flexGrid, effects);
     }
 
+    /**
+     * Kopie dieses Stils mit geändertem {@code flexGrow}; nur der
+     * {@link FlexGridStyle}-Sub-Record wird kopiert.
+     *
+     * @param value neuer Flex-Wachstumsfaktor
+     * @return neue Instanz mit aktualisiertem {@code flexGrow}
+     */
     public RenderStyle withFlexGrow(float value) {
-        return copy(display, width, height, value);
-    }
-    private RenderStyle copy(Display newDisplay,
-                             RenderLength newWidth,
-                             RenderLength newHeight,
-                             float newFlexGrow) {
-        return new RenderStyle(newDisplay, position, zIndex, floatMode, clear,
-                top, right, bottom, left, fontSizePx, fontFamily, fontWeight, italic,
-                lineHeight, color, listStyleType, underline, lineThrough,
-                textDecorationColor, cursor,
-                backgroundColor, backgroundImageUrl, backgroundRepeat, backgroundPositionX,
-                backgroundPositionY, backgroundPositionOffsetX, backgroundPositionOffsetY,
-                backgroundSizeX, backgroundSizeY, newWidth, newHeight, minWidth, maxWidth,
-                minHeight, maxHeight, aspectRatio, objectFit, boxSizing, margin, autoMargins,
-                padding, borderWidth, borderColor,
-                borderStyle, borderRadius, boxShadows, transform, outlineWidth, outlineColor, outlineVisible,
-                outlineOffset, visible, pointerEvents,
-                borderCollapse, textAlign, textTransform, whiteSpace, letterSpacingPx,
-                textOverflow, overflow,
-                verticalAlign, flexDirection,
-                flexWrap, justifyContent, alignItems, alignSelf, alignContent, order,
-                gridTemplateColumns, gridTemplateRows, gridAutoColumns, gridAutoRows,
-                gridTemplateAreas,
-                gridAutoFlow, gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd,
-                rowGapPx, columnGapPx, textShadow,
-                newFlexGrow, flexShrink, flexBasis, opacity);
+        return new RenderStyle(box, positionStyle, typography, colors,
+                flexGrid.withFlexGrow(value), effects);
     }
 }
