@@ -4,7 +4,9 @@ Agenten-Anleitung für die Arbeit mit `w3c-css21-tests`. Ziel des Harness:
 **Chrome rendert die W3C-CSS2.1-Tests als Referenz („so soll es aussehen"),
 Browicy rendert denselben Test, ein Pixelvergleich liefert PASS/DIFF** –
 Test-Driven Development für die Engine. Details und Grenzen: `README.md`
-im selben Ordner, Provenienz der Suite: `UPSTREAM.md`.
+im selben Ordner, Provenienz der Suite: `UPSTREAM.md`. Wer die Suite
+testgetrieben an der Engine abarbeiten soll, bekommt
+[`AGENT-PROMPT.md`](AGENT-PROMPT.md) als Auftrag.
 
 ## Ablauf in Kürze
 
