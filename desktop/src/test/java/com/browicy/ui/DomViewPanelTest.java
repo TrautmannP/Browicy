@@ -34,8 +34,6 @@ public class DomViewPanelTest {
 
     @Test
     public void paintsFlexItemsWithPositiveZIndexAbovePositionedScrim() {
-        // MUI-Kartenmuster: positionierter Scrim mit z-index:0 unterhalb von
-        // Flex-Items mit z-index:1 (z-index gilt auch für statische Flex-Items).
         DomViewPanel panel = new DomViewPanel(parse("""
                 <html><head><style>html, body { margin: 0; padding: 0; }</style></head>
                 <body style="background: white">
@@ -51,7 +49,6 @@ public class DomViewPanelTest {
                 """));
         try {
             BufferedImage image = panel.captureScreenshot(400, 300, false);
-            // Panel-Inset 16 + margin 16: rote Box bei (32,32).
             assertEquals(new Color(238, 0, 0).getRGB(), image.getRGB(50, 50));
             assertEquals(new Color(238, 0, 0).getRGB(), image.getRGB(50, 90));
         } finally {
@@ -71,7 +68,6 @@ public class DomViewPanelTest {
                 """));
         try {
             BufferedImage image = panel.captureScreenshot(300, 200, false);
-            // Negative z-Index wird unterhalb des Flusses gemalt: rot gewinnt.
             assertEquals(new Color(238, 0, 0).getRGB(), image.getRGB(50, 50));
         } finally {
             panel.dispose();
@@ -94,10 +90,8 @@ public class DomViewPanelTest {
                 """));
         try {
             BufferedImage image = panel.captureScreenshot(300, 200, false);
-            // Kind einer visibility:hidden-Box erbt hidden -> rot nicht gemalt.
             assertEquals(new Color(255, 255, 255).getRGB(), image.getRGB(50, 32));
-            // Explizites visibility:visible überschreibt die Vererbung.
-            assertEquals(new Color(0, 0, 255).getRGB(), image.getRGB(50, 90));
+            assertEquals(new Color(0, 0, 255).getRGB(), image.getRGB(50, 60));
         } finally {
             panel.dispose();
         }
@@ -116,9 +110,7 @@ public class DomViewPanelTest {
                 """));
         try {
             BufferedImage image = panel.captureScreenshot(320, 200, false);
-            // Panel-Inset 16: rote Box bei (16,16) + translate(100,50) -> (116,66).
             assertEquals(new Color(255, 0, 0).getRGB(), image.getRGB(126, 76));
-            // Blaue Box bei (16,16), scale(2) um Origin (0,0) -> (16,16)-(96,96).
             assertEquals(new Color(0, 0, 255).getRGB(), image.getRGB(70, 70));
             assertEquals(new Color(255, 255, 255).getRGB(), image.getRGB(100, 100));
         } finally {
@@ -224,9 +216,9 @@ public class DomViewPanelTest {
                 .findFirst()
                 .orElseThrow();
 
-        assertEquals(21f, box.x(), 0.001f);
-        assertEquals(21f, box.y(), 0.001f);
-        assertEquals(258f, box.width(), 0.001f);
+        assertEquals(5f, box.x(), 0.001f);
+        assertEquals(5f, box.y(), 0.001f);
+        assertEquals(290f, box.width(), 0.001f);
 
         DomViewPanel plain = new DomViewPanel(parse("<body><div>X</div></body>"));
         panel.setSize(300, 1);
@@ -244,8 +236,8 @@ public class DomViewPanelTest {
 
         BufferedImage image = paint(panel);
 
-        assertColor(image, 21, 21, CssColor.parse("blue"));
-        assertColor(image, 25, 25, CssColor.parse("yellow"));
+        assertColor(image, 5, 5, CssColor.parse("blue"));
+        assertColor(image, 9, 9, CssColor.parse("yellow"));
         assertTrue("Der Paint-Loop muss die berechnete rote Textfarbe verwenden",
                 containsRedTextPixel(image));
     }
@@ -471,7 +463,7 @@ public class DomViewPanelTest {
 
         assertEquals(100f, fixed.width(), 0.001f);
         assertEquals(40f, fixed.height(), 0.001f);
-        assertEquals(184f, percent.width(), 0.001f);
+        assertEquals(200f, percent.width(), 0.001f);
     }
 
     @Test
@@ -503,7 +495,7 @@ public class DomViewPanelTest {
         LineBox rightLine = right.layoutForTesting(400).lineBoxes().getFirst();
 
         assertEquals(200f, centerLine.x() + centerLine.width() / 2f, 1f);
-        assertEquals(384f, rightLine.x() + rightLine.width(), 0.001f);
+        assertEquals(400f, rightLine.x() + rightLine.width(), 0.001f);
     }
 
     @Test
@@ -732,7 +724,7 @@ public class DomViewPanelTest {
 
         LayoutResult layout = panel.layoutForTesting(400, 600);
 
-        assertEquals(328f, boxById(layout, "box").width(), 0.001f);
+        assertEquals(360f, boxById(layout, "box").width(), 0.001f);
         assertEquals(175f, boxById(layout, "child").height(), 0.001f);
     }
 
@@ -867,10 +859,10 @@ public class DomViewPanelTest {
 
         assertEquals(200f, small.width(), 0.001f);
         assertEquals(150f, small.height(), 0.001f);
-        assertEquals(36f, small.x(), 0.001f);
+        assertEquals(20f, small.x(), 0.001f);
         assertEquals(300f, large.width(), 0.001f);
         assertEquals(200f, large.height(), 0.001f);
-        assertEquals(36f, large.x(), 0.001f);
+        assertEquals(20f, large.x(), 0.001f);
     }
 
     @Test
@@ -1260,11 +1252,11 @@ public class DomViewPanelTest {
         BoxFragment beside = boxById(layout, "beside");
         BoxFragment clear = boxById(layout, "clear");
 
-        assertEquals(284f, floated.x(), 0.001f);
-        assertEquals(268f, beside.width(), 0.001f);
+        assertEquals(300f, floated.x(), 0.001f);
+        assertEquals(300f, beside.width(), 0.001f);
         assertEquals(floated.y(), beside.y(), 0.001f);
         assertEquals(floated.y() + floated.height(), clear.y(), 0.001f);
-        assertEquals(368f, clear.width(), 0.001f);
+        assertEquals(400f, clear.width(), 0.001f);
     }
 
     @Test
@@ -1591,7 +1583,6 @@ public class DomViewPanelTest {
         BoxFragment footer = boxById(layout, "footer");
 
         assertEquals(300f, grid.width(), 0.001f);
-        // 300 - 10 gap = 290; Spalten 1fr:2fr → 96.667 / 193.333
         assertEquals(290f / 3f, content.width(), 0.001f);
         assertEquals(290f * 2f / 3f, pane.width(), 0.001f);
         assertEquals(content.x() + content.width() + 10f, pane.x(), 0.001f);
@@ -1599,7 +1590,6 @@ public class DomViewPanelTest {
         assertEquals(grid.y() + 40f + 10f, footer.y(), 0.001f);
         assertEquals(grid.x(), footer.x(), 0.001f);
         assertEquals(300f, footer.width(), 0.001f);
-        // Auto-Zeile footer wächst auf Item-Höhe.
         assertEquals(20f, footer.height(), 0.001f);
     }
 
@@ -1760,8 +1750,6 @@ public class DomViewPanelTest {
         BoxFragment rowOne = boxById(layout, "row-one");
         BoxFragment rowThree = boxById(layout, "row-three");
 
-        // Zwei 20px-Reihen + 7px Gap? Kein row-gap gesetzt, also 20+20=40px.
-        // align-content:flex-end => 60px frei oben.
         assertEquals(flex.y() + 60f, rowOne.y(), 0.001f);
         assertEquals(rowOne.y() + 20f, rowThree.y(), 0.001f);
     }

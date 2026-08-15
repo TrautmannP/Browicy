@@ -12,6 +12,14 @@ public interface PageRuntime extends PageTaskQueue, AutoCloseable {
 
     JsExecutionResult execute(JavaScriptSource source);
 
+    default float scrollX() {
+        return 0f;
+    }
+
+    default float scrollY() {
+        return 0f;
+    }
+
     void dispatchEvent(Node target, Event event);
 
     CompletableFuture<Boolean> submitEvent(Node target, Event event);

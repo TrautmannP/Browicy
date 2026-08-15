@@ -20,7 +20,7 @@ public class RenderTreeBuilderTest {
                 after</p></section></body>
                 """);
 
-        RenderBox section = boxChildren(tree.root()).getFirst();
+        RenderBox section = boxChildren(contentRoot(tree)).getFirst();
         RenderBox paragraph = boxChildren(section).getFirst();
         RenderInlineBox span = inlineChildren(paragraph).getFirst();
         RenderInlineBox strong = inlineChildren(span).getFirst();
@@ -42,9 +42,9 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void treatsHeiseFlowRootAndCharacterWidthsAsBlockSizing() {
-        RenderBox container = boxChildren(build("""
+        RenderBox container = boxChildren(contentRoot(build("""
                 <body><div style="font-size:20px"><span style="display:flow-root;width:10ch">headline</span></div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         RenderBox headline = boxChildren(container).getFirst();
 
         assertEquals(RenderStyle.Display.BLOCK, headline.style().display());
@@ -54,11 +54,11 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void resolvesBoxModelLengthsBackgroundAndBorder() {
-        RenderBox box = boxChildren(build("""
+        RenderBox box = boxChildren(contentRoot(build("""
                 <body><div style="font-size: 20px; margin: 1px 2px 3px 4px;
                   padding: .5em; border: 2px solid #123456; background-color: yellow;
                   box-sizing: border-box">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         RenderStyle style = box.style();
 
         assertEquals(new BoxEdges(1, 2, 3, 4), style.margin());
@@ -89,9 +89,9 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void resolvesBorderRadiusAndOutline() {
-        RenderBox box = boxChildren(build("""
+        RenderBox box = boxChildren(contentRoot(build("""
                 <body><div style="border-radius:8px;outline:blue 2px solid">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
 
         assertEquals(8f, box.style().borderRadius().topLeft(), 0.001f);
         assertEquals(8f, box.style().borderRadius().bottomRight(), 0.001f);
@@ -102,10 +102,10 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void resolvesMultiLayerBoxShadowsWithOffsetsAndColors() {
-        RenderBox box = boxChildren(build("""
+        RenderBox box = boxChildren(contentRoot(build("""
                 <body><div style="box-shadow:0 1px 3px rgba(0,0,0,.2),
                   inset 2px 4px 6px 8px #abc">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         java.util.List<BoxShadow> shadows = box.style().boxShadows();
 
         assertEquals(2, shadows.size());
@@ -120,46 +120,46 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void resolvesVisibilityPointerEventsAndOutlineOffset() {
-        RenderBox hidden = boxChildren(build("""
+        RenderBox hidden = boxChildren(contentRoot(build("""
                 <body><div style="visibility:hidden">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         assertFalse(hidden.style().visible());
 
-        RenderBox inert = boxChildren(build("""
+        RenderBox inert = boxChildren(contentRoot(build("""
                 <body><div style="pointer-events:none">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         assertFalse(inert.style().pointerEvents());
 
-        RenderBox offset = boxChildren(build("""
+        RenderBox offset = boxChildren(contentRoot(build("""
                 <body><div style="outline:2px solid blue;outline-offset:4px">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         assertEquals(4f, offset.style().outlineOffset(), 0.001f);
         assertTrue(offset.style().outlineVisible());
     }
 
     @Test
     public void resolvesStickyFixedAndOverflowLonghands() {
-        RenderBox sticky = boxChildren(build("""
+        RenderBox sticky = boxChildren(contentRoot(build("""
                 <body><div style="position:sticky;top:4px">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         assertEquals(RenderStyle.Position.STICKY, sticky.style().position());
 
-        RenderBox fixed = boxChildren(build("""
+        RenderBox fixed = boxChildren(contentRoot(build("""
                 <body><div style="position:fixed;top:4px">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         assertEquals(RenderStyle.Position.FIXED, fixed.style().position());
 
-        RenderBox clipped = boxChildren(build("""
+        RenderBox clipped = boxChildren(contentRoot(build("""
                 <body><div style="overflow-y:hidden">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         assertEquals(RenderStyle.Overflow.HIDDEN, clipped.style().overflow());
     }
 
     @Test
     public void resolvesWhiteSpaceFromDeclarationsAndInheritsIt() {
-        RenderBox parent = boxChildren(build("""
+        RenderBox parent = boxChildren(contentRoot(build("""
                 <body><div style="white-space:pre-wrap"><span>text</span></div></body>
-                """).root()).getFirst();
+                """))).getFirst();
 
         assertEquals(RenderStyle.WhiteSpace.PRE_WRAP, parent.style().whiteSpace());
         assertEquals(RenderStyle.WhiteSpace.PRE_WRAP,
@@ -168,11 +168,11 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void resolvesPerCornerBorderRadiiAndPercentageAsUnbounded() {
-        RenderBox box = boxChildren(build("""
+        RenderBox box = boxChildren(contentRoot(build("""
                 <body><div style="border-top-left-radius:10px;
                   border-top-right-radius:50%;border-bottom-right-radius:4px;
                   border-bottom-left-radius:0">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
 
         assertEquals(10f, box.style().borderRadius().topLeft(), 0.001f);
         assertEquals(Float.POSITIVE_INFINITY, box.style().borderRadius().topRight(), 0.001f);
@@ -182,9 +182,9 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void inheritsListStyleAndCarriesTextDecoration() {
-        RenderBox list = boxChildren(build("""
+        RenderBox list = boxChildren(contentRoot(build("""
                 <body><ul style="list-style:none"><li><a style="text-decoration:underline blue">x</a></li></ul></body>
-                """).root()).getFirst();
+                """))).getFirst();
         RenderBox item = boxChildren(list).getFirst();
         RenderTextRun text = textRunsRecursively(item).getFirst();
 
@@ -193,11 +193,11 @@ public class RenderTreeBuilderTest {
         assertEquals(CssColor.parse("blue"), text.style().textDecorationColor());
 
         RenderTextRun struck = textRunsRecursively(
-                boxChildren(boxChildren(build("""
+                boxChildren(boxChildren(contentRoot(build("""
                         <body><ul style="list-style:none">
                           <li><a style="text-decoration:line-through red">x</a></li>
                         </ul></body>
-                        """).root()).getFirst()).getFirst()).getFirst();
+                        """))).getFirst()).getFirst()).getFirst();
         assertTrue(struck.style().lineThrough());
         assertFalse(struck.style().underline());
         assertEquals(CssColor.parse("red"), struck.style().textDecorationColor());
@@ -205,9 +205,9 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void resolvesZIndexAndInheritedCursor() {
-        RenderBox parent = boxChildren(build("""
+        RenderBox parent = boxChildren(contentRoot(build("""
                 <body><div style="cursor:pointer"><span style="position:absolute;z-index:7">x</span></div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         RenderBox child = boxChildren(parent).getFirst();
 
         assertEquals(7, child.style().zIndex());
@@ -216,14 +216,14 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void resolvesCurrentColorAgainstTheInheritedTextColor() {
-        RenderBox outer = boxChildren(build("""
+        RenderBox outer = boxChildren(contentRoot(build("""
                 <body><div style="color: rgb(10, 20, 30)">
                   <p style="color: currentColor">a
                     <span style="background-color: currentColor; border-color: currentColor;
                       text-decoration: underline currentColor">b</span>
                   </p>
                 </div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         RenderBox paragraph = boxChildren(outer).getFirst();
         RenderInlineBox span = inlineChildren(paragraph).getFirst();
 
@@ -237,9 +237,9 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void excludesDisplayNoneSubtreesFromRenderTree() {
-        RenderBox paragraph = boxChildren(build("""
+        RenderBox paragraph = boxChildren(contentRoot(build("""
                 <body><p>visible <span style="display:none">hidden</span> text</p></body>
-                """).root()).getFirst();
+                """))).getFirst();
 
         String renderedText = textRunsRecursively(paragraph).stream()
                 .map(RenderTextRun::text)
@@ -252,9 +252,9 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void createsAnonymousBlocksAroundInlineRunsMixedWithBlocks() {
-        RenderBox container = boxChildren(build("""
+        RenderBox container = boxChildren(contentRoot(build("""
                 <body><div>before<p>paragraph</p>after</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
 
         assertEquals(3, container.children().size());
         RenderBox before = (RenderBox) container.children().get(0);
@@ -270,10 +270,10 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void resolvesDimensionsAutoMarginsAlignmentAndInlineBlockNodes() {
-        RenderBox container = boxChildren(build("""
+        RenderBox container = boxChildren(contentRoot(build("""
                 <body><div style="text-align:right"><span style="display:inline-block;
                   width: 5em; height: 25%; margin-left:auto">content</span></div></body>
-                """).root()).getFirst();
+                """))).getFirst();
 
         assertEquals(RenderStyle.TextAlign.RIGHT, container.style().textAlign());
         RenderInlineBlock inlineBlock = (RenderInlineBlock) container.children().getFirst();
@@ -295,7 +295,7 @@ public class RenderTreeBuilderTest {
                 """);
 
         RenderTree tree = new RenderTreeBuilder().build(document, 500, 400);
-        RenderStyle style = boxChildren(tree.root()).stream()
+        RenderStyle style = boxChildren(contentRoot(tree)).stream()
                 .filter(box -> "div".equals(box.tagName()))
                 .findFirst().orElseThrow().style();
 
@@ -315,7 +315,7 @@ public class RenderTreeBuilderTest {
                 """);
 
         assertEquals(32f, tree.rootFontSizePx(), 0.001f);
-        RenderBox div = boxChildren(tree.root()).stream()
+        RenderBox div = boxChildren(contentRoot(tree)).stream()
                 .filter(box -> "div".equals(box.tagName()))
                 .findFirst().orElseThrow();
         assertEquals(32f, div.style().fontSizePx(), 0.001f);
@@ -344,7 +344,7 @@ public class RenderTreeBuilderTest {
         byte[] bytes = {1, 2, 3};
 
         RenderTree tree = new RenderTreeBuilder(element -> bytes).build(document);
-        RenderBox paragraph = boxChildren(tree.root()).getFirst();
+        RenderBox paragraph = boxChildren(contentRoot(tree)).getFirst();
         RenderImage image = paragraph.children().stream()
                 .filter(RenderImage.class::isInstance)
                 .map(RenderImage.class::cast)
@@ -363,7 +363,7 @@ public class RenderTreeBuilderTest {
                 <body><center><br><div><img id="logo" width="272" height="92"></div></center></body>
         """);
 
-        RenderBox center = boxChildren(tree.root()).getFirst();
+        RenderBox center = boxChildren(contentRoot(tree)).getFirst();
         RenderBox container = boxChildren(center).stream()
                 .filter(box -> "div".equals(box.tagName()))
                 .findFirst().orElseThrow();
@@ -415,9 +415,9 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void expandsRepeatedFrTracksInGridTemplateColumns() {
-        RenderBox grid = boxChildren(build("""
+        RenderBox grid = boxChildren(contentRoot(build("""
                 <body><div style="display:grid;grid-template-columns:repeat(2, 1fr)">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         List<RenderStyle.GridTrack> tracks = grid.style().gridTemplateColumns();
 
         assertEquals(2, tracks.size());
@@ -429,9 +429,9 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void expandsFixedRepeatAndMixedTrackLists() {
-        RenderBox grid = boxChildren(build("""
+        RenderBox grid = boxChildren(contentRoot(build("""
                 <body><div style="display:grid;grid-template-columns:1fr repeat(3, 200px)">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         List<RenderStyle.GridTrack> tracks = grid.style().gridTemplateColumns();
 
         assertEquals(4, tracks.size());
@@ -445,10 +445,10 @@ public class RenderTreeBuilderTest {
 
     @Test
     public void expandsAutoFitMinmaxRepeatIntoMinmaxTrack() {
-        RenderBox grid = boxChildren(build("""
+        RenderBox grid = boxChildren(contentRoot(build("""
                 <body><div style="display:grid;
                   grid-template-columns:repeat(auto-fit, minmax(300px, 1fr))">x</div></body>
-                """).root()).getFirst();
+                """))).getFirst();
         List<RenderStyle.GridTrack> tracks = grid.style().gridTemplateColumns();
 
         assertEquals(1, tracks.size());
@@ -462,7 +462,7 @@ public class RenderTreeBuilderTest {
         RenderTree tree = build("""
                 <body><a href="#"><div><h3>Headline</h3><p>Text</p></div></a></body>
                 """);
-        RenderBox anchor = boxChildren(tree.root()).getFirst();
+        RenderBox anchor = boxChildren(contentRoot(tree)).getFirst();
 
         assertEquals("a", anchor.tagName());
         assertEquals(RenderStyle.Display.BLOCK, anchor.style().display());
@@ -475,7 +475,7 @@ public class RenderTreeBuilderTest {
         RenderTree tree = build("""
                 <body><a href="#"><span><h3>Title</h3></span></a></body>
                 """);
-        RenderBox anchor = boxChildren(tree.root()).getFirst();
+        RenderBox anchor = boxChildren(contentRoot(tree)).getFirst();
         RenderBox span = boxChildren(anchor).getFirst();
 
         assertEquals(RenderStyle.Display.BLOCK, anchor.style().display());
@@ -488,7 +488,7 @@ public class RenderTreeBuilderTest {
         RenderTree tree = build("""
                 <body><a href="#">Plain <strong>link</strong> text</a></body>
                 """);
-        RenderInlineBox anchor = inlineChildren(tree.root()).getFirst();
+        RenderInlineBox anchor = inlineChildren(contentRoot(tree)).getFirst();
 
         assertEquals("a", anchor.tagName());
         assertEquals(RenderStyle.Display.INLINE, anchor.style().display());
@@ -498,6 +498,35 @@ public class RenderTreeBuilderTest {
     private static RenderTree build(String html) {
         Document document = new HtmlParser().parse(html);
         return new RenderTreeBuilder().build(document);
+    }
+
+    @Test
+    public void renderTreeRootIsDocumentElementWithItsBoxModel() {
+        RenderTree tree = build("""
+                <html style="margin:10px;border:5px solid black;padding:20px">
+                <body><div>x</div></body></html>
+                """);
+
+        RenderBox root = tree.root();
+        assertEquals("html", root.tagName());
+        assertEquals(new BoxEdges(10, 10, 10, 10), root.style().margin());
+        assertEquals(new BoxEdges(5, 5, 5, 5), root.style().borderWidth());
+        assertEquals(new BoxEdges(20, 20, 20, 20), root.style().padding());
+        List<RenderBox> children = boxChildren(root);
+        assertEquals(1, children.size());
+        assertEquals("body", children.getFirst().tagName());
+        assertEquals("div", boxChildren(children.getFirst()).getFirst().tagName());
+    }
+
+    private static RenderBox contentRoot(RenderTree tree) {
+        RenderBox root = tree.root();
+        if ("html".equals(root.tagName())) {
+            List<RenderBox> children = boxChildren(root);
+            if (!children.isEmpty()) {
+                return children.getFirst();
+            }
+        }
+        return root;
     }
 
     private static List<RenderBox> boxChildren(RenderBox box) {

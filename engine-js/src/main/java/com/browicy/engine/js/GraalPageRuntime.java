@@ -81,6 +81,8 @@ final class GraalPageRuntime implements PageRuntime {
     private final Map<Long, TimerRegistration> timers = new HashMap<>();
 
     private volatile Context context;
+    private volatile float scrollX;
+    private volatile float scrollY;
     private volatile long taskTimeBudgetMillis = TASK_TIME_BUDGET_MILLIS;
     private volatile long initialScriptBudgetMillis = INITIAL_SCRIPT_BUDGET_MILLIS;
     private volatile long currentTaskBudgetMillis;
@@ -215,6 +217,16 @@ final class GraalPageRuntime implements PageRuntime {
     }
 
     @Override
+    public float scrollX() {
+        return scrollX;
+    }
+
+    @Override
+    public float scrollY() {
+        return scrollY;
+    }
+
+    @Override
     public boolean isClosed() {
         return !acceptingTasks.get() || closed.get();
     }
@@ -323,6 +335,12 @@ final class GraalPageRuntime implements PageRuntime {
         bindings.putMember("__browicyLocationParse", (ProxyExecutable) args -> {
             String url = args.length == 0 || args[0].isNull() ? "" : asText(args[0]);
             return ProxyObject.fromMap(locationParts(url));
+        });
+        bindings.putMember("__browicyScroll", (ProxyExecutable) args -> {
+            scrollX = Math.max(0f, scrollValue(args, 0));
+            scrollY = Math.max(0f, scrollValue(args, 1));
+            styleSheetMutationCallback.run();
+            return null;
         });
         context.eval("js", JavaScriptEngine.BROWSER_BOOTSTRAP);
         bindings.putMember("__browicySubtleDigest", (ProxyExecutable) args -> {
@@ -775,6 +793,13 @@ final class GraalPageRuntime implements PageRuntime {
 
     private static String asText(Value value) {
         return value.isString() ? value.asString() : value.toString();
+    }
+
+    private static float scrollValue(Value[] args, int index) {
+        if (args.length <= index || args[index] == null || args[index].isNull()) {
+            return 0f;
+        }
+        return (float) args[index].asDouble();
     }
 
     private static String normalizeDigestAlgorithm(String algorithm) {

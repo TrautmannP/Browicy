@@ -57,14 +57,16 @@ public final class RenderLayoutEngine {
         rootFontSizePx = tree.rootFontSizePx();
         this.viewportWidth = viewportWidth;
         this.viewportHeight = tree.viewportHeight();
-        float availableWidth = Math.max(1, viewportWidth - insets.left - insets.right);
+        float availableWidth = Math.max(1, viewportWidth);
         List<LineBox> lineBoxes = new ArrayList<>();
         PositionedContext initialContainingBlock = new PositionedContext();
+        initialContainingBlock.setGeometry(0, 0, viewportWidth, this.viewportHeight);
+        int rootFirstLine = lineBoxes.size();
         BlockLayout root = layoutBlock(
-                tree.root(), insets.left, insets.top, availableWidth, this.viewportHeight, false,
+                tree.root(), 0, 0, availableWidth, this.viewportHeight, false,
                 graphics, lineBoxes, initialContainingBlock);
-        initialContainingBlock.setGeometry(
-                insets.left, insets.top, availableWidth, root.outerHeight());
+        root = positionRootInInitialContainingBlock(
+                root, tree.root(), initialContainingBlock, graphics, lineBoxes, rootFirstLine);
         List<PaintFragment> positioned =
                 layoutAbsoluteRequests(initialContainingBlock, graphics, lineBoxes);
         List<PaintFragment> negative = new ArrayList<>();
@@ -82,12 +84,65 @@ public final class RenderLayoutEngine {
         fragments.addAll(root.fragments());
         fragments.addAll(zero);
         fragments.addAll(positive);
-        float height = insets.top + root.outerHeight() + insets.bottom;
-        return new LayoutResult(
-                viewportWidth,
-                Math.max(insets.top + insets.bottom, height),
-                fragments,
-                lineBoxes);
+        float height = Math.max(0, root.outerHeight());
+        return new LayoutResult(viewportWidth, height, fragments, lineBoxes);
+    }
+
+    private BlockLayout positionRootInInitialContainingBlock(BlockLayout rootLayout,
+                                                             RenderBox root,
+                                                             PositionedContext icb,
+                                                             Graphics2D graphics,
+                                                             List<LineBox> lineBoxes,
+                                                             int rootFirstLine) {
+        RenderStyle style = root.style();
+        if (style.position() != RenderStyle.Position.ABSOLUTE
+                && style.position() != RenderStyle.Position.FIXED) {
+            return rootLayout;
+        }
+        float left = style.left().isAuto() ? 0 : resolve(style.left(), icb.width);
+        float right = style.right().isAuto() ? 0 : resolve(style.right(), icb.width);
+        float top = style.top().isAuto() ? 0 : resolve(style.top(), icb.height);
+        float bottom = style.bottom().isAuto() ? 0 : resolve(style.bottom(), icb.height);
+        boolean stretchAutoWidth = style.width().isAuto()
+                && !style.left().isAuto() && !style.right().isAuto();
+        BlockLayout current = rootLayout;
+        if (style.width().isAuto()) {
+            while (lineBoxes.size() > rootFirstLine) {
+                lineBoxes.remove(lineBoxes.size() - 1);
+            }
+            float availableWidth = stretchAutoWidth
+                    ? Math.max(0, icb.width - left - right)
+                    : icb.width;
+            current = layoutBlock(root, icb.x, icb.y, availableWidth, icb.height,
+                    !stretchAutoWidth, graphics, lineBoxes, new PositionedContext());
+        }
+        BoxFragment box = (BoxFragment) current.fragments().getFirst();
+        float desiredX;
+        if (!style.left().isAuto()) {
+            desiredX = icb.x + left + style.margin().left();
+        } else if (!style.right().isAuto()) {
+            desiredX = icb.x + icb.width - right - style.margin().right() - box.width();
+        } else {
+            desiredX = icb.x + style.margin().left();
+        }
+        float desiredY;
+        if (!style.top().isAuto()) {
+            desiredY = icb.y + top + style.margin().top();
+        } else if (!style.bottom().isAuto()) {
+            desiredY = icb.y + icb.height - bottom - style.margin().bottom() - box.height();
+        } else {
+            desiredY = icb.y + style.margin().top();
+        }
+        float dx = desiredX - box.x();
+        float dy = desiredY - box.y();
+        if (dx == 0 && dy == 0) {
+            return current;
+        }
+        List<PaintFragment> fragments = current.fragments().stream()
+                .map(fragment -> translate(fragment, dx, dy))
+                .toList();
+        translateLines(lineBoxes, rootFirstLine, dx, dy);
+        return new BlockLayout(current.outerHeight(), List.copyOf(fragments));
     }
 
     private BlockLayout layoutBlock(RenderBox box,
@@ -231,9 +286,6 @@ public final class RenderLayoutEngine {
             childPositionedContext.setContentExtent(minLeft, maxRight);
             List<PaintFragment> positionedFragments =
                     layoutAbsoluteRequests(childPositionedContext, graphics, lineBoxes);
-            // Paint-Reihenfolge nach z-index: negative positionierte zuerst,
-            // dann normaler Fluss (z == 0), dann positionierte mit z == 0,
-            // zuletzt alle Elemente mit z > 0 (positioniert und Flex-/Grid-Items).
             List<PaintFragment> negative = new ArrayList<>();
             List<PaintFragment> zero = new ArrayList<>();
             List<PaintFragment> positive = new ArrayList<>();
@@ -379,8 +431,6 @@ public final class RenderLayoutEngine {
                 lineBoxes);
         float contentHeight = Math.max(0, currentY - contentY);
         if (box.style().overflow() != RenderStyle.Overflow.VISIBLE) {
-            // overflow != visible etabliert eine BFC: die Höhe schließt
-            // enthaltene Floats ein (CSS 2.1 §9.4.7 / 10.6.7).
             for (FloatRegion region : floats) {
                 contentHeight = Math.max(contentHeight,
                         region.y() + region.height() - contentY);
@@ -583,9 +633,6 @@ public final class RenderLayoutEngine {
                 }
             }
         }
-        // Maximize (css-grid §12.5 Schritt 3): freien Platz gleichmäßig an
-        // Tracks mit endlichem Wachstumslimit verteilen, am Limit einfrieren.
-        // Tracks mit flexiblem Maximum (fr) nehmen daran nicht teil.
         float free = Math.max(0, contentWidth - used);
         while (free > 0 && !growable.isEmpty()) {
             float smallestHeadroom = Float.MAX_VALUE;
@@ -614,7 +661,6 @@ public final class RenderLayoutEngine {
                 return columnWidths[column] >= maxPx - 0.001f;
             });
         }
-        // Expand Flexible Tracks (css-grid §12.5 Schritt 6)
         for (int column = 0; column < columnCount; column++) {
             if (fractions[column] > 0) {
                 columnWidths[column] = Math.max(columnWidths[column],
@@ -819,12 +865,6 @@ public final class RenderLayoutEngine {
         return null;
     }
 
-    /**
-     * Löst eine Grid-Linienangabe in eine 1-basierte Liniennummer auf
-     * (0 = auto). Benannte Linien werden gegen die Template-Areas und die
-     * daraus abgeleiteten impliziten Liniennamen ({@code name-start}/
-     * {@code name-end}) aufgelöst; negative Zahlen zählen vom Ende.
-     */
     private static int resolveGridLine(RenderStyle.GridLine line, String[][] areas,
                                        boolean vertical, boolean endSide, int trackCount) {
         if (line == null) {
@@ -848,12 +888,10 @@ public final class RenderLayoutEngine {
         if (areas == null) {
             return 0;
         }
-        // 1. Name eines benannten Bereichs: Start- bzw. Endlinie des Bereichs.
         int line = areaLineForName(name, areas, vertical, endSide);
         if (line != 0) {
             return line;
         }
-        // 2. Implizite Liniennamen name-start / name-end der Bereiche.
         String implicit = endSide ? name + "-end" : name + "-start";
         return areaLineForName(implicit, areas, vertical, endSide);
     }
@@ -1531,10 +1569,6 @@ public final class RenderLayoutEngine {
         return 0;
     }
 
-    /**
-     * Fügt die Fragmente von Flex-/Grid-Items mit z > 0 und von positionierten
-     * Boxen mit z > 0 aufsteigend nach z-index zusammen (stabil).
-     */
     private static List<PaintFragment> mergeElevated(List<PaintFragment> elevated,
                                                      List<PaintFragment> positioned) {
         if (elevated.isEmpty()) {
@@ -2004,8 +2038,6 @@ public final class RenderLayoutEngine {
                 style, style.maxWidth(), box, percentageBase, boxDecoration, graphics);
         if (!style.width().isAuto()) {
             if (contentBased && style.width().unit() == RenderLength.Unit.PERCENT) {
-                // Für die eigene max-content-Breite tragen Prozentbreiten nichts
-                // bei (css-sizing: Prozent wie auto bei intrinsischer Größe).
                 IntrinsicWidths content = intrinsicWidths(
                         box.children(), percentageBase, graphics, true);
                 float preferred = constrain(content.preferred(), minConstraint, maxConstraint);

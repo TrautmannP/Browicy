@@ -46,6 +46,25 @@ public class PageRuntimeTest {
     }
 
     @Test
+    public void windowScrollToUpdatesViewportScrollOffsets() {
+        Document document = parse("<html><body style=\"height:10000px\"></body></html>");
+
+        try (PageRuntime runtime = engine.createPageRuntime(document)) {
+            JsExecutionResult result = runtime.execute(new JavaScriptSource("""
+                    window.scrollTo(0, 50);
+                    const x = window.scrollX + ':' + window.scrollY + ':' + window.pageYOffset;
+                    document.body.setAttribute('data-scroll', x);
+                    window.scrollBy(10, -5);
+                    """, null, "scroll.js"));
+
+            assertFalse(String.valueOf(result.errors()), result.hasErrors());
+            assertEquals("0:50:50", document.getBody().getAttribute("data-scroll"));
+            assertEquals(10f, runtime.scrollX(), 0.001f);
+            assertEquals(45f, runtime.scrollY(), 0.001f);
+        }
+    }
+
+    @Test
     public void delayedTimerExecutesOnPersistentRuntime() throws Exception {
         Document document = parse("""
                 <html><body><p id="message">Warte</p></body></html>

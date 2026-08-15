@@ -16,7 +16,9 @@ import com.browicy.engine.render.BoxEdges;
 import com.browicy.engine.render.BoxShadow;
 import com.browicy.engine.render.CornerRadii;
 import com.browicy.engine.render.CssColor;
+import com.browicy.engine.render.RenderBox;
 import com.browicy.engine.render.RenderLength;
+import com.browicy.engine.render.RenderNode;
 import com.browicy.engine.render.RenderStyle;
 import com.browicy.engine.render.RenderTree;
 import com.browicy.engine.render.RenderTreeBuilder;
@@ -578,9 +580,20 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         try {
             configureGraphics(g2d);
             Rectangle clip = g2d.getClipBounds();
+            float scrollX = runtime.scrollX();
+            float scrollY = runtime.scrollY();
+            if (scrollX != 0 || scrollY != 0) {
+                g2d.translate(-scrollX, -scrollY);
+            }
+            CssColor canvasColor = canvasBackground(current.tree());
+            if (canvasColor != null) {
+                float canvasHeight = Math.max(current.layout().height(), current.viewportHeight());
+                g2d.setColor(toAwtColor(canvasColor));
+                g2d.fillRect(0, 0, Math.round(current.layout().width()), Math.round(canvasHeight));
+            }
             for (PaintFragment fragment : current.layout().fragments()) {
-                if (clip != null && (fragment.bottom() <= clip.y
-                        || fragment.top() >= clip.y + clip.height)) {
+                if (clip != null && (fragment.bottom() <= clip.y + scrollY
+                        || fragment.top() >= clip.y + scrollY + clip.height)) {
                     continue;
                 }
                 Graphics2D fragmentGraphics = (Graphics2D) g2d.create();
@@ -671,6 +684,22 @@ public final class DomViewPanel extends JPanel implements Scrollable {
             graphics.drawString(character, cursor, text.baseline());
             cursor += metrics.stringWidth(character) + spacing;
         }
+    }
+
+    private static CssColor canvasBackground(RenderTree tree) {
+        CssColor rootColor = tree.root().style().backgroundColor();
+        if (rootColor != null && !rootColor.isTransparent()) {
+            return rootColor;
+        }
+        for (RenderNode child : tree.root().children()) {
+            if (child instanceof RenderBox box && "body".equals(box.tagName())) {
+                CssColor bodyColor = box.style().backgroundColor();
+                if (bodyColor != null && !bodyColor.isTransparent()) {
+                    return bodyColor;
+                }
+            }
+        }
+        return null;
     }
 
     private static float fragmentOpacity(PaintFragment fragment) {
@@ -1150,7 +1179,6 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         float vy = (float) -Math.cos(radians);
         float half = (Math.abs(vx) * width + Math.abs(vy) * height) / 2f;
         if (half <= 0) {
-            // Nullgroße Box: nichts zu malen (LinearGradientPaint würde werfen).
             return;
         }
         java.awt.Paint paint;
@@ -1159,8 +1187,6 @@ public final class DomViewPanel extends JPanel implements Scrollable {
                     cx - vx * half, cy - vy * half, cx + vx * half, cy + vy * half,
                     toFloatArray(positions), toAwtColors(colors));
         } catch (IllegalArgumentException degenerate) {
-            // Nicht streng monoton steigende Stops (harte Farbwechsel) oder
-            // andere degenerierte Verläufe: feste Fläche mit der Endfarbe.
             graphics.setColor(toAwtColor(colors.getLast()));
             graphics.fill(new Rectangle2D.Float(x, y, width, height));
             return;
@@ -1302,8 +1328,6 @@ public final class DomViewPanel extends JPanel implements Scrollable {
         Graphics2D graphics = image.createGraphics();
         try {
             configureGraphics(graphics);
-            // Gleiche Synchronisation wie renderPass: der asynchrone Render-Thread
-            // wendet Styles an und baut Bäume unter dem Dokument-Lock.
             synchronized (document) {
                 StyleApplicator applicator = new StyleApplicator();
                 if (styleSheets == null) applicator.apply(document, width, viewportHeight);

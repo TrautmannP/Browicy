@@ -86,7 +86,9 @@ Stand: `position` (static/relative/absolute/fixed/sticky), Offsets, `float`/`cle
 
 ## 10 Details des visuellen Formatierungsmodells
 
-Stand: `width`/`height`/`min-width`/`max-width`/`min-height`/`max-height` (Längen, `%`, `auto`, `calc()`/`min()`/`max()`/`clamp()`), `line-height`, horizontale Auto-Margen.
+Stand: `width`/`height`/`min-width`/`max-width`/`min-height`/`max-height` (Längen, `%`, `auto`, `calc()`/`min()`/`max()`/`clamp()`), `line-height`, horizontale Auto-Margen, **Initial Containing Block (§10.1)**.
+
+- [x] **P3 · Initial Containing Block (§10.1) umgesetzt** — ICB = Viewport-Maße, am Canvas-Ursprung verankert (scrollt nicht mit). Das Wurzelelement (html) nimmt mit Margin/Border/Padding am Layout teil; positionierte Boxen ohne positionierten Vorfahren sowie das selbst positionierte Wurzelelement positionieren gegen den ICB, Prozentwerte des Wurzelelements lösen gegen die ICB-Dimensionen auf. `window.scrollTo`/`scroll`/`scrollBy` verschieben den Canvas beim Malen. Belegt: `abspos/abspos-containing-block-initial-*` (16/16 PASS im Harness, pixelidentisch; vorher 16/16 DIFF).
 
 - [ ] **P2 · `vertical-align`: `sub`, `super`, Längen- und Prozentwerte fehlen** — Parser akzeptiert sie nur teils, der Renderer bildet alles Unbekannte auf `baseline` ab ([10.8 Line height calculations](https://www.w3.org/TR/CSS2/visudet.html#line-height)).
 - [ ] **P3 · Breitenalgorithmen §10.3 unvollständig** — replaced Inline-Elemente, absolut positionierte Elemente, Inline-Block-Konstellationen ([10.3 Calculating widths and margins](https://www.w3.org/TR/CSS2/visudet.html#Computing_widths_and_margins)).
@@ -119,8 +121,9 @@ Stand: nichts implementiert (visueller Bildschirm-Renderer).
 
 ## 14 Farben und Hintergründe
 
-Stand: `color`, `background-color`, `background-image`, `background-repeat`, `background-position` (Keywords + Offsets + `%`), `background-size`, `background`-Shorthand, Farben (`#rgb`/`#rrggbb`/`rgb()`/alle 16 CSS2-Namen).
+Stand: `color`, `background-color`, `background-image`, `background-repeat`, `background-position` (Keywords + Offsets + `%`), `background-size`, `background`-Shorthand, Farben (`#rgb`/`#rrggbb`/`rgb()`/`hsl()` + CSS-Color-3-Keywords inkl. `brown` u. a.), **Canvas-Hintergrund-Propagation (§14.2.1)**.
 
+- [x] **P2 · Canvas-Hintergrund (§14.2.1) umgesetzt** — Hintergrundfarbe des Wurzelelements (bzw. des `body`, wenn `html` transparent ist) wird auf den gesamten Canvas inkl. Scrollbereich propagiert. Belegt: `abspos/abspos-containing-block-initial-004e/f.xht` (PASS).
 - [ ] **P2 · `background-attachment: fixed|local` wird geparst, aber nicht gerendert** ([14.2.1 Background properties](https://www.w3.org/TR/CSS2/colors.html#background-properties)).
 
 ## 15 Schriften

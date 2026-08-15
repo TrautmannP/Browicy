@@ -52,9 +52,9 @@ public final class RenderTreeBuilder {
         documentElement = document.getDocumentElement();
         rootFontSizePx = resolveRootFontSize(documentElement);
 
-        Element rootElement = document.getBody();
+        Element rootElement = documentElement;
         if (rootElement == null) {
-            rootElement = documentElement;
+            rootElement = document.getBody();
         }
         RenderStyle initial = new RenderStyle(
                 RenderStyle.Display.BLOCK,
@@ -217,13 +217,9 @@ public final class RenderTreeBuilder {
             }
             if (style.display() == RenderStyle.Display.CONTENTS) {
                 if (style.position() == RenderStyle.Position.STATIC) {
-                    // display:contents erzeugt keine Box; Kinder nehmen direkt am Layout
-                    // des umgebenden Containers teil (Block-, Flex- oder Grid-Kontext).
                     collectChildren(element, parentStyle, output);
                     continue;
                 }
-                // Positioniertes display:contents erzeugt gemäß CSS-Transform-Regel
-                // eine Box; display wird zu block aufgelöst.
                 style = copyWithDisplay(style, RenderStyle.Display.BLOCK);
             }
             if (style.position() == RenderStyle.Position.ABSOLUTE
@@ -265,8 +261,6 @@ public final class RenderTreeBuilder {
                     || style.display() == RenderStyle.Display.INLINE_GRID) {
                 output.add(buildInlineBlock(element, style));
             } else if (containsBlockLevelDescendant(element, style)) {
-                // HTML5 erlaubt Block-Elemente in Inline-Elementen (z. B. <a><div>):
-                // gemäß CSS-Blockifizierung wird das Inline-Element dann als Block behandelt.
                 style = copyWithDisplay(style, RenderStyle.Display.BLOCK);
                 output.add(buildBox(element, style));
             } else {
@@ -296,7 +290,6 @@ public final class RenderTreeBuilder {
                                              RenderStyle parentStyle) {
         Map<String, String> declarations = new java.util.HashMap<>(
                 element.getPseudoComputedStyles("placeholder"));
-        // Browser-Default: grauer Platzhalter, falls die Seite keine Farbe setzt.
         declarations.putIfAbsent("color", "#767676");
         return resolveStyle("span", false, declarations, parentStyle);
     }
@@ -1024,7 +1017,7 @@ public final class RenderTreeBuilder {
             case "space-between" -> RenderStyle.JustifyContent.SPACE_BETWEEN;
             case "space-around" -> RenderStyle.JustifyContent.SPACE_AROUND;
             case "space-evenly" -> RenderStyle.JustifyContent.SPACE_EVENLY;
-            default -> RenderStyle.JustifyContent.FLEX_START; // start/left/Flex-Fallback
+            default -> RenderStyle.JustifyContent.FLEX_START;
         };
         alignItems = switch (declarations.getOrDefault("align-items", "stretch")) {
             case "flex-start", "start", "top" -> RenderStyle.AlignItems.FLEX_START;
@@ -1058,7 +1051,6 @@ public final class RenderTreeBuilder {
             try {
                 order = Integer.parseInt(declarations.get("order"));
             } catch (NumberFormatException ignored) {
-                // "inherit" und ähnliche Werte verhalten sich wie der Default 0.
             }
         }
         gridTemplateColumns = parseGridTracks(
@@ -1066,8 +1058,6 @@ public final class RenderTreeBuilder {
         gridTemplateRows = parseGridTracks(
                 declarations.get("grid-template-rows"), fontSize, rootFontSizePx);
         gridTemplateAreas = parseGridAreas(declarations.get("grid-template-areas"));
-        // grid-area ist eine Kurzform und wird vom Parser in die vier
-        // Langformen expandiert; hier werden nur die Langformen gelesen.
         gridColumnStart = parseGridLine(declarations.get("grid-column-start"));
         gridColumnEnd = parseGridLine(declarations.get("grid-column-end"));
         gridRowStart = parseGridLine(declarations.get("grid-row-start"));
@@ -1295,7 +1285,6 @@ public final class RenderTreeBuilder {
             boolean minPercent = isPercentToken(min);
             if (max.endsWith("fr")) {
                 try {
-                    // Negatives maxFixed kennzeichnet einen fr-Anteil.
                     tracks.add(new RenderStyle.GridTrack(RenderStyle.GridTrack.Type.MINMAX,
                             0, 0, minFixed,
                             -Float.parseFloat(max.substring(0, max.length() - 2)),
@@ -1319,7 +1308,6 @@ public final class RenderTreeBuilder {
             try {
                 count = Integer.parseInt(token.substring(7, comma).strip());
             } catch (NumberFormatException ignored) {
-                // auto-fit/auto-fill: ein Satz Tracks (Approximation).
                 count = 1;
             }
             if (count <= 0 || count > 64) {
@@ -1481,7 +1469,6 @@ public final class RenderTreeBuilder {
         try {
             return new RenderStyle.GridLine(Integer.parseInt(stripped), 0, null);
         } catch (NumberFormatException ignored) {
-            // Benannter Linien- bzw. Bereichsname (z. B. "mediaLeft").
             if (stripped.matches("[-_a-zA-Z][-_a-zA-Z0-9]*")) {
                 return new RenderStyle.GridLine(0, 0, stripped);
             }
@@ -1830,7 +1817,6 @@ public final class RenderTreeBuilder {
         }
         String normalized = value.strip().toLowerCase(Locale.ROOT);
         if (normalized.endsWith("%")) {
-            // Prozentradien werden vom Painter auf die halbe Boxkante begrenzt.
             return Float.POSITIVE_INFINITY;
         }
         return Math.max(0, resolveLength(normalized, emBase, remBase, 0));
@@ -1848,7 +1834,6 @@ public final class RenderTreeBuilder {
             ParsedLength parsed = parseLength(normalized);
             return switch (parsed.unit()) {
                 case "em" -> parsed.value() * emBase;
-                // ch hängt von der Nullglyphenbreite ab; im Renderbaum steht dafür nur em zur Verfügung.
                 case "ch" -> parsed.value() * emBase * 0.5f;
                 case "rem" -> parsed.value() * remBase;
                 case "vw" -> parsed.value() * viewportWidth / 100f;
@@ -1965,7 +1950,7 @@ public final class RenderTreeBuilder {
             return RenderLength.AUTO;
         }
         if ("unset".equals(value)) {
-            return RenderLength.AUTO; // width/height erben nicht: unset = initial = auto
+            return RenderLength.AUTO;
         }
         if ("fit-content".equals(value)) {
             return new RenderLength(0, RenderLength.Unit.MAX_CONTENT);
@@ -1996,7 +1981,6 @@ public final class RenderTreeBuilder {
             }
         }
         if (math.startsWith("calc(") && math.endsWith(")")) {
-            // %-haltige Ausdrücke bleiben als PERCENT + px-Offset erhalten.
             java.util.regex.Matcher percentCalc = java.util.regex.Pattern.compile(
                     "calc\\(\\s*([0-9]*\\.?[0-9]+)%\\s*([+-])\\s*"
                             + "([0-9]*\\.?[0-9]+)px\\s*\\)",
@@ -2035,7 +2019,6 @@ public final class RenderTreeBuilder {
             ParsedLength parsed = parseLength(value);
             return switch (parsed.unit()) {
                 case "em" -> new RenderLength(parsed.value() * emBase, RenderLength.Unit.PX);
-                // ch hängt von der Nullglyphenbreite ab; im Renderbaum steht dafür nur em zur Verfügung.
                 case "ch" -> new RenderLength(parsed.value() * emBase * 0.5f, RenderLength.Unit.PX);
                 case "rem" -> new RenderLength(parsed.value(), RenderLength.Unit.REM);
                 case "vw" -> new RenderLength(parsed.value(), RenderLength.Unit.VW);
@@ -2130,7 +2113,6 @@ public final class RenderTreeBuilder {
             if (normalized.endsWith(unit)) {
                 float number = Float.parseFloat(
                         normalized.substring(0, normalized.length() - unit.length()));
-                // dvh/svh/lvh werden wie vh gegen die Viewport-Höhe aufgelöst.
                 return new ParsedLength(number,
                         unit.equals("dvh") || unit.equals("svh") || unit.equals("lvh") ? "vh" : unit);
             }

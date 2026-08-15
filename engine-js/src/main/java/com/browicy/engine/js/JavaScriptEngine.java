@@ -34,6 +34,28 @@ public final class JavaScriptEngine {
               }
             });
             globalThis.onload = null;
+            let __browicyScrollX = 0;
+            let __browicyScrollY = 0;
+            globalThis.scrollTo = (x, y) => {
+              __browicyScrollX = Math.max(0, Number(x) || 0);
+              __browicyScrollY = Math.max(0, Number(y) || 0);
+              __browicyScroll(__browicyScrollX, __browicyScrollY);
+            };
+            globalThis.scroll = globalThis.scrollTo;
+            globalThis.scrollBy = (dx, dy) => globalThis.scrollTo(
+                __browicyScrollX + (Number(dx) || 0), __browicyScrollY + (Number(dy) || 0));
+            Object.defineProperty(globalThis, 'scrollX', {
+              configurable: true, get: () => __browicyScrollX
+            });
+            Object.defineProperty(globalThis, 'scrollY', {
+              configurable: true, get: () => __browicyScrollY
+            });
+            Object.defineProperty(globalThis, 'pageXOffset', {
+              configurable: true, get: () => __browicyScrollX
+            });
+            Object.defineProperty(globalThis, 'pageYOffset', {
+              configurable: true, get: () => __browicyScrollY
+            });
             const __browicyTimeOrigin = Date.now();
             const __browicyNavigationEntry = Object.freeze({
               entryType: 'navigation', name: String(document.URL || ''), startTime: 0,
