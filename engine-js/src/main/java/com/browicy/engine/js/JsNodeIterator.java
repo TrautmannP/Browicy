@@ -9,18 +9,19 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.List;
 
-final class JsNodeIterator extends JsTraversal implements ProxyObject {
+public final class JsNodeIterator extends JsTraversal implements ProxyObject {
     private static final List<String> MEMBERS = List.of("root", "whatToShow", "filter",
             "referenceNode", "pointerBeforeReferenceNode", "nextNode", "previousNode", "detach");
     private Node reference;
     private boolean before = true;
 
-    JsNodeIterator(JsDocument document, Node root, long whatToShow, Value filter) {
+    public JsNodeIterator(JsDocument document, Node root, long whatToShow, Value filter) {
         super(document, root, whatToShow, filter);
         this.reference = root;
     }
 
-    @Override public Object getMember(String key) {
+    @Override
+    public Object getMember(String key) {
         return switch (key) {
             case "root" -> document.wrap(root);
             case "whatToShow" -> whatToShow;
@@ -58,7 +59,18 @@ final class JsNodeIterator extends JsTraversal implements ProxyObject {
         return null;
     }
 
-    @Override public Object getMemberKeys() { return ProxyArray.fromArray(MEMBERS.toArray()); }
-    @Override public boolean hasMember(String key) { return MEMBERS.contains(key); }
-    @Override public void putMember(String key, Value value) { throw new UnsupportedOperationException(key); }
+    @Override
+    public Object getMemberKeys() {
+        return ProxyArray.fromArray(MEMBERS.toArray());
+    }
+
+    @Override
+    public boolean hasMember(String key) {
+        return MEMBERS.contains(key);
+    }
+
+    @Override
+    public void putMember(String key, Value value) {
+        throw new UnsupportedOperationException(key);
+    }
 }

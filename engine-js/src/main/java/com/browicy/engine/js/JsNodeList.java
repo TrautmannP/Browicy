@@ -9,8 +9,7 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Statischer NodeList-Snapshot, wie er von querySelectorAll geliefert wird. */
-final class JsNodeList implements ProxyObject, ProxyArray {
+public final class JsNodeList implements ProxyObject, ProxyArray {
 
     private final List<Element> elements;
     private final JsDocument document;

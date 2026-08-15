@@ -1,15 +1,16 @@
 package com.browicy.engine.js;
 
 import com.browicy.engine.dom.Element;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
-/** Live-{@code DOMStringMap} für {@code element.dataset} (data-*-Attribute). */
-final class JsDomStringMap implements ProxyObject {
+public final class JsDomStringMap implements ProxyObject {
 
     private static final String PREFIX = "data-";
 

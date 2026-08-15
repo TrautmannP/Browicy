@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
-final class JsHtmlCollection implements ProxyObject, ProxyArray {
+public final class JsHtmlCollection implements ProxyObject, ProxyArray {
     private final Supplier<List<Element>> query;
     private final JsDocument document;
 
@@ -87,9 +87,13 @@ final class JsHtmlCollection implements ProxyObject, ProxyArray {
         return getMember(key) != null;
     }
 
-    @Override public void putMember(String key, org.graalvm.polyglot.Value value) {
+    @Override
+    public void putMember(String key, org.graalvm.polyglot.Value value) {
         throw new UnsupportedOperationException("HTMLCollection ist schreibgeschützt");
     }
 
-    @Override public String toString() { return "[object HTMLCollection]"; }
+    @Override
+    public String toString() {
+        return "[object HTMLCollection]";
+    }
 }

@@ -1,51 +1,50 @@
 package com.browicy.engine.js;
 
-import com.browicy.engine.dom.Document;
-import com.browicy.engine.dom.DocumentReadyState;
+import com.browicy.engine.dom.DocumentFragment;
+import com.browicy.engine.dom.Element;
+import com.browicy.engine.js.handlers.JsAttributeHandler;
+import com.browicy.engine.js.handlers.JsEmbeddedContentHandler;
+import com.browicy.engine.js.handlers.JsEventHandler;
+import com.browicy.engine.js.handlers.JsFormHandler;
+import com.browicy.engine.js.handlers.JsGeometryHandler;
+import com.browicy.engine.js.handlers.JsInteractiveHandler;
+import com.browicy.engine.js.handlers.JsMemberHandler;
+import com.browicy.engine.js.handlers.JsMutationHandler;
+import com.browicy.engine.js.handlers.JsNodeConstants;
+import com.browicy.engine.js.handlers.JsNodeHandler;
+import com.browicy.engine.js.handlers.JsQueryHandler;
+import com.browicy.engine.js.handlers.JsTableHandler;
+import com.browicy.engine.js.handlers.JsUrlHandler;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
-
-import com.browicy.engine.dom.Element;
-import com.browicy.engine.dom.Node;
-import com.browicy.engine.html.HtmlParser;
-import com.browicy.engine.html.HtmlSerializer;
 import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
-import org.graalvm.polyglot.proxy.ProxyExecutable;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
-import java.util.List;
 import java.util.ArrayList;
-import java.util.Locale;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
-final class JsElement implements ProxyObject, JsNodeLike {
+public final class JsElement implements ProxyObject, JsNodeLike {
 
-    private static final List<String> MEMBERS = List.of(
-            "tagName", "nodeName", "nodeType", "nodeValue", "namespaceURI", "prefix", "localName",
-            "id", "className", "classList", "dataset", "name", "type", "value", "checked", "defaultChecked", "indeterminate", "selected", "defaultSelected",
-            "href",
-            "protocol", "host", "hostname", "port", "pathname", "search", "hash", "origin",
-            "src", "srcdoc", "contentDocument", "contentWindow", "content",
-            "textContent", "innerHTML", "style", "sheet", "children", "childNodes", "length", "elements", "form", "options", "selectedIndex",
-            "caption", "tHead", "tFoot", "tBodies", "rows", "cells", "rowIndex", "sectionRowIndex", "cellIndex",
-            "parentNode", "ownerDocument", "firstChild", "lastChild", "previousSibling", "nextSibling",
-            "isConnected",
-            "getAttribute", "setAttribute", "removeAttribute", "hasAttribute", "toggleAttribute", "getElementsByTagName",
-            "querySelector", "querySelectorAll", "matches", "closest",
-            "createCaption", "deleteCaption", "createTHead", "deleteTHead", "createTFoot", "deleteTFoot",
-            "insertRow", "deleteRow", "insertCell", "deleteCell", "add", "remove",
-            "append", "prepend", "appendChild", "insertBefore", "replaceChild", "removeChild", "hasChildNodes", "contains",
-            "compareDocumentPosition", "isSameNode", "isEqualNode", "cloneNode", "click", "focus", "blur", "scrollIntoView",
-            "getBoundingClientRect", "getClientRects", "offsetWidth", "offsetHeight", "offsetLeft", "offsetTop",
-            "clientWidth", "clientHeight", "play", "pause",
-            JsEventTarget.ADD_EVENT_LISTENER, JsEventTarget.REMOVE_EVENT_LISTENER, JsEventTarget.DISPATCH_EVENT,
-            "ELEMENT_NODE", "TEXT_NODE", "COMMENT_NODE", "DOCUMENT_NODE", "DOCUMENT_TYPE_NODE", "DOCUMENT_FRAGMENT_NODE",
-            "DOCUMENT_POSITION_DISCONNECTED", "DOCUMENT_POSITION_PRECEDING", "DOCUMENT_POSITION_FOLLOWING",
-            "DOCUMENT_POSITION_CONTAINS", "DOCUMENT_POSITION_CONTAINED_BY", "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC");
+    private static final List<JsMemberHandler> HANDLERS = List.of(
+            new JsFormHandler(), new JsTableHandler(), new JsUrlHandler(),
+            new JsGeometryHandler(), new JsAttributeHandler(), new JsNodeHandler(),
+            new JsQueryHandler(), new JsMutationHandler(), new JsEmbeddedContentHandler(),
+            new JsInteractiveHandler(), new JsEventHandler());
+
+    private static final List<String> MEMBERS = buildMembers();
+
+    private static List<String> buildMembers() {
+        List<String> keys = new ArrayList<>(JsNodeConstants.keys());
+        for (JsMemberHandler handler : HANDLERS) {
+            keys.addAll(handler.keys());
+        }
+        return List.copyOf(keys);
+    }
 
     private final Element element;
     private final JsDocument document;
@@ -54,643 +53,53 @@ final class JsElement implements ProxyObject, JsNodeLike {
     private JsStyleDeclaration style;
     private JsCssStyleSheet sheet;
     private final Map<String, Value> expandos = new LinkedHashMap<>();
+    private DocumentFragment contentFragment;
     private String embeddedDocumentSource;
     private JsDocument embeddedDocument;
-    private com.browicy.engine.dom.DocumentFragment contentFragment;
 
-    Element unwrap() {
+    public Element unwrap() {
         return element;
     }
 
-    @Override public Element unwrapNode() { return element; }
+    @Override
+    public Element unwrapNode() {
+        return element;
+    }
 
     @Override
     public Object getMember(String key) {
-        return switch (key) {
-            case "tagName" -> element.getNodeName();
-            case "nodeName" -> element.getNodeName();
-            case "nodeType" -> element.getNodeType();
-            case "nodeValue" -> null;
-            case "namespaceURI" -> element.getNamespaceUri();
-            case "prefix" -> element.getPrefix();
-            case "localName" -> element.getLocalName();
-            case "id" -> orEmpty(element.getAttribute("id"));
-            case "href" -> isUrlElement() ? resolvedUrl() : orEmpty(element.getAttribute("href"));
-            case "protocol" -> urlPart("protocol");
-            case "host" -> urlPart("host");
-            case "hostname" -> urlPart("hostname");
-            case "port" -> urlPart("port");
-            case "pathname" -> urlPart("pathname");
-            case "search" -> urlPart("search");
-            case "hash" -> urlPart("hash");
-            case "origin" -> urlPart("origin");
-            case "className" -> orEmpty(element.getAttribute("class"));
-            case "classList" -> classList == null
-                    ? classList = new JsDomTokenList(element.getClassList(), document) : classList;
-            case "dataset" -> dataset == null
-                    ? dataset = new JsDomStringMap(element) : dataset;
-            case "name" -> orEmpty(element.getAttribute("name"));
-            case "type" -> inputType();
-            case "value" -> value();
-            case "checked" -> element.isCheckedState();
-            case "defaultChecked" -> element.hasAttribute("checked");
-            case "indeterminate" -> element.isIndeterminate();
-            case "selected" -> element.hasAttribute("selected");
-            case "defaultSelected" -> element.hasAttribute("selected");
-            case "src" -> reflectedUrl("src");
-            case "srcdoc" -> orEmpty(element.getAttribute("srcdoc"));
-            case "contentDocument" -> embeddedDocument();
-            case "contentWindow" -> {
-                JsDocument content = embeddedDocument();
-                yield content == null ? null : content.defaultView();
-            }
-            case "content" -> templateContent();
-            case "textContent" -> element.getTextContent();
-            case "innerHTML" -> HtmlSerializer.innerHtml(element);
-            case "style" -> style == null ? style = new JsStyleDeclaration(element) : style;
-            case "sheet" -> "style".equals(tag())
-                    ? sheet == null ? sheet = document.styleSheet(element) : sheet : null;
-            case "children" -> collection(element::getChildElements);
-            case "childNodes" -> ProxyArray.fromList(element.getChildren().stream()
-                    .map(document::wrap).collect(Collectors.toList()));
-            case "elements" -> collection(this::formControls);
-            case "length" -> "form".equals(tag()) ? formControls().size()
-                    : "select".equals(tag()) ? options().size() : 0;
-            case "form" -> document.wrap(formOwner());
-            case "options" -> collection(this::options);
-            case "selectedIndex" -> selectedIndex();
-            case "caption" -> document.wrap(direct("caption"));
-            case "tHead" -> document.wrap(direct("thead"));
-            case "tFoot" -> document.wrap(direct("tfoot"));
-            case "tBodies" -> collection(() -> directAll("tbody"));
-            case "rows" -> collection(this::rows);
-            case "cells" -> collection(this::cells);
-            case "rowIndex" -> rowIndex(false);
-            case "sectionRowIndex" -> rowIndex(true);
-            case "cellIndex" -> cellIndex();
-            case "parentNode" -> document.wrap(element.getParent());
-            case "ownerDocument" -> document.wrapOwnerDocument(element);
-            case "isConnected" -> isConnected(element);
-            case "firstChild" -> childAt(0);
-            case "lastChild" -> childAt(element.getChildren().size() - 1);
-            case "previousSibling" -> sibling(-1);
-            case "nextSibling" -> sibling(1);
-            case "getAttribute" -> (ProxyExecutable) args -> element.getAttribute(asString(args, 0));
-            case "setAttribute" -> (ProxyExecutable) args -> {
-                element.setAttribute(asString(args, 0), asString(args, 1));
-                return null;
-            };
-            case "removeAttribute" -> (ProxyExecutable) args -> {
-                element.removeAttribute(asString(args, 0));
-                return null;
-            };
-            case "hasAttribute" -> (ProxyExecutable) args -> element.hasAttribute(asString(args, 0));
-            case "toggleAttribute" -> (ProxyExecutable) args -> {
-                String attribute = asString(args, 0);
-                boolean force = args.length > 1 && !args[1].isNull() && args[1].asBoolean();
-                boolean present = element.hasAttribute(attribute);
-                boolean enabled = args.length > 1 && !args[1].isNull() ? force : !present;
-                if (enabled && !present) {
-                    element.setAttribute(attribute, "");
-                } else if (!enabled && present) {
-                    element.removeAttribute(attribute);
-                }
-                return enabled;
-            };
-            case "getElementsByTagName" -> (ProxyExecutable) args ->
-                    collection(() -> element.getElementsByTagName(asString(args, 0)));
-            case "querySelector" -> document.domOperation((ProxyExecutable) args ->
-                    document.wrap(element.querySelector(asString(args, 0))));
-            case "querySelectorAll" -> document.domOperation((ProxyExecutable) args ->
-                    new JsNodeList(element.querySelectorAll(asString(args, 0)), document));
-            case "matches" -> document.domOperation((ProxyExecutable) args ->
-                    matchesSelector(element, asString(args, 0)));
-            case "closest" -> document.domOperation((ProxyExecutable) args -> {
-                String selector = asString(args, 0);
-                for (Node candidate = element; candidate instanceof Element ancestor;
-                     candidate = candidate.getParent()) {
-                    if (matchesSelector(ancestor, selector)) return document.wrap(ancestor);
-                }
-                return null;
-            });
-            case "createCaption" -> (ProxyExecutable) args -> document.wrap(createTablePart("caption", 0));
-            case "deleteCaption" -> removeTablePart("caption");
-            case "createTHead" -> (ProxyExecutable) args -> document.wrap(createTablePart("thead", afterCaption()));
-            case "deleteTHead" -> removeTablePart("thead");
-            case "createTFoot" -> (ProxyExecutable) args -> document.wrap(createTablePart("tfoot", element.getChildren().size()));
-            case "deleteTFoot" -> removeTablePart("tfoot");
-            case "insertRow" -> (ProxyExecutable) args -> document.wrap(insertRow(indexArg(args, 0, -1)));
-            case "deleteRow" -> (ProxyExecutable) args -> { deleteFrom(rows(), indexArg(args, 0, -2)); return null; };
-            case "insertCell" -> (ProxyExecutable) args -> document.wrap(insertCell(indexArg(args, 0, -1)));
-            case "deleteCell" -> (ProxyExecutable) args -> { deleteFrom(cells(), indexArg(args, 0, -2)); return null; };
-            case "add" -> (ProxyExecutable) args -> { addOption(args); return null; };
-            case "remove" -> (ProxyExecutable) args -> {
-                // ChildNode.remove(): entfernt das Element selbst; mit Argument
-                // HTMLSelectElement.remove(index): entfernt eine Option.
-                if (args.length == 0 && element.getParent() != null) {
-                    element.getParent().removeChild(element);
-                } else {
-                    removeOption(args);
-                }
-                return null;
-            };
-            case "append" -> (ProxyExecutable) args -> {
-                for (Value value : args) {
-                    if (value.isProxyObject() && value.asProxyObject() instanceof JsNodeLike node) {
-                        element.appendChild(node.unwrapNode());
-                    } else {
-                        element.appendChild(element.getOwnerDocument().createTextNode(toText(value)));
-                    }
-                }
-                styleContentMaybeChanged();
-                return null;
-            };
-            case "prepend" -> (ProxyExecutable) args -> {
-                for (int index = args.length - 1; index >= 0; index--) {
-                    Value value = args[index];
-                    if (value.isProxyObject() && value.asProxyObject() instanceof JsNodeLike node) {
-                        element.insertBefore(node.unwrapNode(), element.getFirstChild());
-                    } else {
-                        element.insertBefore(element.getOwnerDocument()
-                                .createTextNode(toText(value)), element.getFirstChild());
-                    }
-                }
-                styleContentMaybeChanged();
-                return null;
-            };
-            case "appendChild" -> (ProxyExecutable) args -> {
-                JsNodeLike child = expectNode(args, 0, false);
-                element.appendChild(child.unwrapNode());
-                styleContentMaybeChanged();
-                return child;
-            };
-            case "insertBefore" -> (ProxyExecutable) args -> {
-                JsNodeLike child = expectNode(args, 0, false);
-                JsNodeLike reference = expectNode(args, 1, true);
-                element.insertBefore(child.unwrapNode(), reference == null ? null : reference.unwrapNode());
-                styleContentMaybeChanged();
-                return child;
-            };
-            case "replaceChild" -> (ProxyExecutable) args -> {
-                JsNodeLike replacement = expectNode(args, 0, false);
-                JsNodeLike oldChild = expectNode(args, 1, false);
-                element.replaceChild(replacement.unwrapNode(), oldChild.unwrapNode());
-                styleContentMaybeChanged();
-                return oldChild;
-            };
-            case "removeChild" -> (ProxyExecutable) args -> {
-                JsNodeLike child = expectNode(args, 0, false);
-                element.removeChild(child.unwrapNode());
-                styleContentMaybeChanged();
-                return child;
-            };
-            case "hasChildNodes" -> (ProxyExecutable) args -> element.hasChildNodes();
-            case "contains" -> (ProxyExecutable) args -> {
-                JsNodeLike other = expectNode(args, 0, true);
-                return other != null && element.contains(other.unwrapNode());
-            };
-            case "compareDocumentPosition" -> (ProxyExecutable) args ->
-                    element.compareDocumentPosition(expectNode(args, 0, false).unwrapNode());
-            case "isSameNode" -> (ProxyExecutable) args -> {
-                JsNodeLike other = expectNode(args, 0, true);
-                return other != null && element.isSameNode(other.unwrapNode());
-            };
-            case "isEqualNode" -> (ProxyExecutable) args -> {
-                JsNodeLike other = expectNode(args, 0, true);
-                return other != null && element.isEqualNode(other.unwrapNode());
-            };
-            case "cloneNode" -> (ProxyExecutable) args -> document.wrap(element.cloneNode(
-                    args.length > 0 && args[0].asBoolean()));
-            case "click" -> JsEventTarget.click(element);
-            case "focus" -> (ProxyExecutable) args -> {
-                if (element.getOwnerDocument() != null) element.getOwnerDocument().setFocusedElement(element);
-                return null;
-            };
-            case "blur" -> (ProxyExecutable) args -> {
-                if (element.isFocused()) element.getOwnerDocument().setFocusedElement(null);
-                return null;
-            };
-            case "scrollIntoView" -> (ProxyExecutable) args -> null;
-            case "getBoundingClientRect" -> (ProxyExecutable) args -> boundingClientRect();
-            case "getClientRects" -> (ProxyExecutable) args -> {
-                LayoutElementMetrics metrics = layoutMetrics();
-                if (!metrics.rendered()) {
-                    return ProxyArray.fromArray();
-                }
-                org.graalvm.polyglot.proxy.ProxyObject rect = ProxyObject.fromMap(
-                        Map.of("x", (double) metrics.left(), "y", (double) metrics.top(),
-                                "width", (double) metrics.width(), "height", (double) metrics.height(),
-                                "top", (double) metrics.top(), "right", (double) metrics.right(),
-                                "bottom", (double) metrics.bottom(), "left", (double) metrics.left()));
-                return ProxyArray.fromArray(rect);
-            };
-            case "offsetWidth" -> (double) layoutMetrics().width();
-            case "offsetHeight" -> (double) layoutMetrics().height();
-            case "clientWidth" -> (double) layoutMetrics().clientWidth();
-            case "clientHeight" -> (double) layoutMetrics().clientHeight();
-            case "offsetLeft" -> (double) offsetLeft();
-            case "offsetTop" -> (double) offsetTop();
-            case "play", "pause", "load" -> (ProxyExecutable) args -> null;
-            case JsEventTarget.ADD_EVENT_LISTENER -> JsEventTarget.addEventListener(element, document);
-            case JsEventTarget.REMOVE_EVENT_LISTENER -> JsEventTarget.removeEventListener(element, document);
-            case JsEventTarget.DISPATCH_EVENT -> JsEventTarget.dispatchEvent(element);
-            case "ELEMENT_NODE" -> com.browicy.engine.dom.Node.ELEMENT_NODE;
-            case "TEXT_NODE" -> com.browicy.engine.dom.Node.TEXT_NODE;
-            case "COMMENT_NODE" -> com.browicy.engine.dom.Node.COMMENT_NODE;
-            case "DOCUMENT_NODE" -> com.browicy.engine.dom.Node.DOCUMENT_NODE;
-            case "DOCUMENT_TYPE_NODE" -> com.browicy.engine.dom.Node.DOCUMENT_TYPE_NODE;
-            case "DOCUMENT_FRAGMENT_NODE" -> com.browicy.engine.dom.Node.DOCUMENT_FRAGMENT_NODE;
-            case "DOCUMENT_POSITION_DISCONNECTED" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_DISCONNECTED;
-            case "DOCUMENT_POSITION_PRECEDING" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_PRECEDING;
-            case "DOCUMENT_POSITION_FOLLOWING" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_FOLLOWING;
-            case "DOCUMENT_POSITION_CONTAINS" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_CONTAINS;
-            case "DOCUMENT_POSITION_CONTAINED_BY" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_CONTAINED_BY;
-            case "DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC" -> com.browicy.engine.dom.Node.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC;
-            default -> expandos.get(key);
-        };
-    }
-
-    private static boolean matchesSelector(Element candidate, String selector) {
-        Document owner = candidate.getOwnerDocument();
-        return owner != null && owner.querySelectorAll(selector).contains(candidate);
-    }
-
-    private LayoutElementMetrics layoutMetrics() {
-        return document.layoutMetrics().metricsFor(element);
-    }
-
-    private Object boundingClientRect() {
-        LayoutElementMetrics metrics = layoutMetrics();
-        if (!metrics.rendered()) {
-            return ProxyObject.fromMap(rectMap(0, 0, 0, 0));
+        Integer constant = JsNodeConstants.valueOf(key);
+        if (constant != null) {
+            return constant;
         }
-        return ProxyObject.fromMap(rectMap(metrics.left(), metrics.top(),
-                metrics.width(), metrics.height()));
-    }
-
-    private static Map<String, Object> rectMap(double x, double y, double width, double height) {
-        Map<String, Object> rect = new LinkedHashMap<>();
-        rect.put("x", x);
-        rect.put("y", y);
-        rect.put("width", width);
-        rect.put("height", height);
-        rect.put("top", y);
-        rect.put("right", x + width);
-        rect.put("bottom", y + height);
-        rect.put("left", x);
-        rect.put("toJSON", (org.graalvm.polyglot.proxy.ProxyExecutable) inner -> {
-            Map<String, Object> json = new LinkedHashMap<>();
-            json.put("x", x);
-            json.put("y", y);
-            json.put("width", width);
-            json.put("height", height);
-            json.put("top", y);
-            json.put("right", x + width);
-            json.put("bottom", y + height);
-            json.put("left", x);
-            return json;
-        });
-        return rect;
-    }
-
-    /** Abstand der äußeren Border-Kante zur Padding-Kante (innerer Rand) des offsetParent. */
-    private float offsetLeft() {
-        LayoutElementMetrics own = layoutMetrics();
-        if (!own.rendered()) {
-            return 0;
-        }
-        Element parent = offsetParentElement();
-        if (parent == null) {
-            return 0;
-        }
-        LayoutElementMetrics parentMetrics = document.layoutMetrics().metricsFor(parent);
-        return own.left() - (parentMetrics.left() + parentMetrics.borderLeft());
-    }
-
-    private float offsetTop() {
-        LayoutElementMetrics own = layoutMetrics();
-        if (!own.rendered()) {
-            return 0;
-        }
-        Element parent = offsetParentElement();
-        if (parent == null) {
-            return 0;
-        }
-        LayoutElementMetrics parentMetrics = document.layoutMetrics().metricsFor(parent);
-        return own.top() - (parentMetrics.top() + parentMetrics.borderTop());
-    }
-
-    /**
-     * Nächster positionierter Vorfahre (CSSOM {@code offsetParent}); {@code null}
-     * für fixed-Elemente, {@code body}/{@code html} und ohne positionierten Vorfahren.
-     */
-    private Element offsetParentElement() {
-        if ("fixed".equals(position())) {
-            return null;
-        }
-        String tag = tag();
-        if ("body".equals(tag) || "html".equals(tag)) {
-            return null;
-        }
-        for (com.browicy.engine.dom.Node node = element.getParent(); node != null;
-             node = node.getParent()) {
-            if (node instanceof Element ancestor && !"static".equals(positionOf(ancestor))) {
-                return ancestor;
+        for (JsMemberHandler handler : HANDLERS) {
+            if (handler.canHandle(key)) {
+                return handler.get(key, this, document);
             }
         }
-        Document owner = element.getOwnerDocument();
-        return owner == null ? null : owner.getBody();
-    }
-
-    private String position() {
-        return positionOf(element);
-    }
-
-    private static String positionOf(Element candidate) {
-        return candidate.getComputedStyles().getOrDefault("position", "static");
+        return expandos.get(key);
     }
 
     @Override
     public void putMember(String key, Value value) {
-        switch (key) {
-            case "textContent" -> {
-                element.setTextContent(toText(value));
-                if ("style".equals(tag())) {
-                    document.styleSheetContentChanged(element);
+        for (JsMemberHandler handler : HANDLERS) {
+            if (handler.canHandle(key)) {
+                if (handler.set(key, value, this, document)) {
+                    return;
                 }
-            }
-            case "innerHTML" -> {
-                setInnerHtml(toText(value));
-                if ("style".equals(tag())) {
-                    document.styleSheetContentChanged(element);
-                }
-            }
-            case "style" -> {
-                if (style == null) style = new JsStyleDeclaration(element);
-                style.setCssText(toText(value));
-            }
-            case "id" -> element.setAttribute("id", toText(value));
-            case "className" -> element.setAttribute("class", toText(value));
-            case "name" -> element.setAttribute("name", toText(value));
-            case "type" -> element.setAttribute("type", toText(value).toLowerCase(Locale.ROOT));
-            case "value" -> element.setValueState(toText(value));
-            case "checked" -> setChecked(value.asBoolean());
-            case "defaultChecked" -> booleanAttribute("checked", value.asBoolean());
-            case "indeterminate" -> element.setIndeterminate(value.asBoolean());
-            case "selected", "defaultSelected" -> booleanAttribute("selected", value.asBoolean());
-            case "selectedIndex" -> setSelectedIndex(value.asInt());
-            case "href" -> element.setAttribute("href", toText(value));
-            case "src", "srcdoc" -> element.setAttribute(key, toText(value));
-            default -> {
-                Value previous = expandos.put(key, value);
-                if (key.length() > 2 && key.startsWith("on")) {
-                    String eventType = key.substring(2).toLowerCase(Locale.ROOT);
-                    if (previous != null && previous.canExecute()) {
-                        document.removeEventListener(element, eventType, previous, false);
-                    }
-                    if (!value.isNull() && value.canExecute()) {
-                        document.addEventListener(element, eventType, value, false);
-                    }
-                }
+                break;
             }
         }
-    }
-
-    private static boolean isConnected(com.browicy.engine.dom.Node node) {
-        for (com.browicy.engine.dom.Node current = node; current != null;
-             current = current.getParent()) {
-            if (current instanceof Document) {
-                return true;
+        Value previous = expandos.put(key, value);
+        if (key.length() > 2 && key.startsWith("on")) {
+            String eventType = key.substring(2).toLowerCase(Locale.ROOT);
+            if (previous != null && previous.canExecute()) {
+                document.removeEventListener(element, eventType, previous, false);
+            }
+            if (!value.isNull() && value.canExecute()) {
+                document.addEventListener(element, eventType, value, false);
             }
         }
-        return false;
-    }
-
-    private Object templateContent() {
-        if (!"template".equals(tag())) {
-            return null;
-        }
-        if (contentFragment == null) {
-            com.browicy.engine.dom.DocumentFragment fragment =
-                    element.getOwnerDocument().createDocumentFragment();
-            // Template-Kinder leben im .content-Fragment (wie im echten DOM).
-            for (com.browicy.engine.dom.Node child : List.copyOf(element.getChildren())) {
-                fragment.appendChild(child);
-            }
-            contentFragment = fragment;
-        }
-        return document.wrap(contentFragment);
-    }
-
-    private JsDocument embeddedDocument() {
-        if (!"iframe".equals(tag())) return null;
-        String srcdoc = element.getAttribute("srcdoc");
-        String source = srcdoc == null ? "src:" + orEmpty(element.getAttribute("src"))
-                : "srcdoc:" + srcdoc;
-        if (embeddedDocument != null && source.equals(embeddedDocumentSource)) {
-            return embeddedDocument;
-        }
-        Document content = srcdoc == null
-                ? new HtmlParser().parse("<!doctype html><html><head></head><body></body></html>",
-                        "about:blank")
-                : new HtmlParser().parse(
-                        "<!doctype html><html><head></head><body>" + srcdoc + "</body></html>",
-                        "about:srcdoc");
-        content.transitionTo(DocumentReadyState.COMPLETE);
-        embeddedDocumentSource = source;
-        embeddedDocument = document.wrapDocument(content);
-        return embeddedDocument;
-    }
-
-    private String reflectedUrl(String attribute) {
-        String value = element.getAttribute(attribute);
-        if (value == null || value.isBlank()) return "";
-        try {
-            return element.getOwnerDocument().getBaseUri().resolve(value.strip()).toString();
-        } catch (IllegalArgumentException invalid) {
-            return value;
-        }
-    }
-
-    private boolean isUrlElement() {
-        String name = tag();
-        return "a".equals(name) || "area".equals(name);
-    }
-
-    /** Nach Kinder-Mutationen: CSS von {@code <style>}-Elementen neu registrieren. */
-    private void styleContentMaybeChanged() {
-        if ("style".equals(tag())) {
-            document.styleSheetContentChanged(element);
-        }
-    }
-
-    /** Aufgelöste absolute URL eines Anker-/Area-Elements (wie im Browser). */
-    private String resolvedUrl() {
-        return reflectedUrl("href");
-    }
-
-    /** URL-Komponente eines Anker-Elements; leer ohne href/bei anderen Elementen. */
-    private Object urlPart(String part) {
-        if (!isUrlElement()) {
-            return "";
-        }
-        String href = resolvedUrl();
-        if (href.isEmpty()) {
-            return "";
-        }
-        return GraalPageRuntime.locationParts(href).get(part);
-    }
-
-    private void setInnerHtml(String html) {
-        element.clearChildren();
-        Document fragment = new HtmlParser().parse(
-                "<body>" + html + "</body>", element.getOwnerDocument().getUrl());
-        Element body = fragment.getBody();
-        if (body == null) return;
-        for (Node child : List.copyOf(body.getChildren())) {
-            element.appendChild(child);
-        }
-    }
-
-    private String tag() { return element.getTagName().toLowerCase(Locale.ROOT); }
-    private JsHtmlCollection collection(java.util.function.Supplier<List<Element>> query) {
-        return new JsHtmlCollection(query, document);
-    }
-    private String inputType() {
-        String type = element.getAttribute("type");
-        if (type == null || type.isEmpty()) return "button".equals(tag()) ? "submit" : "input".equals(tag()) ? "text" : "";
-        return type.toLowerCase(Locale.ROOT);
-    }
-    private String value() {
-        String value = element.getValueState();
-        return value == null ? ("option".equals(tag()) ? element.getTextContent() : "") : value;
-    }
-    private void setChecked(boolean checked) {
-        element.setCheckedState(checked);
-        if (!checked || !"radio".equals(inputType())) return;
-        Element form = formOwner();
-        String name = element.getAttribute("name");
-        if (name == null || name.isEmpty()) return;
-        com.browicy.engine.dom.Node root = form == null ? element.getOwnerDocument() : form;
-        if (root == null) return;
-        for (Element candidate : descendants(root)) {
-            if (candidate != element && "input".equals(candidate.getTagName())
-                    && "radio".equalsIgnoreCase(orEmpty(candidate.getAttribute("type")))
-                    && name.equals(candidate.getAttribute("name"))
-                    && sameFormOwner(candidate, form)) {
-                candidate.setCheckedState(false);
-            }
-        }
-    }
-    private static List<Element> descendants(com.browicy.engine.dom.Node root) {
-        List<Element> result = new ArrayList<>();
-        collectDescendants(root, result);
-        return result;
-    }
-    private static void collectDescendants(com.browicy.engine.dom.Node root, List<Element> result) {
-        for (com.browicy.engine.dom.Node child : root.getChildren()) if (child instanceof Element e) {
-            result.add(e); collectDescendants(e, result);
-        }
-    }
-    private static boolean sameFormOwner(Element candidate, Element expected) {
-        for (com.browicy.engine.dom.Node node = candidate.getParent(); node != null; node = node.getParent()) {
-            if (node instanceof Element e && "form".equals(e.getTagName())) return e == expected;
-        }
-        return expected == null;
-    }
-    private void booleanAttribute(String name, boolean enabled) {
-        if (enabled) element.setAttribute(name, name); else element.removeAttribute(name);
-    }
-    private List<Element> formControls() {
-        if (!"form".equals(tag())) return List.of();
-        return element.getElementsByTagName("*").stream().filter(e ->
-                List.of("button", "fieldset", "input", "object", "output", "select", "textarea").contains(e.getTagName())).toList();
-    }
-    private Element formOwner() {
-        for (com.browicy.engine.dom.Node node = element.getParent(); node != null; node = node.getParent())
-            if (node instanceof Element e && "form".equals(e.getTagName())) return e;
-        return null;
-    }
-    private List<Element> options() { return element.getElementsByTagName("option"); }
-    private int selectedIndex() {
-        List<Element> options = options();
-        for (int i = 0; i < options.size(); i++) if (options.get(i).hasAttribute("selected")) return i;
-        return options.isEmpty() ? -1 : 0;
-    }
-    private void setSelectedIndex(int selected) {
-        List<Element> options = options();
-        for (int i = 0; i < options.size(); i++) {
-            if (i == selected) options.get(i).setAttribute("selected", "selected"); else options.get(i).removeAttribute("selected");
-        }
-    }
-    private Element direct(String wanted) { return directAll(wanted).stream().findFirst().orElse(null); }
-    private List<Element> directAll(String wanted) {
-        return element.getChildElements().stream().filter(e -> wanted.equals(e.getTagName())).toList();
-    }
-    private List<Element> rows() {
-        if ("tr".equals(tag())) return List.of();
-        if (!"table".equals(tag())) return directAll("tr");
-        List<Element> rows = new ArrayList<>();
-        for (Element child : element.getChildElements()) {
-            if ("tr".equals(child.getTagName())) rows.add(child);
-            else if (List.of("thead", "tbody", "tfoot").contains(child.getTagName())) rows.addAll(child.getChildElements().stream().filter(e -> "tr".equals(e.getTagName())).toList());
-        }
-        return rows;
-    }
-    private List<Element> cells() { return directAll("td").isEmpty() ? directAll("th") : element.getChildElements().stream().filter(e -> "td".equals(e.getTagName()) || "th".equals(e.getTagName())).toList(); }
-    private Element createTablePart(String name, int index) {
-        Element existing = direct(name); if (existing != null) return existing;
-        Element created = new Element(name);
-        com.browicy.engine.dom.Node ref = index < element.getChildren().size() ? element.getChildren().get(index) : null;
-        element.insertBefore(created, ref); return created;
-    }
-    private int afterCaption() { return direct("caption") == null ? 0 : element.getChildren().indexOf(direct("caption")) + 1; }
-    private ProxyExecutable removeTablePart(String name) { return args -> { Element part = direct(name); if (part != null) element.removeChild(part); return null; }; }
-    private Element insertRow(int index) {
-        List<Element> rows = rows(); if (index < -1 || index > rows.size()) throw new IndexOutOfBoundsException();
-        Element row = new Element("tr");
-        if (index >= 0 && index < rows.size()) rows.get(index).getParent().insertBefore(row, rows.get(index));
-        else if ("table".equals(tag())) { Element body = direct("tbody"); (body == null ? element : body).appendChild(row); }
-        else element.appendChild(row);
-        return row;
-    }
-    private Element insertCell(int index) {
-        List<Element> cells = cells(); if (index < -1 || index > cells.size()) throw new IndexOutOfBoundsException();
-        Element cell = new Element("td"); element.insertBefore(cell, index >= 0 && index < cells.size() ? cells.get(index) : null); return cell;
-    }
-    private void deleteFrom(List<Element> values, int index) {
-        if (index == -1) index = values.size() - 1;
-        if (index < 0 || index >= values.size()) throw new IndexOutOfBoundsException();
-        values.get(index).getParent().removeChild(values.get(index));
-    }
-    private int rowIndex(boolean section) {
-        if (!"tr".equals(tag())) return -1;
-        Element parent = element.getParent() instanceof Element e ? e : null;
-        if (parent == null) return -1;
-        if (section) return parent.getChildElements().stream().filter(e -> "tr".equals(e.getTagName())).toList().indexOf(element);
-        for (com.browicy.engine.dom.Node n = parent; n != null; n = n.getParent()) if (n instanceof Element e && "table".equals(e.getTagName())) return new JsElement(e, document).rows().indexOf(element);
-        return -1;
-    }
-    private int cellIndex() { return element.getParent() instanceof Element e ? e.getChildElements().stream().filter(c -> "td".equals(c.getTagName()) || "th".equals(c.getTagName())).toList().indexOf(element) : -1; }
-    private void addOption(Value[] args) {
-        JsNodeLike option = expectNode(args, 0, false); JsNodeLike before = args.length < 2 || args[1].isNull() ? null : expectNode(args, 1, true);
-        element.insertBefore(option.unwrapNode(), before == null ? null : before.unwrapNode());
-    }
-    private void removeOption(Value[] args) { int index = indexArg(args, 0, -2); List<Element> values = options(); if (index >= 0 && index < values.size()) values.get(index).getParent().removeChild(values.get(index)); }
-    private static int indexArg(Value[] args, int index, int defaultValue) { return index >= args.length ? defaultValue : args[index].asInt(); }
-
-    private Object childAt(int index) {
-        return index >= 0 && index < element.getChildren().size()
-                ? document.wrap(element.getChildren().get(index)) : null;
-    }
-
-    private Object sibling(int offset) {
-        if (element.getParent() == null) {
-            return null;
-        }
-        List<com.browicy.engine.dom.Node> siblings = element.getParent().getChildren();
-        int index = siblings.indexOf(element) + offset;
-        return index >= 0 && index < siblings.size() ? document.wrap(siblings.get(index)) : null;
     }
 
     @Override
@@ -705,28 +114,55 @@ final class JsElement implements ProxyObject, JsNodeLike {
         return MEMBERS.contains(key) || expandos.containsKey(key);
     }
 
-    private static String asString(Value[] args, int index) {
-        if (index >= args.length) {
-            throw new IllegalArgumentException("Argument " + index + " fehlt");
+    public JsDomTokenList classList() {
+        return classList == null
+                ? classList = new JsDomTokenList(element.getClassList(), document) : classList;
+    }
+
+    public JsDomStringMap dataset() {
+        return dataset == null ? dataset = new JsDomStringMap(element) : dataset;
+    }
+
+    public JsStyleDeclaration style() {
+        return style == null ? style = new JsStyleDeclaration(element) : style;
+    }
+
+    public JsCssStyleSheet sheet() {
+        return sheet == null ? sheet = document.styleSheet(element) : sheet;
+    }
+
+    public void styleContentMaybeChanged() {
+        if ("style".equals(element.getTagName().toLowerCase(Locale.ROOT))) {
+            document.styleSheetContentChanged(element);
         }
-        return toText(args[index]);
     }
 
-    static JsNodeLike expectNode(Value[] args, int index, boolean nullable) {
-        if (index < args.length && args[index].isNull() && nullable) return null;
-        if (index < args.length && args[index].isProxyObject()
-                && args[index].asProxyObject() instanceof JsNodeLike node) {
-            return node;
-        }
-        throw new IllegalArgumentException("Es wird ein DOM-Knoten erwartet");
+    public DocumentFragment contentFragment() {
+        return contentFragment;
     }
 
-    private static String toText(Value value) {
-        return value.isString() ? value.asString() : value.toString();
+    public void setContentFragment(DocumentFragment fragment) {
+        contentFragment = fragment;
     }
 
-    private static String orEmpty(String value) {
-        return value == null ? "" : value;
+    public JsDocument embeddedDocument() {
+        return embeddedDocument;
+    }
+
+    public String embeddedDocumentSource() {
+        return embeddedDocumentSource;
+    }
+
+    public void setEmbeddedDocument(JsDocument document) {
+        embeddedDocument = document;
+    }
+
+    public void setEmbeddedDocumentSource(String source) {
+        embeddedDocumentSource = source;
+    }
+
+    public static JsNodeLike expectNode(Value[] args, int index, boolean nullable) {
+        return JsMemberHandler.expectNode(args, index, nullable);
     }
 
     @Override

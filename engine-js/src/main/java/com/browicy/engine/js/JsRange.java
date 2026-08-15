@@ -13,8 +13,8 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.List;
 
-@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
-final class JsRange implements ProxyObject {
+@RequiredArgsConstructor(access = AccessLevel.PUBLIC)
+public final class JsRange implements ProxyObject {
 
     private static final List<String> MEMBERS = List.of(
             "startContainer", "startOffset", "endContainer", "endOffset",

@@ -10,8 +10,7 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 import java.util.ArrayList;
 import java.util.List;
 
-/** JavaScript-Adapter für eine live mit einem Element synchronisierte DOMTokenList. */
-final class JsDomTokenList implements ProxyObject {
+public final class JsDomTokenList implements ProxyObject {
 
     private static final List<String> MEMBERS = List.of(
             "length", "value", "item", "contains", "add", "remove", "toggle");

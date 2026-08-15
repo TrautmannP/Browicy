@@ -182,3 +182,34 @@ Verifikation: `mvn verify` grün; neue Regressionstests in `GridConformanceTest`
 `BrowicyEngineTest` (data:-URI-Loads) und `DocumentResourceScannerTest`. End-to-End:
 lokale Fixture mit dem Sparkasse-Hero-Muster (Grid + contents + Scrim + data:-SVG)
 rendert korrekt über den Inspector.
+
+## AP-G1: Modulare JS-Proxy-Architektur & Handler-Aufteilung (2026-08-15)
+
+Refactoring der monolithischen `switch(key)`-Blöcke in `JsElement`/`JsDocument`
+zugunsten einer delegierenden Handler-Pipeline (Grundlage für alle weiteren
+JS-Erweiterungen, z. B. Storage, DOMParser, Mutation-APIs):
+
+- Neues Package `com.browicy.engine.js.handlers` mit dem zentralen
+  `JsMemberHandler`-Interface (`canHandle`/`get`/`set` + `keys()`-Vertrag,
+  gemeinsame Static-Helper wie `expectNode`, `toText`, `tag`).
+- Spezialisierte Handler: `JsFormHandler` (value, checked, disabled, form,
+  elements, selectedIndex, options, add/remove), `JsTableHandler` (rows, cells,
+  caption, tHead/tFoot, insertRow/deleteCell, createCaption…), `JsUrlHandler`
+  (href, protocol, host, hostname, port, pathname, search, hash, origin, src),
+  `JsGeometryHandler` (getBoundingClientRect, getClientRects, offset*/client*).
+- Weitere Element-Handler für Attribute/Inhalte (`JsAttributeHandler`),
+  Node-Identität & Traversierung (`JsNodeHandler`), Selektoren
+  (`JsQueryHandler`), Kind-Mutationen (`JsMutationHandler`), eingebettete Inhalte
+  (`JsEmbeddedContentHandler`), Interaktion/Medien (`JsInteractiveHandler`) und
+  Event-API (`JsEventHandler`).
+- Document-Pipeline: `JsDocumentTraversalHandler` + `JsDocumentCreationHandler`
+  (createElement, createRange, createNodeIterator, write, …).
+- `JsElement` ist jetzt ein kompakter Dispatcher (133 Zeilen statt 736):
+  geordnete Handler-Liste → Node-Konstanten → Expando-Fallback; `hasMember`/
+  `getMemberKeys` leiten sich aus den `keys()`-Mengen der Handler ab.
+- Ergänzt: `disabled`-Reflexion als neues Formular-Member; Node-Konstanten
+  zentral in `JsNodeConstants` (statt dupliziert in beiden Proxies).
+
+Verifikation: `mvn test` grün über alle 13 Module (engine-js: 139 Tests, davon
+67 in `JavaScriptEngineTest` inkl. Vue-3-Mount unverändert grün — keine
+Regression bei DOM-Zugriffen oder Expando-Eigenschaften).

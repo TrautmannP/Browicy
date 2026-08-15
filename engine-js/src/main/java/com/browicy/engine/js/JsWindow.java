@@ -7,8 +7,7 @@ import org.graalvm.polyglot.proxy.ProxyObject;
 
 import java.util.List;
 
-/** A same-origin window facade for an embedded document browsing context. */
-final class JsWindow implements ProxyObject {
+public final class JsWindow implements ProxyObject {
 
     private static final List<String> MEMBERS = List.of(
             "document", "window", "self", "getComputedStyle", "Promise");
@@ -37,8 +36,22 @@ final class JsWindow implements ProxyObject {
         };
     }
 
-    @Override public Object getMemberKeys() { return ProxyArray.fromArray(MEMBERS.toArray()); }
-    @Override public boolean hasMember(String key) { return MEMBERS.contains(key); }
-    @Override public void putMember(String key, org.graalvm.polyglot.Value value) { }
-    @Override public String toString() { return "[object Window]"; }
+    @Override
+    public Object getMemberKeys() {
+        return ProxyArray.fromArray(MEMBERS.toArray());
+    }
+
+    @Override
+    public boolean hasMember(String key) {
+        return MEMBERS.contains(key);
+    }
+
+    @Override
+    public void putMember(String key, org.graalvm.polyglot.Value value) {
+    }
+
+    @Override
+    public String toString() {
+        return "[object Window]";
+    }
 }
